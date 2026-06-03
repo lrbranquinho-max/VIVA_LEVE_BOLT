@@ -154,18 +154,22 @@ export default function MeusPedidos() {
   }, []);
 
   useEffect(() => {
+    let ativo = true;
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
     async function init() {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!ativo) return;
       if (!user) {
         router.push('/login');
         return;
       }
 
       await carregarPedidos(user.id);
+      if (!ativo) return;
+
       channel = supabase
-        .channel(`cliente-pedidos-${user.id}`)
+        .channel(`cliente-pedidos-${user.id}-${Date.now()}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'pedidos', filter: `cliente_id=eq.${user.id}` },
@@ -178,6 +182,7 @@ export default function MeusPedidos() {
     init();
 
     return () => {
+      ativo = false;
       if (channel) supabase.removeChannel(channel);
     };
   }, [router, carregarPedidos]);

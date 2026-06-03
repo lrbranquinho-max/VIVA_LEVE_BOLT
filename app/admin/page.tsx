@@ -376,12 +376,16 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (loading) return;
+    let ativo = true;
     const channel = supabase
-      .channel('admin-pedidos-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => carregarPedidos())
+      .channel(`admin-pedidos-realtime-${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => {
+        if (ativo) carregarPedidos();
+      })
       .subscribe();
 
     return () => {
+      ativo = false;
       supabase.removeChannel(channel);
     };
   }, [loading, carregarPedidos]);
