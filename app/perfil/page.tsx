@@ -10,7 +10,8 @@ const REGIOES_DF = [
   'Asa Norte', 'Asa Sul', 'Águas Claras', 'Ceilândia', 'Gama', 'Guará',
   'Lago Norte', 'Lago Sul', 'Planaltina', 'Samambaia', 'Santa Maria',
   'Sobradinho', 'Taguatinga', 'Vicente Pires', 'Cruzeiro', 'Núcleo Bandeirante',
-  'Park Way', 'Riacho Fundo', 'SIA', 'Estrutural', 'Entorno DF',
+  'Park Way', 'Riacho Fundo', 'SIA', 'Estrutural', 'Valparaíso de Goiás',
+  'Luziânia', 'Novo Gama', 'Pedregal',
 ];
 
 export default function Perfil() {

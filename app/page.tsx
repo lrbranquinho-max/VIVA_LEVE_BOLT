@@ -17,6 +17,7 @@ interface Produto {
   proteinas: number;
   carboidratos: number;
   gorduras: number;
+  porcao_g?: number;
   imagem_url?: string;
   ativo: boolean;
 }
@@ -25,6 +26,20 @@ interface Toast {
   id: number;
   texto: string;
   tipo: 'sucesso' | 'erro' | 'info';
+}
+
+function formatarNumeroBR(valor: number | string, casas = 1) {
+  return Number(valor || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+  });
+}
+
+function formatarMoedaBR(valor: number | string) {
+  return Number(valor || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  });
 }
 
 let toastId = 0;
@@ -194,9 +209,9 @@ export default function LojaCliente() {
       msg += `*Pedido ID:* ${pedidoCriado?.id ?? ''}\n\n`;
       msg += `*ITENS:*\n`;
       listaItens.forEach(item => {
-        msg += `  • ${item.quantidade}x ${item.nome} — R$ ${item.subtotal.toFixed(2)}\n`;
+        msg += `  • ${item.quantidade}x ${item.nome} — ${formatarMoedaBR(item.subtotal)}\n`;
       });
-      msg += `\n*TOTAL: R$ ${valorTotal.toFixed(2)}*`;
+      msg += `\n*TOTAL: ${formatarMoedaBR(valorTotal)}*`;
 
       setCarrinho({});
       setVerCarrinho(false);
@@ -284,13 +299,16 @@ export default function LojaCliente() {
                         <div>
                           <h3 className="font-bold text-gray-800 text-sm leading-tight">{item.nome}</h3>
                           <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.descricao}</p>
-                          {item.kcal > 0 && (
-                            <p className="text-[10px] text-gray-400 mt-1">{item.kcal} kcal · {item.proteinas}g prot</p>
+                          {(item.kcal > 0 || item.proteinas > 0 || item.carboidratos > 0 || item.gorduras > 0 || item.porcao_g) && (
+                            <p className="text-[10px] text-gray-400 mt-1">
+                              {item.porcao_g ? `${formatarNumeroBR(item.porcao_g, 0)}g porção · ` : ''}
+                              {formatarNumeroBR(item.kcal, 0)} kcal · {formatarNumeroBR(item.proteinas)}g prot · {formatarNumeroBR(item.carboidratos)}g carb · {formatarNumeroBR(item.gorduras)}g gord
+                            </p>
                           )}
                         </div>
 
                         <div className="flex justify-between items-center mt-2">
-                          <p className="font-extrabold text-viva-roxo text-base">R$ {Number(item.preco).toFixed(2)}</p>
+                          <p className="font-extrabold text-viva-roxo text-base">{formatarMoedaBR(item.preco)}</p>
 
                           {carrinho[item.id] ? (
                             <div className="flex items-center gap-2">
@@ -350,14 +368,14 @@ export default function LojaCliente() {
                           <button onClick={() => removerDoCarrinho(prod.id)} className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 font-bold flex items-center justify-center text-xs active:scale-90">−</button>
                           <span className="font-bold w-4 text-center">{qtd}</span>
                           <button onClick={() => adicionarAoCarrinho(prod.id)} className="w-6 h-6 rounded-full bg-viva-verde text-viva-roxo font-bold flex items-center justify-center text-xs active:scale-90">+</button>
-                          <span className="font-bold text-viva-roxo w-16 text-right">R$ {(prod.preco * qtd).toFixed(2)}</span>
+                          <span className="font-bold text-viva-roxo w-16 text-right">{formatarMoedaBR(prod.preco * qtd)}</span>
                         </div>
                       </div>
                     );
                   })}
                   <div className="flex justify-between font-extrabold text-lg pt-2 text-gray-800">
                     <span>Total:</span>
-                    <span className="text-viva-roxo">R$ {calcularTotalPreco().toFixed(2)}</span>
+                    <span className="text-viva-roxo">{formatarMoedaBR(calcularTotalPreco())}</span>
                   </div>
                 </div>
 
