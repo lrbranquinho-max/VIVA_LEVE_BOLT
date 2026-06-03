@@ -1,316 +1,261 @@
 "use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '../../supabase';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabase } from '../../supabase';
 
-const ADMIN_EMAILS = [
-  'admin@vivaleve.com.br',
-  'dono@vivaleve.com.br',
-  'gerencia@vivaleve.com.br',
-];
-
-interface Pedido {
-  id: string;
-  cliente_id: string;
-  endereco_entrega: string;
-  valor_total: number;
-  status: string;
-  itens: ItemPedido[];
-  created_at: string;
-}
+type AbaAdmin = 'pedidos' | 'produtos';
+type ToastTipo = 'sucesso' | 'erro' | 'info';
 
 interface ItemPedido {
-  id: number;
+  id?: number;
   nome: string;
   preco: number;
   quantidade: number;
-  subtotal: number;
+  subtotal?: number;
+}
+
+interface Pedido {
+  id: number | string;
+  cliente_id: string;
+  endereco_entrega: string;
+  endereco?: string;
+  valor_total: number;
+  total?: number;
+  status: string;
+  itens: ItemPedido[];
+  criado_em?: string;
+  created_at?: string;
+}
+
+interface PerfilCliente {
+  id: string;
+  nome?: string;
+  telefone?: string;
+  nome_completo?: string;
+  full_name?: string;
+  email?: string;
+  [key: string]: unknown;
 }
 
 interface Produto {
   id: number;
   nome: string;
-  descricao: string;
+  descricao: string | null;
   preco: number;
   categoria: string;
+  imagem_url: string | null;
   estoque: number;
   kcal: number;
   proteinas: number;
   carboidratos: number;
   gorduras: number;
   ativo: boolean;
-  imagem_url: string;
 }
 
-interface Toast {
-  id: number;
-  texto: string;
-  tipo: 'sucesso' | 'erro' | 'info';
-}
-
-interface Perfil {
-  id: string;
+interface ProdutoForm {
   nome: string;
-  telefone: string;
+  descricao: string;
+  preco: string;
+  categoria: string;
+  imagem_url: string;
+  estoque: string;
+  kcal: string;
+  proteinas: string;
+  carboidratos: string;
+  gorduras: string;
 }
 
-const STATUS_FLUXO = ['Pendente', 'Em Preparo', 'Em Rota', 'Concluído', 'Cancelado'];
+const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Preparo', 'Saiu para Entrega', 'Entregue'];
+const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
 
-const STATUS_CORES: Record<string, string> = {
-  'Pendente':   'bg-gray-100 text-gray-600 border-gray-200',
-  'Em Preparo': 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  'Em Rota':    'bg-blue-100 text-blue-700 border-blue-200',
-  'Concluído':  'bg-green-100 text-green-700 border-green-200',
-  'Cancelado':  'bg-red-100 text-red-600 border-red-200',
+const FORM_VAZIO: ProdutoForm = {
+  nome: '',
+  descricao: '',
+  preco: '',
+  categoria: 'Marmitas',
+  imagem_url: '',
+  estoque: '',
+  kcal: '',
+  proteinas: '',
+  carboidratos: '',
+  gorduras: '',
 };
 
-const STATUS_DOT: Record<string, string> = {
-  'Pendente':   'bg-gray-400',
-  'Em Preparo': 'bg-yellow-400',
-  'Em Rota':    'bg-blue-500',
-  'Concluído':  'bg-green-500',
-  'Cancelado':  'bg-red-500',
-};
+let toastId = 0;
 
-let _toastId = 0;
-const FORM_VAZIO = {
-  nome: '', descricao: '', preco: 0, categoria: '',
-  estoque: 0, kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0, imagem_url: '',
-};
+function parseNumeroBR(valor: string | number) {
+  if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0;
+  const normalizado = valor
+    .trim()
+    .replace(/\s/g, '')
+    .replace(/\./g, '')
+    .replace(',', '.');
+  const numero = Number(normalizado);
+  return Number.isFinite(numero) ? numero : 0;
+}
 
-function ToastStack({ toasts }: { toasts: Toast[] }) {
+function formatarNumeroBR(valor: number | string, casas = 2) {
+  return parseNumeroBR(valor).toLocaleString('pt-BR', {
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+  });
+}
+
+function formatarMoedaBR(valor: number | string) {
+  return parseNumeroBR(valor).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  });
+}
+
+function valorInputBR(valor: number | string, casas = 2) {
+  const numero = parseNumeroBR(valor);
+  return numero ? formatarNumeroBR(numero, casas) : '';
+}
+
+function exigirLinhaAtualizada<T>(data: T | null, acao: string) {
+  if (!data) {
+    throw new Error(`${acao} não foi gravada. O Supabase não retornou linha alterada; verifique se seu e-mail está cadastrado como administrador nas policies RLS.`);
+  }
+  return data;
+}
+
+function dataPedido(pedido: Pedido) {
+  return pedido.criado_em ?? pedido.created_at ?? '';
+}
+
+function totalPedido(pedido: Pedido) {
+  return Number(pedido.valor_total ?? pedido.total ?? 0);
+}
+
+function enderecoPedido(pedido: Pedido) {
+  return pedido.endereco_entrega || pedido.endereco || 'Endereço não informado';
+}
+
+function idPerfil(perfil: PerfilCliente) {
+  return String(perfil.id ?? perfil.cliente_id ?? perfil.user_id ?? '');
+}
+
+function nomePerfil(perfil?: PerfilCliente) {
+  if (!perfil) return 'Cliente não identificado';
+  return String(perfil.nome_completo || perfil.nome || perfil.full_name || perfil.email || 'Cliente não identificado');
+}
+
+function statusClasse(status: string) {
+  const mapa: Record<string, string> = {
+    'Pendente': 'bg-gray-100 text-gray-700 border-gray-200',
+    'Aguardando Pagamento': 'bg-orange-100 text-orange-700 border-orange-200',
+    'Recebido': 'bg-blue-100 text-blue-700 border-blue-200',
+    'Em Preparo': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    'Saiu para Entrega': 'bg-purple-100 text-purple-700 border-purple-200',
+    'Entregue': 'bg-green-100 text-green-700 border-green-200',
+  };
+  return mapa[status] ?? 'bg-gray-100 text-gray-700 border-gray-200';
+}
+
+function ToastStack({ toasts }: { toasts: Array<{ id: number; texto: string; tipo: ToastTipo }> }) {
   return (
-    <div className="fixed top-5 right-5 z-[200] space-y-2 w-72">
-      {toasts.map(t => (
+    <div className="fixed right-4 top-4 z-[200] w-80 max-w-[calc(100vw-2rem)] space-y-2">
+      {toasts.map(toast => (
         <div
-          key={t.id}
-          className={`px-4 py-3 rounded-xl text-sm font-semibold shadow-xl border ${
-            t.tipo === 'sucesso' ? 'bg-green-500 text-white border-green-600' :
-            t.tipo === 'erro'   ? 'bg-red-500 text-white border-red-600' :
-                                  'bg-gray-800 text-white border-gray-700'
+          key={toast.id}
+          className={`rounded-xl border px-4 py-3 text-sm font-semibold shadow-xl ${
+            toast.tipo === 'sucesso' ? 'border-green-200 bg-green-100 text-green-800' :
+            toast.tipo === 'erro' ? 'border-red-200 bg-red-100 text-red-800' :
+            'border-blue-200 bg-blue-100 text-blue-800'
           }`}
         >
-          {t.texto}
+          {toast.texto}
         </div>
       ))}
     </div>
   );
 }
 
-function ModalRecibo({
-  pedido,
-  perfil,
-  onClose,
-}: {
-  pedido: Pedido;
-  perfil?: Perfil;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl flex flex-col gap-0 overflow-hidden" style={{ width: 320 }}>
-        <div className="p-5 space-y-4" id="recibo-print">
-          <div className="text-center border-b-2 border-dashed border-gray-300 pb-4">
-            <p className="text-2xl font-black tracking-tight text-gray-900">VIVA LEVE</p>
-            <p className="text-xs text-gray-500">Saúde e Praticidade</p>
-            <p className="text-xs text-gray-500 mt-1">{new Date(pedido.created_at).toLocaleString('pt-BR')}</p>
-          </div>
-
-          <div className="text-xs space-y-1 border-b border-dashed border-gray-300 pb-3">
-            <p className="font-bold text-gray-500 uppercase tracking-wide text-[10px]">Pedido</p>
-            <p className="font-mono font-bold text-gray-800">#{pedido.id.toString().slice(0, 12).toUpperCase()}</p>
-            {perfil && (
-              <>
-                <p className="font-semibold text-gray-800">{perfil.nome}</p>
-                <p className="text-gray-600">{perfil.telefone}</p>
-              </>
-            )}
-            <p className="text-gray-600">{pedido.endereco_entrega}</p>
-          </div>
-
-          <div className="text-xs border-b border-dashed border-gray-300 pb-3 space-y-1.5">
-            <p className="font-bold text-gray-500 uppercase tracking-wide text-[10px]">Itens</p>
-            {(pedido.itens ?? []).map((item, i) => (
-              <div key={i} className="flex justify-between text-gray-700">
-                <span>{item.quantidade}x {item.nome}</span>
-                <span className="font-semibold">R$ {(item.preco * item.quantidade).toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-between items-center font-black text-base text-gray-900">
-            <span>TOTAL</span>
-            <span>R$ {Number(pedido.valor_total).toFixed(2)}</span>
-          </div>
-
-          <p className="text-center text-[10px] text-gray-400 border-t border-dashed border-gray-300 pt-3">
-            Obrigado pela preferência!<br />Viva leve, viva bem.
-          </p>
-        </div>
-
-        <div className="flex border-t border-gray-100">
-          <button
-            onClick={() => window.print()}
-            className="flex-1 py-3 bg-gray-800 text-white font-bold text-sm hover:bg-gray-700 transition"
-          >
-            Imprimir
-          </button>
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold text-sm hover:bg-gray-200 transition"
-          >
-            Fechar
-          </button>
-        </div>
-      </div>
-
-      <style>{`
-        @media print {
-          body > * { display: none !important; }
-          #recibo-print { display: block !important; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
 function ModalProduto({
-  editando,
   form,
-  setForm,
+  editando,
   salvando,
-  onSalvar,
-  onFechar,
+  onClose,
+  onSubmit,
+  onChange,
 }: {
+  form: ProdutoForm;
   editando: Produto | null;
-  form: typeof FORM_VAZIO;
-  setForm: (f: typeof FORM_VAZIO) => void;
   salvando: boolean;
-  onSalvar: (e: React.FormEvent) => void;
-  onFechar: () => void;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+  onChange: (form: ProdutoForm) => void;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
-        <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
-          <h3 className="text-lg font-bold text-gray-800">
-            {editando ? 'Editar Produto' : 'Novo Produto'}
-          </h3>
-          <button onClick={onFechar} className="text-gray-400 hover:text-gray-600 text-xl font-bold leading-none">✕</button>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div>
+            <h2 className="text-lg font-black text-gray-900">{editando ? 'Editar produto' : 'Novo produto'}</h2>
+            <p className="text-xs text-gray-500">Dados gravados diretamente no Supabase.</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700" type="button">×</button>
         </div>
 
-        <form onSubmit={onSalvar} className="p-6 space-y-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-600 mb-1">Nome *</label>
-              <input
-                required
-                type="text"
-                value={form.nome}
-                onChange={e => setForm({ ...form, nome: e.target.value })}
-                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="Ex: Marmita Frango Grelhado"
-              />
-            </div>
+        <form onSubmit={onSubmit} className="space-y-5 p-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="md:col-span-2">
+              <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Nome</span>
+              <input required value={form.nome} onChange={e => onChange({ ...form, nome: e.target.value })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+            </label>
 
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-600 mb-1">Descrição</label>
-              <textarea
-                rows={2}
-                value={form.descricao}
-                onChange={e => setForm({ ...form, descricao: e.target.value })}
-                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-                placeholder="Descrição do produto..."
-              />
-            </div>
+            <label className="md:col-span-2">
+              <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Descrição</span>
+              <textarea value={form.descricao} onChange={e => onChange({ ...form, descricao: e.target.value })} rows={3} className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+            </label>
 
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Categoria *</label>
-              <input
-                required
-                type="text"
-                value={form.categoria}
-                onChange={e => setForm({ ...form, categoria: e.target.value })}
-                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="Ex: Almoço"
-              />
-            </div>
+            <label>
+              <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Categoria</span>
+              <select value={form.categoria} onChange={e => onChange({ ...form, categoria: e.target.value })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800">
+                {CATEGORIAS.map(categoria => <option key={categoria} value={categoria}>{categoria}</option>)}
+              </select>
+            </label>
 
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Preço (R$) *</label>
-              <input
-                required
-                type="number"
-                min={0}
-                step="0.01"
-                value={form.preco}
-                onChange={e => setForm({ ...form, preco: Number(e.target.value) })}
-                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-            </div>
+            <label>
+              <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Preço</span>
+              <input required type="text" inputMode="decimal" value={form.preco} onChange={e => onChange({ ...form, preco: e.target.value })} onBlur={e => onChange({ ...form, preco: valorInputBR(e.target.value, 2) })} placeholder="0,00" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+            </label>
 
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Estoque *</label>
-              <input
-                required
-                type="number"
-                min={0}
-                value={form.estoque}
-                onChange={e => setForm({ ...form, estoque: Number(e.target.value) })}
-                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-            </div>
+            <label>
+              <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Estoque</span>
+              <input type="text" inputMode="numeric" value={form.estoque} onChange={e => onChange({ ...form, estoque: e.target.value.replace(/\D/g, '') })} placeholder="0" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+            </label>
 
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-600 mb-1">URL da Imagem</label>
-              <input
-                type="url"
-                value={form.imagem_url}
-                onChange={e => setForm({ ...form, imagem_url: e.target.value })}
-                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="https://images.pexels.com/..."
-              />
-            </div>
+            <label>
+              <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Imagem URL</span>
+              <input type="url" value={form.imagem_url} onChange={e => onChange({ ...form, imagem_url: e.target.value })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+            </label>
           </div>
 
-          <div className="border-t border-gray-100 pt-4">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Informações Nutricionais (por porção)</p>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p className="mb-3 text-xs font-bold uppercase text-gray-500">Macros por 100g</p>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {[
-                { label: 'Calorias (kcal)', key: 'kcal' as const },
-                { label: 'Proteínas (g)', key: 'proteinas' as const },
-                { label: 'Carboidratos (g)', key: 'carboidratos' as const },
-                { label: 'Gorduras (g)', key: 'gorduras' as const },
-              ].map(({ label, key }) => (
-                <div key={key}>
-                  <label className="block text-xs font-bold text-gray-600 mb-1">{label}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.1"
-                    value={form[key]}
-                    onChange={e => setForm({ ...form, [key]: Number(e.target.value) })}
-                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
-                </div>
+                ['kcal', 'Kcal'],
+                ['proteinas', 'Proteínas'],
+                ['carboidratos', 'Carbos'],
+                ['gorduras', 'Gorduras'],
+              ].map(([key, label]) => (
+                <label key={key}>
+                  <span className="mb-1 block text-xs font-semibold text-gray-500">{label}</span>
+                  <input type="text" inputMode="decimal" value={form[key as keyof ProdutoForm] as string} onChange={e => onChange({ ...form, [key]: e.target.value })} onBlur={e => onChange({ ...form, [key]: valorInputBR(e.target.value, key === 'kcal' ? 0 : 1) })} placeholder={key === 'kcal' ? '0' : '0,0'} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+                </label>
               ))}
             </div>
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={salvando}
-              className="flex-1 py-3 bg-gray-800 text-white font-bold rounded-xl hover:bg-gray-700 transition disabled:opacity-60"
-            >
-              {salvando ? 'Salvando...' : editando ? 'Salvar Alterações' : 'Criar Produto'}
+          <div className="flex gap-3">
+            <button disabled={salvando} className="flex-1 rounded-xl bg-gray-900 px-4 py-3 text-sm font-bold text-white hover:bg-gray-800 disabled:opacity-60">
+              {salvando ? 'Salvando...' : editando ? 'Salvar alterações' : 'Cadastrar produto'}
             </button>
-            <button
-              type="button"
-              onClick={onFechar}
-              className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition"
-            >
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl bg-gray-100 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-200">
               Cancelar
             </button>
           </div>
@@ -320,54 +265,30 @@ function ModalProduto({
   );
 }
 
-export default function Admin() {
+export default function AdminPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [acesso, setAcesso] = useState(false);
-  const [emailAdmin, setEmailAdmin] = useState('');
-  const [aba, setAba] = useState<'pedidos' | 'produtos'>('pedidos');
+  const [usuarioEmail, setUsuarioEmail] = useState('');
+  const [aba, setAba] = useState<AbaAdmin>('pedidos');
+  const [toasts, setToasts] = useState<Array<{ id: number; texto: string; tipo: ToastTipo }>>([]);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [perfisMap, setPerfisMap] = useState<Record<string, Perfil>>({});
+  const [perfis, setPerfis] = useState<Record<string, PerfilCliente>>({});
   const [carregandoPedidos, setCarregandoPedidos] = useState(false);
+  const [filtroStatus, setFiltroStatus] = useState('');
 
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
-
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const [pedidoRecibo, setPedidoRecibo] = useState<Pedido | null>(null);
-  const [mostrarModalProduto, setMostrarModalProduto] = useState(false);
-  const [editandoProduto, setEditandoProduto] = useState<Produto | null>(null);
-  const [formProduto, setFormProduto] = useState<typeof FORM_VAZIO>({ ...FORM_VAZIO });
+  const [modalProdutoAberto, setModalProdutoAberto] = useState(false);
+  const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null);
+  const [formProduto, setFormProduto] = useState<ProdutoForm>({ ...FORM_VAZIO });
   const [salvandoProduto, setSalvandoProduto] = useState(false);
 
-  const [filtroPedido, setFiltroPedido] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState('');
-
-  const toast = useCallback((texto: string, tipo: Toast['tipo'] = 'info') => {
-    const id = ++_toastId;
-    setToasts(p => [...p, { id, texto, tipo }]);
-    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4500);
+  const toast = useCallback((texto: string, tipo: ToastTipo = 'info') => {
+    const id = ++toastId;
+    setToasts(prev => [...prev, { id, texto, tipo }]);
+    window.setTimeout(() => setToasts(prev => prev.filter(item => item.id !== id)), 5000);
   }, []);
-
-  useEffect(() => {
-    async function verificarAcesso() {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      if (error || !user) { router.replace('/login'); return; }
-
-      const emailNormalizado = (user.email ?? '').toLowerCase();
-      if (!ADMIN_EMAILS.includes(emailNormalizado)) {
-        router.replace('/');
-        return;
-      }
-
-      setEmailAdmin(emailNormalizado);
-      setAcesso(true);
-      setLoading(false);
-    }
-    verificarAcesso();
-  }, [router]);
 
   const carregarPedidos = useCallback(async () => {
     setCarregandoPedidos(true);
@@ -375,24 +296,42 @@ export default function Admin() {
       const { data, error } = await supabase
         .from('pedidos')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('criado_em', { ascending: false });
 
       if (error) throw error;
-      setPedidos(data ?? []);
+      const lista = (data ?? []) as Pedido[];
+      setPedidos(lista);
 
-      const ids = Array.from(new Set((data ?? []).map((p: Pedido) => p.cliente_id)));
+      const ids = Array.from(new Set(lista.map(pedido => pedido.cliente_id).filter(Boolean)));
       if (ids.length > 0) {
-        const { data: perfis } = await supabase
-          .from('perfis')
-          .select('id, nome, telefone')
-          .in('id', ids);
+        const [perfisRes, clientesRes] = await Promise.all([
+          supabase.from('perfis').select('*').in('id', ids),
+          supabase.from('perfis_clientes').select('*').in('id', ids),
+        ]);
 
-        const mapa: Record<string, Perfil> = {};
-        (perfis ?? []).forEach((p: Perfil) => { mapa[p.id] = p; });
-        setPerfisMap(mapa);
+        const mapa: Record<string, PerfilCliente> = {};
+        if (perfisRes.error) {
+          toast(`Erro ao buscar perfis: ${perfisRes.error.message}`, 'erro');
+        } else {
+          (perfisRes.data ?? []).forEach((perfil: PerfilCliente) => {
+            const id = idPerfil(perfil);
+            if (id) mapa[id] = { ...mapa[id], ...perfil };
+          });
+        }
+        if (clientesRes.error) {
+          toast(`Erro ao buscar perfis_clientes: ${clientesRes.error.message}`, 'erro');
+        } else {
+          (clientesRes.data ?? []).forEach((perfil: PerfilCliente) => {
+            const id = idPerfil(perfil);
+            if (id) mapa[id] = { ...mapa[id], ...perfil };
+          });
+        }
+        setPerfis(mapa);
+      } else {
+        setPerfis({});
       }
     } catch (err: any) {
-      toast('Erro ao carregar pedidos: ' + err.message, 'erro');
+      toast(`Erro ao carregar pedidos: ${err.message}`, 'erro');
     } finally {
       setCarregandoPedidos(false);
     }
@@ -404,402 +343,370 @@ export default function Admin() {
       const { data, error } = await supabase
         .from('produtos')
         .select('*')
-        .order('categoria', { ascending: true });
+        .order('categoria', { ascending: true })
+        .order('nome', { ascending: true });
 
       if (error) throw error;
-      setProdutos(data ?? []);
+      setProdutos((data ?? []) as Produto[]);
     } catch (err: any) {
-      toast('Erro ao carregar produtos: ' + err.message, 'erro');
+      toast(`Erro ao carregar produtos: ${err.message}`, 'erro');
     } finally {
       setCarregandoProdutos(false);
     }
   }, [toast]);
 
   useEffect(() => {
-    if (!acesso) return;
+    async function protegerRota() {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) {
+        router.replace('/login');
+        return;
+      }
+      setUsuarioEmail(user.email ?? '');
+      setLoading(false);
+    }
+    protegerRota();
+  }, [router]);
+
+  useEffect(() => {
+    if (loading) return;
     carregarPedidos();
     carregarProdutos();
-  }, [acesso, carregarPedidos, carregarProdutos]);
+  }, [loading, carregarPedidos, carregarProdutos]);
 
-  const atualizarStatus = async (pedidoId: string, novoStatus: string) => {
+  useEffect(() => {
+    if (loading) return;
+    const channel = supabase
+      .channel('admin-pedidos-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => carregarPedidos())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loading, carregarPedidos]);
+
+  const pedidosFiltrados = useMemo(() => {
+    return filtroStatus ? pedidos.filter(pedido => pedido.status === filtroStatus) : pedidos;
+  }, [filtroStatus, pedidos]);
+
+  const resumo = useMemo(() => ({
+    pendentes: pedidos.filter(p => ['Pendente', 'Aguardando Pagamento'].includes(p.status)).length,
+    preparo: pedidos.filter(p => p.status === 'Em Preparo').length,
+    entrega: pedidos.filter(p => p.status === 'Saiu para Entrega').length,
+    receita: pedidos.filter(p => p.status === 'Entregue').reduce((acc, pedido) => acc + totalPedido(pedido), 0),
+  }), [pedidos]);
+
+  const atualizarStatus = async (pedido: Pedido, status: string) => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('pedidos')
-        .update({ status: novoStatus })
-        .eq('id', pedidoId);
-
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', pedido.id)
+        .select('id,status')
+        .maybeSingle();
       if (error) throw error;
-
-      setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, status: novoStatus } : p));
-      toast(`Status atualizado para "${novoStatus}"`, 'sucesso');
+      const pedidoAtualizado = exigirLinhaAtualizada(data, 'A alteração de status');
+      setPedidos(prev => prev.map(item => item.id === pedido.id ? { ...item, status: pedidoAtualizado.status } : item));
+      toast(`Pedido #${pedido.id} atualizado para ${status}.`, 'sucesso');
     } catch (err: any) {
-      toast('Erro ao atualizar status: ' + err.message, 'erro');
+      toast(`Erro ao atualizar status: ${err.message}`, 'erro');
+      await carregarPedidos();
     }
   };
 
   const abrirNovoProduto = () => {
-    setEditandoProduto(null);
+    setProdutoEditando(null);
     setFormProduto({ ...FORM_VAZIO });
-    setMostrarModalProduto(true);
+    setModalProdutoAberto(true);
   };
 
   const abrirEditarProduto = (produto: Produto) => {
-    setEditandoProduto(produto);
+    setProdutoEditando(produto);
     setFormProduto({
-      nome: produto.nome,
+      nome: produto.nome ?? '',
       descricao: produto.descricao ?? '',
-      preco: produto.preco,
-      categoria: produto.categoria ?? '',
-      estoque: produto.estoque ?? 0,
-      kcal: produto.kcal ?? 0,
-      proteinas: produto.proteinas ?? 0,
-      carboidratos: produto.carboidratos ?? 0,
-      gorduras: produto.gorduras ?? 0,
+      preco: valorInputBR(produto.preco ?? 0, 2),
+      categoria: produto.categoria || 'Marmitas',
       imagem_url: produto.imagem_url ?? '',
+      estoque: String(Number(produto.estoque ?? 0)),
+      kcal: valorInputBR(produto.kcal ?? 0, 0),
+      proteinas: valorInputBR(produto.proteinas ?? 0, 1),
+      carboidratos: valorInputBR(produto.carboidratos ?? 0, 1),
+      gorduras: valorInputBR(produto.gorduras ?? 0, 1),
     });
-    setMostrarModalProduto(true);
+    setModalProdutoAberto(true);
   };
 
-  const salvarProduto = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const salvarProduto = async (event: React.FormEvent) => {
+    event.preventDefault();
     setSalvandoProduto(true);
 
+    const payload = {
+      nome: formProduto.nome.trim(),
+      descricao: formProduto.descricao.trim(),
+      preco: parseNumeroBR(formProduto.preco),
+      categoria: formProduto.categoria,
+      imagem_url: formProduto.imagem_url.trim() || null,
+      estoque: Math.round(parseNumeroBR(formProduto.estoque)),
+      kcal: parseNumeroBR(formProduto.kcal),
+      proteinas: parseNumeroBR(formProduto.proteinas),
+      carboidratos: parseNumeroBR(formProduto.carboidratos),
+      gorduras: parseNumeroBR(formProduto.gorduras),
+    };
+
     try {
-      const payload = {
-        nome: formProduto.nome,
-        descricao: formProduto.descricao,
-        preco: formProduto.preco,
-        categoria: formProduto.categoria,
-        estoque: formProduto.estoque,
-        kcal: formProduto.kcal,
-        proteinas: formProduto.proteinas,
-        carboidratos: formProduto.carboidratos,
-        gorduras: formProduto.gorduras,
-        imagem_url: formProduto.imagem_url || null,
-      };
-
-      if (editandoProduto) {
-        const { error } = await supabase.from('produtos').update(payload).eq('id', editandoProduto.id);
+      if (produtoEditando) {
+        const { data, error } = await supabase
+          .from('produtos')
+          .update(payload)
+          .eq('id', produtoEditando.id)
+          .select('id')
+          .maybeSingle();
         if (error) throw error;
-        toast('Produto atualizado com sucesso!', 'sucesso');
+        exigirLinhaAtualizada(data, 'A alteração do produto');
+        toast('Produto atualizado com sucesso.', 'sucesso');
       } else {
-        const { error } = await supabase.from('produtos').insert([{ ...payload, ativo: true }]);
+        const { data, error } = await supabase
+          .from('produtos')
+          .insert([{ ...payload, ativo: true }])
+          .select('id')
+          .maybeSingle();
         if (error) throw error;
-        toast('Produto criado com sucesso!', 'sucesso');
+        exigirLinhaAtualizada(data, 'O cadastro do produto');
+        toast('Produto cadastrado com sucesso.', 'sucesso');
       }
-
-      setMostrarModalProduto(false);
+      setModalProdutoAberto(false);
       await carregarProdutos();
     } catch (err: any) {
-      toast('Erro ao salvar produto: ' + err.message, 'erro');
+      toast(`Erro ao salvar produto: ${err.message}`, 'erro');
     } finally {
       setSalvandoProduto(false);
     }
   };
 
-  const toggleAtivo = async (produto: Produto) => {
+  const alternarAtivo = async (produto: Produto) => {
     try {
-      const { error } = await supabase.from('produtos').update({ ativo: !produto.ativo }).eq('id', produto.id);
+      const novoValor = !produto.ativo;
+      const { data, error } = await supabase
+        .from('produtos')
+        .update({ ativo: novoValor })
+        .eq('id', produto.id)
+        .select('id,ativo')
+        .maybeSingle();
       if (error) throw error;
-      setProdutos(prev => prev.map(p => p.id === produto.id ? { ...p, ativo: !p.ativo } : p));
-      toast(`Produto ${!produto.ativo ? 'ativado' : 'inativado'}!`, !produto.ativo ? 'sucesso' : 'info');
+      const produtoAtualizado = exigirLinhaAtualizada(data, 'A alteração de status do produto');
+      setProdutos(prev => prev.map(item => item.id === produto.id ? { ...item, ativo: produtoAtualizado.ativo } : item));
+      toast(`Produto ${produtoAtualizado.ativo ? 'ativado' : 'inativado'} com sucesso.`, 'sucesso');
     } catch (err: any) {
-      toast('Erro: ' + err.message, 'erro');
+      toast(`Erro ao alterar produto: ${err.message}`, 'erro');
+      await carregarProdutos();
     }
   };
 
-  const pedidosFiltrados = pedidos.filter(p => {
-    const matchStatus = !filtroStatus || p.status === filtroStatus;
-    const matchBusca = !filtroPedido ||
-      p.id.toString().toLowerCase().includes(filtroPedido.toLowerCase()) ||
-      (perfisMap[p.cliente_id]?.nome ?? '').toLowerCase().includes(filtroPedido.toLowerCase());
-    return matchStatus && matchBusca;
-  });
-
-  const hoje = new Date().toDateString();
-  const pedidosHoje = pedidos.filter(p => new Date(p.created_at).toDateString() === hoje);
-  const receitaHoje = pedidosHoje.filter(p => p.status === 'Concluído').reduce((a, p) => a + Number(p.valor_total), 0);
-
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-gray-300 border-t-gray-700 rounded-full animate-spin mx-auto" />
-          <p className="text-gray-500 text-sm">Verificando acesso...</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-gray-100">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-300 border-t-gray-900" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 font-sans">
+    <div className="min-h-screen bg-gray-100 text-gray-900">
       <ToastStack toasts={toasts} />
 
-      <header className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-black text-gray-800">VIVA LEVE</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Painel Administrativo · {emailAdmin}</p>
+      <div className="flex min-h-screen flex-col lg:flex-row">
+        <aside className="border-b border-gray-200 bg-white lg:w-72 lg:border-b-0 lg:border-r">
+          <div className="p-5">
+            <p className="text-2xl font-black tracking-tight">VIVA LEVE</p>
+            <p className="mt-1 text-xs text-gray-500">{usuarioEmail}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => { carregarPedidos(); carregarProdutos(); }}
-              className="px-3 py-2 text-xs font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
-            >
-              ↻ Atualizar
-            </button>
-            <button
-              onClick={async () => { await supabase.auth.signOut(); window.location.href = '/login'; }}
-              className="px-3 py-2 text-xs font-bold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition"
-            >
-              Sair
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: 'Pedidos Hoje', valor: pedidosHoje.length, cor: 'text-blue-600', bg: 'bg-blue-50' },
-            { label: 'Pendentes', valor: pedidos.filter(p => p.status === 'Pendente').length, cor: 'text-yellow-600', bg: 'bg-yellow-50' },
-            { label: 'Em Rota', valor: pedidos.filter(p => p.status === 'Em Rota').length, cor: 'text-blue-700', bg: 'bg-blue-50' },
-            { label: 'Receita Hoje', valor: `R$ ${receitaHoje.toFixed(2)}`, cor: 'text-green-700', bg: 'bg-green-50' },
-          ].map(kpi => (
-            <div key={kpi.label} className={`${kpi.bg} rounded-2xl p-4 border border-white shadow-sm`}>
-              <p className="text-xs text-gray-500 font-medium">{kpi.label}</p>
-              <p className={`text-2xl font-black mt-1 ${kpi.cor}`}>{kpi.valor}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm border border-gray-200 w-fit">
-          {(['pedidos', 'produtos'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setAba(tab)}
-              className={`px-6 py-2.5 rounded-lg font-bold text-sm transition-all ${
-                aba === tab
-                  ? 'bg-gray-800 text-white shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {tab === 'pedidos' ? `Fila de Pedidos (${pedidos.length})` : `Cardápio (${produtos.length})`}
-            </button>
-          ))}
-        </div>
-
-        {aba === 'pedidos' && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex flex-wrap gap-3">
-              <input
-                type="text"
-                value={filtroPedido}
-                onChange={e => setFiltroPedido(e.target.value)}
-                placeholder="Buscar por ID ou cliente..."
-                className="flex-1 min-w-48 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-400"
-              />
-              <select
-                value={filtroStatus}
-                onChange={e => setFiltroStatus(e.target.value)}
-                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          <nav className="flex gap-2 overflow-x-auto px-4 pb-4 lg:flex-col">
+            {[
+              { id: 'pedidos' as const, label: 'Gestão de Pedidos', desc: `${pedidos.length} pedidos` },
+              { id: 'produtos' as const, label: 'Cardápio/Estoque', desc: `${produtos.length} produtos` },
+            ].map(item => (
+              <button
+                key={item.id}
+                onClick={() => setAba(item.id)}
+                className={`min-w-48 rounded-xl px-4 py-3 text-left transition lg:min-w-0 ${
+                  aba === item.id ? 'bg-gray-900 text-white shadow-lg' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                }`}
               >
-                <option value="">Todos os status</option>
-                {STATUS_FLUXO.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <button onClick={carregarPedidos} className="px-4 py-2 bg-gray-800 text-white text-sm font-bold rounded-lg hover:bg-gray-700 transition">
-                Atualizar
+                <span className="block text-sm font-black">{item.label}</span>
+                <span className={`mt-1 block text-xs ${aba === item.id ? 'text-gray-300' : 'text-gray-400'}`}>{item.desc}</span>
               </button>
+            ))}
+          </nav>
+        </aside>
+
+        <main className="flex-1 p-4 md:p-6">
+          <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-black">{aba === 'pedidos' ? 'Gestão de Pedidos' : 'Cardápio e Estoque'}</h1>
+              <p className="text-sm text-gray-500">Dados ao vivo do Supabase oficial.</p>
             </div>
+            <button onClick={() => { carregarPedidos(); carregarProdutos(); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50">
+              Atualizar dados
+            </button>
+          </header>
 
-            {carregandoPedidos ? (
-              <div className="bg-white rounded-xl p-10 text-center text-gray-500 animate-pulse shadow-sm border border-gray-200">
-                Carregando pedidos...
+          {aba === 'pedidos' && (
+            <section className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ['Pendentes', resumo.pendentes, 'bg-orange-50 text-orange-700'],
+                  ['Em preparo', resumo.preparo, 'bg-yellow-50 text-yellow-700'],
+                  ['Em entrega', resumo.entrega, 'bg-purple-50 text-purple-700'],
+                  ['Receita entregue', formatarMoedaBR(resumo.receita), 'bg-green-50 text-green-700'],
+                ].map(([label, value, classe]) => (
+                  <div key={label} className={`rounded-xl border border-white p-4 shadow-sm ${classe}`}>
+                    <p className="text-xs font-bold uppercase opacity-70">{label}</p>
+                    <p className="mt-1 text-2xl font-black">{value}</p>
+                  </div>
+                ))}
               </div>
-            ) : pedidosFiltrados.length === 0 ? (
-              <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-200">
-                Nenhum pedido encontrado.
+
+              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-gray-900">
+                    <option value="">Todos os status</option>
+                    {STATUS_FLUXO.map(status => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                  {carregandoPedidos && <span className="text-xs font-semibold text-gray-400">Carregando pedidos...</span>}
+                </div>
               </div>
-            ) : (
-              <div className="space-y-3">
+
+              <div className="grid gap-4 xl:grid-cols-2">
                 {pedidosFiltrados.map(pedido => {
-                  const perfil = perfisMap[pedido.cliente_id];
+                  const perfil = perfis[pedido.cliente_id];
+                  const nomeCliente = nomePerfil(perfil);
+
                   return (
-                    <div key={pedido.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                      <div className={`h-1 ${STATUS_DOT[pedido.status] ?? 'bg-gray-300'}`} />
-
-                      <div className="p-5">
-                        <div className="flex flex-wrap justify-between gap-4">
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold text-gray-500">
-                                #{pedido.id.toString().slice(0, 8).toUpperCase()}
-                              </span>
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${STATUS_CORES[pedido.status] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                                {pedido.status}
-                              </span>
-                            </div>
-                            <p className="font-semibold text-gray-800 text-sm">{perfil?.nome ?? 'Cliente'}</p>
-                            <p className="text-xs text-gray-500">{perfil?.telefone}</p>
-                            <p className="text-xs text-gray-600 truncate max-w-xs">{pedido.endereco_entrega}</p>
-                            <p className="text-xs text-gray-400">{new Date(pedido.created_at).toLocaleString('pt-BR')}</p>
+                    <article key={pedido.id} className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                      <div className="border-b border-gray-100 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-mono text-xs font-bold text-gray-400">#{String(pedido.id).slice(0, 10).toUpperCase()}</p>
+                            <h2 className="mt-1 text-lg font-black">{nomeCliente}</h2>
+                            <p className="text-xs text-gray-500">{perfil?.telefone || 'Telefone não informado'}</p>
                           </div>
-
-                          <div className="flex flex-col items-end justify-between gap-3">
-                            <p className="text-2xl font-black text-gray-800">R$ {Number(pedido.valor_total).toFixed(2)}</p>
-                            <button
-                              onClick={() => setPedidoRecibo(pedido)}
-                              className="px-3 py-1.5 text-xs font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
-                            >
-                              Recibo
-                            </button>
-                          </div>
+                          <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusClasse(pedido.status)}`}>
+                            {pedido.status}
+                          </span>
                         </div>
+                        <p className="mt-3 text-sm text-gray-600">{enderecoPedido(pedido)}</p>
+                        <p className="mt-1 text-xs text-gray-400">{dataPedido(pedido) ? new Date(dataPedido(pedido)).toLocaleString('pt-BR') : 'Data não informada'}</p>
+                      </div>
 
-                        <div className="mt-4 pt-4 border-t border-gray-100">
-                          <div className="flex flex-wrap gap-1.5 mb-3">
-                            {(pedido.itens ?? []).map((item, i) => (
-                              <span key={i} className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-gray-700">
-                                {item.quantidade}× {item.nome}
-                              </span>
-                            ))}
+                      <div className="space-y-2 p-4">
+                        {(pedido.itens ?? []).map((item, index) => (
+                          <div key={`${item.nome}-${index}`} className="flex justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                            <span className="font-semibold text-gray-700">{item.quantidade}x {item.nome}</span>
+                            <span className="font-bold text-gray-900">{formatarMoedaBR(item.subtotal ?? item.preco * item.quantidade)}</span>
                           </div>
-
-                          <div className="flex flex-wrap gap-2">
-                            {STATUS_FLUXO.map(s => (
-                              <button
-                                key={s}
-                                onClick={() => atualizarStatus(pedido.id, s)}
-                                disabled={pedido.status === s}
-                                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition ${
-                                  pedido.status === s
-                                    ? `${STATUS_CORES[s]} cursor-default`
-                                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'
-                                }`}
-                              >
-                                {s}
-                              </button>
-                            ))}
-                          </div>
+                        ))}
+                        <div className="flex justify-between pt-2 text-lg font-black">
+                          <span>Total</span>
+                          <span>{formatarMoedaBR(totalPedido(pedido))}</span>
                         </div>
                       </div>
-                    </div>
+
+                      <div className="flex flex-wrap gap-2 border-t border-gray-100 p-4">
+                        {STATUS_FLUXO.map(status => (
+                          <button
+                            key={status}
+                            onClick={() => atualizarStatus(pedido, status)}
+                            disabled={pedido.status === status}
+                            className={`rounded-lg border px-3 py-2 text-xs font-black transition ${
+                              pedido.status === status ? `${statusClasse(status)} cursor-default` : 'border-gray-200 bg-white text-gray-600 hover:border-gray-900 hover:text-gray-900'
+                            }`}
+                          >
+                            {status}
+                          </button>
+                        ))}
+                      </div>
+                    </article>
                   );
                 })}
               </div>
-            )}
-          </div>
-        )}
 
-        {aba === 'produtos' && (
-          <div className="space-y-4">
-            <div className="flex justify-end">
-              <button
-                onClick={abrirNovoProduto}
-                className="px-5 py-2.5 bg-gray-800 text-white font-bold text-sm rounded-xl hover:bg-gray-700 transition shadow-sm"
-              >
-                + Novo Produto
-              </button>
-            </div>
+              {!carregandoPedidos && pedidosFiltrados.length === 0 && (
+                <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-gray-400">Nenhum pedido encontrado.</div>
+              )}
+            </section>
+          )}
 
-            {carregandoProdutos ? (
-              <div className="bg-white rounded-xl p-10 text-center text-gray-500 animate-pulse shadow-sm border border-gray-200">
-                Carregando produtos...
+          {aba === 'produtos' && (
+            <section className="space-y-5">
+              <div className="flex justify-end">
+                <button onClick={abrirNovoProduto} className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-black text-white shadow-lg hover:bg-gray-800">
+                  Novo produto
+                </button>
               </div>
-            ) : (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Produto</th>
-                      <th className="px-4 py-3.5 text-left text-xs font-bold text-gray-500 uppercase tracking-wider hidden md:table-cell">Categoria</th>
-                      <th className="px-4 py-3.5 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Preço</th>
-                      <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Estoque</th>
-                      <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3.5 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {produtos.map(produto => (
-                      <tr key={produto.id} className={`hover:bg-gray-50 transition ${!produto.ativo ? 'opacity-50' : ''}`}>
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            {produto.imagem_url ? (
-                              <img src={produto.imagem_url} alt={produto.nome} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                            ) : (
-                              <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-lg flex-shrink-0">🥗</div>
-                            )}
-                            <div>
-                              <p className="font-semibold text-gray-800">{produto.nome}</p>
-                              <p className="text-xs text-gray-400 line-clamp-1">{produto.descricao}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-gray-600 hidden md:table-cell">
-                          <span className="px-2 py-0.5 bg-gray-100 rounded-full text-xs font-medium">{produto.categoria}</span>
-                        </td>
-                        <td className="px-4 py-4 text-right font-bold text-gray-800">
-                          R$ {Number(produto.preco).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            produto.estoque === 0 ? 'bg-red-100 text-red-600' :
-                            produto.estoque <= 3 ? 'bg-orange-100 text-orange-600' :
-                            'bg-green-100 text-green-700'
-                          }`}>
-                            {produto.estoque}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <button
-                            onClick={() => toggleAtivo(produto)}
-                            className={`relative inline-flex items-center h-5 w-9 rounded-full transition-colors ${produto.ativo ? 'bg-green-400' : 'bg-gray-300'}`}
-                          >
-                            <span className={`inline-block w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${produto.ativo ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
-                          </button>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <button
-                            onClick={() => abrirEditarProduto(produto)}
-                            className="px-3 py-1.5 bg-gray-800 text-white text-xs font-bold rounded-lg hover:bg-gray-700 transition"
-                          >
-                            Editar
-                          </button>
-                        </td>
+
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-black">Nome</th>
+                        <th className="px-4 py-3 text-left font-black">Categoria</th>
+                        <th className="px-4 py-3 text-right font-black">Preço</th>
+                        <th className="px-4 py-3 text-center font-black">Estoque</th>
+                        <th className="px-4 py-3 text-center font-black">Status</th>
+                        <th className="px-4 py-3 text-right font-black">Ações</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {produtos.map(produto => (
+                        <tr key={produto.id} className={!produto.ativo ? 'bg-gray-50 opacity-70' : ''}>
+                          <td className="px-4 py-4">
+                            <p className="font-black text-gray-900">{produto.nome}</p>
+                            <p className="max-w-sm truncate text-xs text-gray-500">{produto.descricao}</p>
+                          </td>
+                          <td className="px-4 py-4">
+                            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">{produto.categoria}</span>
+                          </td>
+                          <td className="px-4 py-4 text-right font-black">{formatarMoedaBR(produto.preco)}</td>
+                          <td className="px-4 py-4 text-center">
+                            <span className={`rounded-full px-3 py-1 text-xs font-black ${produto.estoque <= 0 ? 'bg-red-100 text-red-700' : produto.estoque <= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                              {produto.estoque}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <button onClick={() => alternarAtivo(produto)} className={`inline-flex h-6 w-11 items-center rounded-full p-1 transition ${produto.ativo ? 'bg-green-500' : 'bg-gray-300'}`} aria-label={produto.ativo ? 'Inativar produto' : 'Ativar produto'}>
+                              <span className={`h-4 w-4 rounded-full bg-white shadow transition ${produto.ativo ? 'translate-x-5' : 'translate-x-0'}`} />
+                            </button>
+                          </td>
+                          <td className="px-4 py-4 text-right">
+                            <button onClick={() => abrirEditarProduto(produto)} className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-black text-white hover:bg-gray-800">
+                              Editar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-                {produtos.length === 0 && (
-                  <div className="p-10 text-center text-gray-400">
-                    Nenhum produto cadastrado. Clique em &quot;Novo Produto&quot; para começar.
-                  </div>
-                )}
+                {carregandoProdutos && <div className="p-8 text-center text-gray-400">Carregando produtos...</div>}
+                {!carregandoProdutos && produtos.length === 0 && <div className="p-8 text-center text-gray-400">Nenhum produto cadastrado.</div>}
               </div>
-            )}
-          </div>
-        )}
-
+            </section>
+          )}
+        </main>
       </div>
 
-      {pedidoRecibo && (
-        <ModalRecibo
-          pedido={pedidoRecibo}
-          perfil={perfisMap[pedidoRecibo.cliente_id]}
-          onClose={() => setPedidoRecibo(null)}
-        />
-      )}
-
-      {mostrarModalProduto && (
+      {modalProdutoAberto && (
         <ModalProduto
-          editando={editandoProduto}
           form={formProduto}
-          setForm={setFormProduto}
+          editando={produtoEditando}
           salvando={salvandoProduto}
-          onSalvar={salvarProduto}
-          onFechar={() => { setMostrarModalProduto(false); setEditandoProduto(null); }}
+          onClose={() => setModalProdutoAberto(false)}
+          onSubmit={salvarProduto}
+          onChange={setFormProduto}
         />
       )}
     </div>
