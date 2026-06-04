@@ -383,7 +383,6 @@ export default function Dieta() {
 
     try {
       const payloadPerfilCliente = {
-        id: clienteId,
         sexo: perfilCalorico.sexo || null,
         peso_kg: perfilCalorico.peso_kg ? parseNumero(perfilCalorico.peso_kg) : null,
         altura_cm: perfilCalorico.altura_cm ? parseNumero(perfilCalorico.altura_cm) : null,
@@ -391,9 +390,28 @@ export default function Dieta() {
         nivel_atividade: perfilCalorico.nivel_atividade || 'sedentario',
       };
 
-      const { error: perfilClienteError } = await supabase
+      const { data: perfilExistente, error: buscaPerfilError } = await supabase
         .from('perfis_clientes')
-        .upsert([payloadPerfilCliente], { onConflict: 'id' });
+        .select('id')
+        .eq('id', clienteId)
+        .maybeSingle();
+      if (buscaPerfilError) throw buscaPerfilError;
+
+      const perfilClientePayload = perfilExistente ? payloadPerfilCliente : {
+        id: clienteId,
+        nome_completo: '',
+        telefone: '',
+        endereco_rua: '',
+        endereco_numero: '',
+        endereco_complemento: '',
+        bairro: '',
+        regiao_df: '',
+        ...payloadPerfilCliente,
+      };
+
+      const { error: perfilClienteError } = perfilExistente
+        ? await supabase.from('perfis_clientes').update(payloadPerfilCliente).eq('id', clienteId)
+        : await supabase.from('perfis_clientes').insert([perfilClientePayload]);
       if (perfilClienteError) throw perfilClienteError;
 
       const { error: metaError } = await supabase
