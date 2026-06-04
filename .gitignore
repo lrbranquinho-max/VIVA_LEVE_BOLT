@@ -24,6 +24,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 dev-server*.log
+public/sw.js
+public/workbox-*.js
 
 # local env files
 .env*.local
