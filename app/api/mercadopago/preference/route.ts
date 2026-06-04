@@ -11,6 +11,20 @@ interface ItemCheckout {
 
 export const runtime = 'nodejs';
 
+function normalizarSiteUrl(url: string) {
+  return url.replace(/\/$/, '');
+}
+
+function permiteAutoReturn(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' &&
+      !['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
@@ -57,16 +71,18 @@ export async function POST(request: NextRequest) {
 
     const client = new MercadoPagoConfig({ accessToken });
     const preference = new Preference(client);
+    const baseUrl = normalizarSiteUrl(siteUrl);
+    const backUrls = {
+      success: `${baseUrl}/pedidos?pagamento=sucesso`,
+      pending: `${baseUrl}/pedidos?pagamento=pendente`,
+      failure: `${baseUrl}/pedidos?pagamento=falha`,
+    };
 
     const body = {
       external_reference: pedidoId,
-      notification_url: `${siteUrl.replace(/\/$/, '')}/api/mercadopago/webhook`,
-      auto_return: 'approved',
-      back_urls: {
-        success: `${siteUrl.replace(/\/$/, '')}/pedidos?pagamento=sucesso`,
-        pending: `${siteUrl.replace(/\/$/, '')}/pedidos?pagamento=pendente`,
-        failure: `${siteUrl.replace(/\/$/, '')}/pedidos?pagamento=falha`,
-      },
+      notification_url: `${baseUrl}/api/mercadopago/webhook`,
+      ...(permiteAutoReturn(baseUrl) ? { auto_return: 'approved' } : {}),
+      back_urls: backUrls,
       payer: {
         name: payer?.nome,
         email: payer?.email,

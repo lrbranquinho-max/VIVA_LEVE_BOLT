@@ -46,6 +46,7 @@ interface Produto {
   categoria: string;
   imagem_url: string | null;
   estoque: number;
+  porcao_g?: number | null;
   kcal: number;
   proteinas: number;
   carboidratos: number;
@@ -60,6 +61,7 @@ interface ProdutoForm {
   categoria: string;
   imagem_url: string;
   estoque: string;
+  porcao_kg: string;
   kcal: string;
   proteinas: string;
   carboidratos: string;
@@ -76,6 +78,7 @@ const FORM_VAZIO: ProdutoForm = {
   categoria: 'Marmitas',
   imagem_url: '',
   estoque: '',
+  porcao_kg: '',
   kcal: '',
   proteinas: '',
   carboidratos: '',
@@ -112,6 +115,25 @@ function formatarMoedaBR(valor: number | string) {
 function valorInputBR(valor: number | string, casas = 2) {
   const numero = parseNumeroBR(valor);
   return numero ? formatarNumeroBR(numero, casas) : '';
+}
+
+function formatarPorcaoKg(porcaoG?: number | null) {
+  const gramas = Number(porcaoG || 0);
+  return gramas > 0 ? `${formatarNumeroBR(gramas / 1000, 3)} kg` : '-';
+}
+
+function formatarGramas(porcaoG?: number | null) {
+  const gramas = Number(porcaoG || 0);
+  return gramas > 0 ? `${formatarNumeroBR(gramas, 0)} g` : '-';
+}
+
+function escaparHtml(valor: string | number | null | undefined) {
+  return String(valor ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function exigirLinhaAtualizada<T>(data: T | null, acao: string) {
@@ -227,6 +249,11 @@ function ModalProduto({
             <label>
               <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Estoque</span>
               <input type="text" inputMode="numeric" value={form.estoque} onChange={e => onChange({ ...form, estoque: e.target.value.replace(/\D/g, '') })} placeholder="0" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Porção em kg</span>
+              <input type="text" inputMode="decimal" value={form.porcao_kg} onChange={e => onChange({ ...form, porcao_kg: e.target.value })} onBlur={e => onChange({ ...form, porcao_kg: valorInputBR(e.target.value, 3) })} placeholder="0,350" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
             </label>
 
             <label>
@@ -435,6 +462,7 @@ export default function AdminPage() {
       categoria: produto.categoria || 'Marmitas',
       imagem_url: produto.imagem_url ?? '',
       estoque: String(Number(produto.estoque ?? 0)),
+      porcao_kg: valorInputBR(Number(produto.porcao_g ?? 0) / 1000, 3),
       kcal: valorInputBR(produto.kcal ?? 0, 0),
       proteinas: valorInputBR(produto.proteinas ?? 0, 1),
       carboidratos: valorInputBR(produto.carboidratos ?? 0, 1),
@@ -454,6 +482,7 @@ export default function AdminPage() {
       categoria: formProduto.categoria,
       imagem_url: formProduto.imagem_url.trim() || null,
       estoque: Math.round(parseNumeroBR(formProduto.estoque)),
+      porcao_g: parseNumeroBR(formProduto.porcao_kg) > 0 ? parseNumeroBR(formProduto.porcao_kg) * 1000 : null,
       kcal: parseNumeroBR(formProduto.kcal),
       proteinas: parseNumeroBR(formProduto.proteinas),
       carboidratos: parseNumeroBR(formProduto.carboidratos),
@@ -507,6 +536,115 @@ export default function AdminPage() {
       toast(`Erro ao alterar produto: ${err.message}`, 'erro');
       await carregarProdutos();
     }
+  };
+
+  const imprimirEtiqueta = (produto: Produto) => {
+    const gramas = Number(produto.porcao_g || 100);
+    const payloadQr = JSON.stringify({ id: produto.id, gramas });
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data=${encodeURIComponent(payloadQr)}`;
+    const janela = window.open('', '_blank', 'width=420,height=520');
+
+    if (!janela) {
+      toast('O navegador bloqueou a janela de impressão. Permita pop-ups para imprimir a etiqueta.', 'erro');
+      return;
+    }
+
+    janela.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Etiqueta ${escaparHtml(produto.nome)}</title>
+  <style>
+    @page { size: 7cm 7cm; margin: 0; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 7cm;
+      height: 7cm;
+      color: #000;
+      background: #fff;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    .label {
+      width: 7cm;
+      height: 7cm;
+      padding: 0.28cm;
+      display: grid;
+      grid-template-columns: 1fr 1.75cm;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 0.1cm 0.18cm;
+      overflow: hidden;
+      border: 1px solid #000;
+    }
+    .brand {
+      grid-column: 1 / -1;
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+      text-align: center;
+      border-bottom: 1px solid #000;
+      padding-bottom: 0.08cm;
+    }
+    .name {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      line-height: 1.05;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .desc {
+      font-size: 7.5px;
+      line-height: 1.12;
+      overflow: hidden;
+    }
+    .qr {
+      width: 1.75cm;
+      height: 1.75cm;
+      object-fit: contain;
+      align-self: start;
+      justify-self: end;
+    }
+    .meta {
+      grid-column: 1 / -1;
+      border-top: 1px solid #000;
+      padding-top: 0.08cm;
+      font-size: 7.6px;
+      line-height: 1.18;
+      font-weight: 700;
+    }
+    .small { font-weight: 400; }
+  </style>
+</head>
+<body>
+  <section class="label">
+    <div class="brand">VIVA LEVE</div>
+    <div class="name">${escaparHtml(produto.nome)}</div>
+    <div class="desc">
+      <strong>${escaparHtml(produto.categoria || 'Produto')}</strong><br />
+      ${escaparHtml(produto.descricao || '')}
+    </div>
+    <img class="qr" src="${qrUrl}" alt="QR Code" />
+    <div class="meta">
+      Porção: ${escaparHtml(formatarGramas(produto.porcao_g))}<br />
+      Macros por 100g:
+      ${escaparHtml(formatarNumeroBR(produto.kcal, 0))} kcal |
+      P ${escaparHtml(formatarNumeroBR(produto.proteinas, 1))}g |
+      C ${escaparHtml(formatarNumeroBR(produto.carboidratos, 1))}g |
+      G ${escaparHtml(formatarNumeroBR(produto.gorduras, 1))}g<br />
+      <span class="small">QR dieta: ${escaparHtml(payloadQr)}</span>
+    </div>
+  </section>
+  <script>
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        window.print();
+      }, 250);
+    });
+  </script>
+</body>
+</html>`);
+    janela.document.close();
   };
 
   if (loading) {
@@ -659,6 +797,7 @@ export default function AdminPage() {
                         <th className="px-4 py-3 text-left font-black">Nome</th>
                         <th className="px-4 py-3 text-left font-black">Categoria</th>
                         <th className="px-4 py-3 text-right font-black">Preço</th>
+                        <th className="px-4 py-3 text-center font-black">Porção</th>
                         <th className="px-4 py-3 text-center font-black">Estoque</th>
                         <th className="px-4 py-3 text-center font-black">Status</th>
                         <th className="px-4 py-3 text-right font-black">Ações</th>
@@ -675,6 +814,7 @@ export default function AdminPage() {
                             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">{produto.categoria}</span>
                           </td>
                           <td className="px-4 py-4 text-right font-black">{formatarMoedaBR(produto.preco)}</td>
+                          <td className="px-4 py-4 text-center font-bold text-gray-600">{formatarPorcaoKg(produto.porcao_g)}</td>
                           <td className="px-4 py-4 text-center">
                             <span className={`rounded-full px-3 py-1 text-xs font-black ${produto.estoque <= 0 ? 'bg-red-100 text-red-700' : produto.estoque <= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
                               {produto.estoque}
@@ -686,6 +826,9 @@ export default function AdminPage() {
                             </button>
                           </td>
                           <td className="px-4 py-4 text-right">
+                            <button onClick={() => imprimirEtiqueta(produto)} className="mr-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-black text-gray-700 hover:border-gray-900 hover:text-gray-900">
+                              Etiqueta
+                            </button>
                             <button onClick={() => abrirEditarProduto(produto)} className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-black text-white hover:bg-gray-800">
                               Editar
                             </button>

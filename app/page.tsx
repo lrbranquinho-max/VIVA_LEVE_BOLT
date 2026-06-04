@@ -72,6 +72,8 @@ export default function LojaCliente() {
         const { data: produtosData, error: errProdutos } = await supabase
           .from('produtos')
           .select('*')
+          .eq('ativo', true)
+          .gt('estoque', 0)
           .order('categoria', { ascending: true });
 
         if (errProdutos) throw new Error(errProdutos.message);
@@ -121,9 +123,20 @@ export default function LojaCliente() {
   }, []);
 
   const adicionarAoCarrinho = (id: number) => {
-    setCarrinho(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     const produto = produtos.find(p => p.id === id);
-    if (produto) adicionarToast(`${produto.nome} adicionado!`, 'sucesso');
+    if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
+      adicionarToast('Produto sem estoque no momento.', 'erro');
+      return;
+    }
+
+    const quantidadeAtual = carrinho[id] || 0;
+    if (quantidadeAtual >= Number(produto.estoque || 0)) {
+      adicionarToast(`Limite de estoque atingido: ${produto.estoque} unidade(s).`, 'erro');
+      return;
+    }
+
+    setCarrinho(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+    adicionarToast(`${produto.nome} adicionado!`, 'sucesso');
   };
 
   const removerDoCarrinho = (id: number) => {
@@ -145,6 +158,47 @@ export default function LojaCliente() {
       const produto = produtos.find(p => p.id === Number(id));
       return total + (produto ? produto.preco * qtd : 0);
     }, 0);
+
+  const revalidarEstoqueCarrinho = async () => {
+    const ids = Object.keys(carrinho).map(Number);
+    if (ids.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('produtos')
+      .select('id,nome,preco,estoque,ativo')
+      .in('id', ids);
+
+    if (error) throw new Error(error.message);
+
+    const produtosAtualizados = (data ?? []) as Produto[];
+    const mapa = new Map(produtosAtualizados.map(produto => [produto.id, produto]));
+    const carrinhoCorrigido = { ...carrinho };
+
+    let erroEstoque = '';
+
+    for (const [idTexto, qtd] of Object.entries(carrinho)) {
+      const id = Number(idTexto);
+      const produto = mapa.get(id);
+      if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
+        delete carrinhoCorrigido[id];
+        erroEstoque = `"${produto?.nome ?? 'Produto'}" não está mais disponível.`;
+        continue;
+      }
+      if (qtd > Number(produto.estoque || 0)) {
+        carrinhoCorrigido[id] = Number(produto.estoque || 0);
+        erroEstoque = `Estoque insuficiente para "${produto.nome}". Disponível: ${produto.estoque} unidade(s).`;
+      }
+    }
+
+    setProdutos(prev => prev.map(produto => {
+      const atualizado = mapa.get(produto.id);
+      return atualizado ? { ...produto, ...atualizado } : produto;
+    }));
+    setCarrinho(carrinhoCorrigido);
+
+    if (erroEstoque) throw new Error(erroEstoque);
+    return produtosAtualizados;
+  };
 
   const finalizarPedido = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,8 +223,11 @@ export default function LojaCliente() {
         return;
       }
 
+      const estoqueAtualizado = await revalidarEstoqueCarrinho();
+      const produtosParaPedido = estoqueAtualizado.length > 0 ? estoqueAtualizado : produtos;
+
       const listaItens = Object.entries(carrinho).map(([id, qtd]) => {
-        const p = produtos.find(prod => prod.id === Number(id));
+        const p = produtosParaPedido.find(prod => prod.id === Number(id));
         return {
           id: Number(id),
           nome: p?.nome ?? 'Produto',
@@ -180,7 +237,7 @@ export default function LojaCliente() {
         };
       });
 
-      const valorTotal = calcularTotalPreco();
+      const valorTotal = listaItens.reduce((total, item) => total + item.subtotal, 0);
 
       const { data: pedidoCriado, error: errPedido } = await supabase
         .from('pedidos')
@@ -330,6 +387,7 @@ export default function LojaCliente() {
                               <span className="font-bold text-sm w-4 text-center text-gray-800">{carrinho[item.id]}</span>
                               <button
                                 onClick={() => adicionarAoCarrinho(item.id)}
+                                disabled={carrinho[item.id] >= Number(item.estoque || 0)}
                                 className="w-7 h-7 rounded-full bg-viva-verde text-viva-roxo font-bold flex items-center justify-center text-sm active:scale-90 transition"
                               >
                                 +
@@ -338,6 +396,7 @@ export default function LojaCliente() {
                           ) : (
                             <button
                               onClick={() => adicionarAoCarrinho(item.id)}
+                              disabled={Number(item.estoque || 0) <= 0}
                               className="bg-viva-verde text-viva-roxo font-bold py-1.5 px-3 rounded-full text-xs shadow-sm active:scale-95 transition-transform"
                             >
                               + Adicionar

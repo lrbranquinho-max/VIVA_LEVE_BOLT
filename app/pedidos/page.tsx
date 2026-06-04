@@ -162,6 +162,8 @@ export default function MeusPedidos() {
   const [pedidoAberto, setPedidoAberto] = useState<string | null>(null);
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
+  const [pedidoPagando, setPedidoPagando] = useState<string | null>(null);
+  const [mensagemPagamento, setMensagemPagamento] = useState<string | null>(null);
 
   const carregarPedidos = useCallback(async (userId: string) => {
     const limite = limiteHistoricoISO();
@@ -236,6 +238,47 @@ export default function MeusPedidos() {
     if (user) await carregarHistorico(user.id);
   };
 
+  const pagarPedido = async (pedido: Pedido) => {
+    setMensagemPagamento(null);
+    setPedidoPagando(pedido.id);
+
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session) {
+        router.push('/login');
+        return;
+      }
+
+      const resposta = await fetch('/api/mercadopago/preference', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          pedidoId: pedido.id,
+          itens: pedido.itens ?? [],
+          payer: {
+            email: session.user.email,
+          },
+        }),
+      });
+
+      const pagamento = await resposta.json();
+      if (!resposta.ok) {
+        throw new Error(pagamento.error || 'Não foi possível iniciar o pagamento.');
+      }
+
+      const checkoutUrl = pagamento.initPoint || pagamento.sandboxInitPoint;
+      if (!checkoutUrl) throw new Error('Mercado Pago não retornou a URL de pagamento.');
+      window.location.href = checkoutUrl;
+    } catch (err: any) {
+      setMensagemPagamento(err.message || 'Erro ao iniciar pagamento.');
+    } finally {
+      setPedidoPagando(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -246,6 +289,11 @@ export default function MeusPedidos() {
 
   return (
     <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl">
+      {mensagemPagamento && (
+        <div className="fixed left-1/2 top-4 z-50 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-xl bg-red-500 px-4 py-3 text-center text-sm font-bold text-white shadow-xl">
+          {mensagemPagamento}
+        </div>
+      )}
       <header className="border-b border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <Link href="/" className="p-1 text-gray-400 hover:text-viva-roxo">
@@ -321,6 +369,19 @@ export default function MeusPedidos() {
                     </span>
                   </div>
                 </button>
+
+                {pedido.status === 'Aguardando Pagamento' && (
+                  <div className="flex justify-end border-t border-orange-100 bg-orange-50 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => pagarPedido(pedido)}
+                      disabled={pedidoPagando === pedido.id}
+                      className="rounded-full bg-viva-roxo px-4 py-2 text-xs font-black text-white shadow-sm disabled:opacity-60"
+                    >
+                      {pedidoPagando === pedido.id ? 'Abrindo...' : 'Pagar'}
+                    </button>
+                  </div>
+                )}
 
                 {aberto && (
                   <div className="space-y-3 border-t border-gray-100 bg-gray-50 p-4">

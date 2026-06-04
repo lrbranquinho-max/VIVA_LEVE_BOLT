@@ -4,11 +4,89 @@ import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 
+interface ItemPedido {
+  id?: number;
+  quantidade?: number;
+}
+
 function extrairPaymentId(body: any, request: NextRequest) {
   return body?.data?.id ||
     body?.id ||
     request.nextUrl.searchParams.get('data.id') ||
     request.nextUrl.searchParams.get('id');
+}
+
+async function processarPagamentoComFallback(
+  supabase: ReturnType<typeof criarSupabaseAdmin>,
+  pedidoId: string,
+  paymentId: string,
+  statusPagamento: string,
+  statusPedido: string,
+) {
+  const { error: rpcError } = await supabase.rpc('processar_pagamento_pedido_mp', {
+    p_pedido_id: pedidoId,
+    p_payment_id: paymentId,
+    p_pagamento_status: statusPagamento,
+    p_status_pedido: statusPedido,
+  });
+
+  if (!rpcError) return;
+  if (rpcError.code !== '42883' && !String(rpcError.message || '').includes('processar_pagamento_pedido_mp')) {
+    throw rpcError;
+  }
+
+  const { data: pedido, error: pedidoError } = await supabase
+    .from('pedidos')
+    .select('id,itens,pagamento_status')
+    .eq('id', pedidoId)
+    .maybeSingle();
+
+  if (pedidoError) throw pedidoError;
+  if (!pedido) throw new Error(`Pedido ${pedidoId} não encontrado.`);
+
+  if (statusPagamento === 'approved' && pedido.pagamento_status !== 'approved') {
+    const totaisPorProduto = new Map<number, number>();
+    for (const item of (pedido.itens ?? []) as ItemPedido[]) {
+      const produtoId = Number(item.id);
+      const quantidade = Number(item.quantidade || 0);
+      if (produtoId > 0 && quantidade > 0) {
+        totaisPorProduto.set(produtoId, (totaisPorProduto.get(produtoId) || 0) + quantidade);
+      }
+    }
+
+    for (const [produtoId, quantidade] of Array.from(totaisPorProduto.entries())) {
+      const { data: produto, error: produtoError } = await supabase
+        .from('produtos')
+        .select('id,estoque')
+        .eq('id', produtoId)
+        .maybeSingle();
+
+      if (produtoError) throw produtoError;
+      if (!produto || Number(produto.estoque || 0) < quantidade) {
+        throw new Error(`Estoque insuficiente para o produto ${produtoId}.`);
+      }
+
+      const { error: estoqueError } = await supabase
+        .from('produtos')
+        .update({ estoque: Number(produto.estoque || 0) - quantidade })
+        .eq('id', produtoId)
+        .gte('estoque', quantidade);
+
+      if (estoqueError) throw estoqueError;
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from('pedidos')
+    .update({
+      status: statusPedido,
+      mercado_pago_payment_id: paymentId,
+      pagamento_status: statusPagamento,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', pedidoId);
+
+  if (updateError) throw updateError;
 }
 
 export async function POST(request: NextRequest) {
@@ -45,17 +123,7 @@ export async function POST(request: NextRequest) {
       statusPagamento === 'rejected' || statusPagamento === 'cancelled' ? 'Pagamento Recusado' :
       'Aguardando Pagamento';
 
-    const { error } = await supabase
-      .from('pedidos')
-      .update({
-        status: statusPedido,
-        mercado_pago_payment_id: String(paymentId),
-        pagamento_status: statusPagamento,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', pedidoId);
-
-    if (error) throw error;
+    await processarPagamentoComFallback(supabase, String(pedidoId), String(paymentId), statusPagamento, statusPedido);
 
     return NextResponse.json({ received: true, pedidoId, status: statusPedido });
   } catch (error: any) {
