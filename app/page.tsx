@@ -4,8 +4,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabase';
 import Link from 'next/link';
 
-const WHATSAPP_DONO = '5561999999999';
-
 interface Produto {
   id: number;
   nome: string;
@@ -163,8 +161,9 @@ export default function LojaCliente() {
     setEnviando(true);
 
     try {
-      const { data: { user }, error: errAuth } = await supabase.auth.getUser();
-      if (errAuth || !user) {
+      const { data: { session }, error: errSession } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (errSession || !session || !user) {
         adicionarToast('Você precisa estar logado para finalizar o pedido!', 'erro');
         setEnviando(false);
         return;
@@ -190,7 +189,7 @@ export default function LojaCliente() {
           endereco_entrega: endereco,
           valor_total: valorTotal,
           itens: listaItens,
-          status: 'Pendente',
+          status: 'Aguardando Pagamento',
         }])
         .select('id')
         .maybeSingle();
@@ -200,25 +199,35 @@ export default function LojaCliente() {
         throw new Error(errPedido.message);
       }
 
-      adicionarToast('Pedido registrado! Abrindo WhatsApp...', 'sucesso');
-
-      let msg = `*NOVO PEDIDO - VIVA LEVE*\n\n`;
-      msg += `*Cliente:* ${nome}\n`;
-      msg += `*Telefone:* ${telefone}\n`;
-      msg += `*Endereço:* ${endereco}\n`;
-      msg += `*Pedido ID:* ${pedidoCriado?.id ?? ''}\n\n`;
-      msg += `*ITENS:*\n`;
-      listaItens.forEach(item => {
-        msg += `  • ${item.quantidade}x ${item.nome} — ${formatarMoedaBR(item.subtotal)}\n`;
+      const respostaPagamento = await fetch('/api/mercadopago/preference', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          pedidoId: pedidoCriado?.id,
+          itens: listaItens,
+          payer: {
+            nome,
+            telefone,
+            email: user.email,
+          },
+        }),
       });
-      msg += `\n*TOTAL: ${formatarMoedaBR(valorTotal)}*`;
+
+      const pagamento = await respostaPagamento.json();
+      if (!respostaPagamento.ok) {
+        throw new Error(pagamento.error || 'Erro ao iniciar pagamento.');
+      }
+
+      const checkoutUrl = pagamento.initPoint || pagamento.sandboxInitPoint;
+      if (!checkoutUrl) throw new Error('Mercado Pago não retornou a URL de pagamento.');
 
       setCarrinho({});
       setVerCarrinho(false);
-
-      setTimeout(() => {
-        window.open(`https://wa.me/${WHATSAPP_DONO}?text=${encodeURIComponent(msg)}`, '_blank');
-      }, 800);
+      adicionarToast('Pedido registrado. Redirecionando para pagamento...', 'sucesso');
+      window.location.href = checkoutUrl;
 
     } catch (err: any) {
       console.error('[Pedido] Falha:', err);

@@ -45,8 +45,23 @@ interface FormRefeicao {
   produto_id?: number;
 }
 
+interface PerfilCaloricoForm {
+  sexo: string;
+  peso_kg: string;
+  altura_cm: string;
+  idade: string;
+  nivel_atividade: string;
+}
+
 const TIPOS_REFEICAO = ['Café da Manhã', 'Almoço', 'Lanche', 'Jantar'];
 const METAS_MACROS = { proteinas: 150, carboidratos: 225, gorduras: 65 };
+const FATORES_ATIVIDADE = [
+  { valor: 'sedentario', label: 'Sedentário', fator: 1.2 },
+  { valor: 'leve', label: 'Levemente ativo', fator: 1.375 },
+  { valor: 'moderado', label: 'Moderadamente ativo', fator: 1.55 },
+  { valor: 'muito_ativo', label: 'Muito ativo', fator: 1.725 },
+  { valor: 'extremo', label: 'Extremamente ativo', fator: 1.9 },
+];
 const FORM_INICIAL: FormRefeicao = {
   tipo_refeicao: '',
   nome_alimento: '',
@@ -55,6 +70,13 @@ const FORM_INICIAL: FormRefeicao = {
   proteinas: 0,
   carboidratos: 0,
   gorduras: 0,
+};
+const PERFIL_CALORICO_INICIAL: PerfilCaloricoForm = {
+  sexo: '',
+  peso_kg: '',
+  altura_cm: '',
+  idade: '',
+  nivel_atividade: 'sedentario',
 };
 
 function hojeLocal() {
@@ -89,6 +111,23 @@ function percentual(valor: number, meta: number) {
   return Math.min((valor / meta) * 100, 100);
 }
 
+function parseNumero(valor: string) {
+  const numero = Number(valor.replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(numero) ? numero : 0;
+}
+
+function calcularMetaCalorias({ sexo, peso_kg, altura_cm, idade, nivel_atividade }: PerfilCaloricoForm) {
+  const peso = parseNumero(peso_kg);
+  const altura = parseNumero(altura_cm);
+  const anos = parseNumero(idade);
+  if (!sexo || !peso || !altura || !anos) return 2000;
+
+  const ajusteSexo = sexo === 'masculino' ? 5 : -161;
+  const tmb = (10 * peso) + (6.25 * altura) - (5 * anos) + ajusteSexo;
+  const fator = FATORES_ATIVIDADE.find(item => item.valor === nivel_atividade)?.fator ?? 1.2;
+  return Math.max(Math.round(tmb * fator), 1000);
+}
+
 function parseQrPayload(texto: string): { id: number; gramas?: number } | null {
   try {
     const json = JSON.parse(texto);
@@ -113,6 +152,9 @@ export default function Dieta() {
   const [metaCalorias, setMetaCalorias] = useState(2000);
   const [refeicoes, setRefeicoes] = useState<HistoricoRefeicao[]>([]);
   const [carregandoDia, setCarregandoDia] = useState(false);
+  const [perfilAberto, setPerfilAberto] = useState(false);
+  const [salvandoPerfil, setSalvandoPerfil] = useState(false);
+  const [perfilCalorico, setPerfilCalorico] = useState<PerfilCaloricoForm>({ ...PERFIL_CALORICO_INICIAL });
 
   const [modalAberto, setModalAberto] = useState(false);
   const [scannerAberto, setScannerAberto] = useState(false);
@@ -188,6 +230,22 @@ export default function Dieta() {
 
         if (!perfilError && perfil?.meta_calorias) {
           setMetaCalorias(Number(perfil.meta_calorias));
+        }
+
+        const { data: perfilCliente } = await supabase
+          .from('perfis_clientes')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (perfilCliente) {
+          setPerfilCalorico({
+            sexo: perfilCliente.sexo ?? '',
+            peso_kg: perfilCliente.peso_kg ? String(perfilCliente.peso_kg).replace('.', ',') : '',
+            altura_cm: perfilCliente.altura_cm ? String(perfilCliente.altura_cm).replace('.', ',') : '',
+            idade: perfilCliente.idade ? String(perfilCliente.idade) : '',
+            nivel_atividade: perfilCliente.nivel_atividade ?? 'sedentario',
+          });
         }
 
         await carregarDia(user.id, dataSelecionada);
@@ -314,6 +372,44 @@ export default function Dieta() {
       gramas: gramasValidas,
       ...(sugestaoSelecionada ? calcularMacros(sugestaoSelecionada, gramasValidas) : {}),
     }));
+  };
+
+  const salvarPerfilCalorico = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!clienteId) return;
+
+    const novaMeta = calcularMetaCalorias(perfilCalorico);
+    setSalvandoPerfil(true);
+
+    try {
+      const payloadPerfilCliente = {
+        id: clienteId,
+        sexo: perfilCalorico.sexo || null,
+        peso_kg: perfilCalorico.peso_kg ? parseNumero(perfilCalorico.peso_kg) : null,
+        altura_cm: perfilCalorico.altura_cm ? parseNumero(perfilCalorico.altura_cm) : null,
+        idade: perfilCalorico.idade ? Math.round(parseNumero(perfilCalorico.idade)) : null,
+        nivel_atividade: perfilCalorico.nivel_atividade || 'sedentario',
+      };
+
+      const { error: perfilClienteError } = await supabase
+        .from('perfis_clientes')
+        .upsert([payloadPerfilCliente], { onConflict: 'id' });
+      if (perfilClienteError) throw perfilClienteError;
+
+      const { error: metaError } = await supabase
+        .from('perfis')
+        .update({ meta_calorias: novaMeta })
+        .eq('id', clienteId);
+      if (metaError) throw metaError;
+
+      setMetaCalorias(novaMeta);
+      setPerfilAberto(false);
+      mostrarToast(`Meta atualizada para ${novaMeta} kcal.`, 'sucesso');
+    } catch (err: any) {
+      mostrarToast(`Erro ao completar cadastro: ${err.message}`, 'erro');
+    } finally {
+      setSalvandoPerfil(false);
+    }
   };
 
   const salvarRefeicao = async (event: React.FormEvent) => {
@@ -525,6 +621,65 @@ export default function Dieta() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setPerfilAberto(valor => !valor)}
+            className="w-full p-4 flex items-center justify-between text-left"
+          >
+            <div>
+              <h2 className="text-sm font-bold text-gray-700">Completar cadastro</h2>
+              <p className="text-xs text-gray-500">Opcional para calcular sua meta calórica.</p>
+            </div>
+            <span className="text-xs font-bold text-viva-roxo">{perfilAberto ? 'Fechar' : 'Editar'}</span>
+          </button>
+
+          {perfilAberto && (
+            <form onSubmit={salvarPerfilCalorico} className="space-y-4 border-t border-gray-100 p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <label>
+                  <span className="block text-xs font-bold text-gray-600 mb-1">Sexo</span>
+                  <select value={perfilCalorico.sexo} onChange={e => setPerfilCalorico(prev => ({ ...prev, sexo: e.target.value }))} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900">
+                    <option value="">Selecione</option>
+                    <option value="masculino">Masculino</option>
+                    <option value="feminino">Feminino</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span className="block text-xs font-bold text-gray-600 mb-1">Idade</span>
+                  <input inputMode="numeric" value={perfilCalorico.idade} onChange={e => setPerfilCalorico(prev => ({ ...prev, idade: e.target.value.replace(/\D/g, '') }))} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900" placeholder="anos" />
+                </label>
+
+                <label>
+                  <span className="block text-xs font-bold text-gray-600 mb-1">Peso</span>
+                  <input inputMode="decimal" value={perfilCalorico.peso_kg} onChange={e => setPerfilCalorico(prev => ({ ...prev, peso_kg: e.target.value }))} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900" placeholder="kg" />
+                </label>
+
+                <label>
+                  <span className="block text-xs font-bold text-gray-600 mb-1">Altura</span>
+                  <input inputMode="decimal" value={perfilCalorico.altura_cm} onChange={e => setPerfilCalorico(prev => ({ ...prev, altura_cm: e.target.value }))} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900" placeholder="cm" />
+                </label>
+              </div>
+
+              <label>
+                <span className="block text-xs font-bold text-gray-600 mb-1">Nível de atividade</span>
+                <select value={perfilCalorico.nivel_atividade} onChange={e => setPerfilCalorico(prev => ({ ...prev, nivel_atividade: e.target.value }))} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900">
+                  {FATORES_ATIVIDADE.map(item => <option key={item.valor} value={item.valor}>{item.label}</option>)}
+                </select>
+              </label>
+
+              <div className="rounded-xl bg-viva-verde/20 p-3 text-center">
+                <p className="text-xs font-semibold text-viva-roxo">Meta estimada: {calcularMetaCalorias(perfilCalorico)} kcal/dia</p>
+              </div>
+
+              <button disabled={salvandoPerfil} className="w-full rounded-xl bg-gray-900 py-3 text-sm font-bold text-white disabled:opacity-60">
+                {salvandoPerfil ? 'Salvando...' : 'Salvar meta calórica'}
+              </button>
+            </form>
+          )}
         </section>
 
         <div className="grid grid-cols-2 gap-3">

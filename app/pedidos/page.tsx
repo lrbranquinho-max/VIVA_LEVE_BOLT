@@ -24,6 +24,7 @@ interface Pedido {
   itens: ItemPedido[];
   criado_em?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 const ETAPAS_STATUS = [
@@ -58,6 +59,7 @@ function badgeStatus(status: string) {
     'Concluido': 'bg-green-100 text-green-700',
     'Conclu¡do': 'bg-green-100 text-green-700',
     'Entregue': 'bg-green-100 text-green-700',
+    'Pagamento Recusado': 'bg-red-100 text-red-700',
     'Cancelado': 'bg-red-100 text-red-700',
   };
   return cores[status] ?? 'bg-gray-100 text-gray-600';
@@ -87,6 +89,21 @@ function totalPedido(pedido: Pedido) {
 
 function enderecoPedido(pedido: Pedido) {
   return pedido.endereco_entrega || pedido.endereco || 'Endereço não informado';
+}
+
+function dataReferenciaPedido(pedido: Pedido) {
+  return pedido.updated_at ?? pedido.criado_em ?? pedido.created_at;
+}
+
+function entregueHaMaisDe24h(pedido: Pedido) {
+  if (normalizarStatus(pedido.status) !== 'Entregue') return false;
+  const data = dataReferenciaPedido(pedido);
+  if (!data) return false;
+  return Date.now() - new Date(data).getTime() > 24 * 60 * 60 * 1000;
+}
+
+function limiteHistoricoISO() {
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
 function LinhaDoTempo({ status }: { status: string }) {
@@ -141,16 +158,36 @@ export default function MeusPedidos() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [historicoPedidos, setHistoricoPedidos] = useState<Pedido[]>([]);
   const [pedidoAberto, setPedidoAberto] = useState<string | null>(null);
+  const [mostrarHistorico, setMostrarHistorico] = useState(false);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
 
   const carregarPedidos = useCallback(async (userId: string) => {
+    const limite = limiteHistoricoISO();
     const { data, error } = await supabase
       .from('pedidos')
       .select('*')
       .eq('cliente_id', userId)
+      .or(`status.neq.Entregue,updated_at.gte.${limite}`)
       .order('criado_em', { ascending: false });
 
     if (!error && data) setPedidos(data as Pedido[]);
+  }, []);
+
+  const carregarHistorico = useCallback(async (userId: string) => {
+    setCarregandoHistorico(true);
+    const limite = limiteHistoricoISO();
+    const { data, error } = await supabase
+      .from('pedidos')
+      .select('*')
+      .eq('cliente_id', userId)
+      .eq('status', 'Entregue')
+      .lt('updated_at', limite)
+      .order('criado_em', { ascending: false });
+
+    if (!error && data) setHistoricoPedidos(data as Pedido[]);
+    setCarregandoHistorico(false);
   }, []);
 
   useEffect(() => {
@@ -173,7 +210,10 @@ export default function MeusPedidos() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'pedidos', filter: `cliente_id=eq.${user.id}` },
-          () => carregarPedidos(user.id),
+          () => {
+            carregarPedidos(user.id);
+            if (mostrarHistorico) carregarHistorico(user.id);
+          },
         )
         .subscribe();
       setLoading(false);
@@ -185,7 +225,16 @@ export default function MeusPedidos() {
       ativo = false;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [router, carregarPedidos]);
+  }, [router, carregarPedidos, carregarHistorico, mostrarHistorico]);
+
+  const alternarHistorico = async () => {
+    const proximo = !mostrarHistorico;
+    setMostrarHistorico(proximo);
+    if (!proximo || historicoPedidos.length > 0 || carregandoHistorico) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) await carregarHistorico(user.id);
+  };
 
   if (loading) {
     return (
@@ -212,10 +261,11 @@ export default function MeusPedidos() {
       </header>
 
       <main className="space-y-4 p-4">
+        <>
         {pedidos.length === 0 ? (
           <div className="flex flex-col items-center justify-center space-y-4 py-16">
             <div className="text-6xl">&#128203;</div>
-            <p className="text-center font-semibold text-gray-500">Você ainda não fez nenhum pedido.</p>
+            <p className="text-center font-semibold text-gray-500">Nenhum pedido em andamento.</p>
             <Link
               href="/"
               className="rounded-xl bg-viva-roxo px-6 py-3 font-bold text-white shadow-lg transition-all hover:brightness-110"
@@ -308,6 +358,76 @@ export default function MeusPedidos() {
             );
           })
         )}
+
+          <section className="space-y-3 border-t border-gray-200 pt-4">
+            <button
+              type="button"
+              onClick={alternarHistorico}
+              className="flex w-full items-center justify-between rounded-2xl bg-white px-4 py-3 text-left text-sm font-black text-gray-700 shadow-sm"
+            >
+              <span>Histórico de pedidos</span>
+              <span className="text-xs text-gray-400">{mostrarHistorico ? 'Ocultar' : 'Ver histórico'}</span>
+            </button>
+
+            {mostrarHistorico && carregandoHistorico && (
+              <p className="rounded-2xl bg-white p-4 text-center text-xs font-semibold text-gray-400">Carregando histórico...</p>
+            )}
+
+            {mostrarHistorico && !carregandoHistorico && historicoPedidos.length === 0 && (
+              <p className="rounded-2xl bg-white p-4 text-center text-xs font-semibold text-gray-400">Nenhum pedido entregue há mais de 24h.</p>
+            )}
+
+            {mostrarHistorico && historicoPedidos.map(pedido => {
+              const aberto = pedidoAberto === pedido.id;
+
+              return (
+                <div key={pedido.id} className="overflow-hidden rounded-2xl border border-gray-100 bg-white opacity-80 shadow-sm">
+                  <button
+                    onClick={() => setPedidoAberto(aberto ? null : pedido.id)}
+                    className="w-full p-4 text-left"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-gray-500">{formatarData(pedido.criado_em ?? pedido.created_at)}</p>
+                        <p className="mt-0.5 max-w-[180px] truncate text-sm text-gray-600">
+                          #{pedido.id.toString().slice(0, 8).toUpperCase()}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${badgeStatus(pedido.status)}`}>
+                          {pedido.status}
+                        </span>
+                        <span className="text-base font-extrabold text-viva-roxo">
+                          {formatarMoedaBR(totalPedido(pedido))}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex justify-end">
+                      <span className="text-xs text-gray-400">{aberto ? 'Fechar detalhes' : 'Ver detalhes'}</span>
+                    </div>
+                  </button>
+
+                  {aberto && (
+                    <div className="space-y-3 border-t border-gray-100 bg-gray-50 p-4">
+                      <div>
+                        <p className="mb-1 text-xs font-bold uppercase tracking-wider text-gray-500">Endereço de entrega</p>
+                        <p className="text-sm text-gray-700">{enderecoPedido(pedido)}</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        {(pedido.itens ?? []).map((item, idx) => (
+                          <div key={idx} className="flex justify-between text-sm">
+                            <span className="text-gray-700">{item.quantidade}x {item.nome}</span>
+                            <span className="font-semibold text-gray-800">{formatarMoedaBR(item.subtotal ?? item.preco * item.quantidade)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        </>
       </main>
 
       <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5">
