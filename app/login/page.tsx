@@ -58,6 +58,21 @@ export default function LoginCliente() {
             .from('perfis')
             .insert([{ id: data.user.id, nome, telefone }]);
           if (profileError) throw profileError;
+
+          const validade = new Date();
+          validade.setDate(validade.getDate() + 30);
+          const { error: cupomError } = await supabase
+            .from('cupons_desconto')
+            .insert([{
+              cliente_id: data.user.id,
+              percentual_desconto: 30,
+              data_validade: validade.toISOString(),
+              status: 'aberto',
+            }]);
+
+          if (cupomError && cupomError.code !== '23505') {
+            console.warn('[Cadastro] Cupom de boas-vindas nao criado:', cupomError.message);
+          }
         }
 
         setMensagem({ texto: 'Cadastro realizado! Voce ja pode fazer login.', tipo: 'sucesso' });

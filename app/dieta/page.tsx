@@ -54,7 +54,6 @@ interface PerfilCaloricoForm {
 }
 
 const TIPOS_REFEICAO = ['Café da Manhã', 'Almoço', 'Lanche', 'Jantar'];
-const METAS_MACROS = { proteinas: 150, carboidratos: 225, gorduras: 65 };
 const FATORES_ATIVIDADE = [
   { valor: 'sedentario', label: 'Sedentário', fator: 1.2 },
   { valor: 'leve', label: 'Levemente ativo', fator: 1.375 },
@@ -109,6 +108,15 @@ function calcularMacros(item: SugestaoAlimento, gramas: number) {
 function percentual(valor: number, meta: number) {
   if (!meta) return 0;
   return Math.min((valor / meta) * 100, 100);
+}
+
+function mensagemKcal(consumo: number, meta: number) {
+  const pct = meta > 0 ? (consumo / meta) * 100 : 0;
+  if (pct < 75) return 'Kcal muito abaixo do ideal';
+  if (pct <= 95) return 'Kcal ideal para dietas de emagrecimento';
+  if (pct <= 105) return 'Kcal ideal para dietas de manutencao de peso';
+  if (pct <= 125) return 'Kcal ideal para dietas de ganho de massa muscular';
+  return 'Kcal muito acima';
 }
 
 function parseNumero(valor: string) {
@@ -280,6 +288,21 @@ export default function Dieta() {
     carboidratos: acc.carboidratos + Number(item.carboidratos ?? 0),
     gorduras: acc.gorduras + Number(item.gorduras ?? 0),
   }), { kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0 }), [refeicoes]);
+
+  const metasMacros = useMemo(() => {
+    const peso = parseNumero(perfilCalorico.peso_kg);
+    const metaProteinas = peso > 0 ? peso * 2 : 150;
+    const metaGorduras = peso > 0 ? peso : 65;
+    const kcalProteinas = metaProteinas * 4;
+    const kcalGorduras = metaGorduras * 9;
+    const kcalCarboidratos = Math.max(metaCalorias - kcalProteinas - kcalGorduras, 0);
+
+    return {
+      proteinas: arredondar(metaProteinas, 0),
+      gorduras: arredondar(metaGorduras, 0),
+      carboidratos: arredondar(kcalCarboidratos / 4, 0),
+    };
+  }, [metaCalorias, perfilCalorico.peso_kg]);
 
   const refeicoesPorTipo = useMemo(() => TIPOS_REFEICAO.map(tipo => ({
     tipo,
@@ -622,17 +645,21 @@ export default function Dieta() {
             <div className="w-full bg-gray-200 h-3 rounded-full overflow-hidden">
               <div className={`h-full rounded-full transition-all duration-500 ${totais.kcal > metaCalorias ? 'bg-red-400' : 'bg-gradient-to-r from-viva-verde to-viva-roxo'}`} style={{ width: `${percentual(totais.kcal, metaCalorias)}%` }} />
             </div>
+            <p className="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-center text-xs font-bold text-viva-roxo">
+              {mensagemKcal(totais.kcal, metaCalorias)}
+            </p>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'Proteínas', value: totais.proteinas, meta: METAS_MACROS.proteinas, cor: 'bg-red-400' },
-              { label: 'Carbos', value: totais.carboidratos, meta: METAS_MACROS.carboidratos, cor: 'bg-blue-400' },
-              { label: 'Gorduras', value: totais.gorduras, meta: METAS_MACROS.gorduras, cor: 'bg-yellow-400' },
+              { label: 'Proteínas', value: totais.proteinas, meta: metasMacros.proteinas, cor: 'bg-red-400' },
+              { label: 'Carbos', value: totais.carboidratos, meta: metasMacros.carboidratos, cor: 'bg-blue-400' },
+              { label: 'Gorduras', value: totais.gorduras, meta: metasMacros.gorduras, cor: 'bg-yellow-400' },
             ].map(({ label, value, meta, cor }) => (
               <div key={label} className="bg-gray-50 rounded-xl p-3 text-center">
                 <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
                 <p className="text-base font-extrabold text-gray-800">{arredondar(value)}g</p>
+                <p className="mt-0.5 text-[10px] font-bold text-gray-500">{arredondar(value)} / {meta} gr</p>
                 <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden mt-1.5">
                   <div className={`${cor} h-full rounded-full transition-all duration-500`} style={{ width: `${percentual(value, meta)}%` }} />
                 </div>

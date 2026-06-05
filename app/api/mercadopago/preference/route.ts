@@ -88,13 +88,17 @@ export async function POST(request: NextRequest) {
         email: payer?.email,
         phone: payer?.telefone ? { number: payer.telefone.replace(/\D/g, '') } : undefined,
       },
-      items: itens.map(item => ({
-        id: String(item.id),
-        title: item.nome,
-        quantity: Number(item.quantidade),
+      payment_methods: {
+        excluded_payment_types: [],
+      },
+      items: [{
+        id: String(pedido.id),
+        title: `Pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
+        description: itens.map(item => `${item.quantidade}x ${item.nome}`).join(', ').slice(0, 250),
+        quantity: 1,
         currency_id: 'BRL',
-        unit_price: Number(item.preco),
-      })),
+        unit_price: Number(pedido.valor_total),
+      }],
       metadata: {
         pedido_id: pedidoId,
       },

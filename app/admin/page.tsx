@@ -390,6 +390,11 @@ export default function AdminPage() {
         router.replace('/login');
         return;
       }
+      const { data: isAdmin, error: adminError } = await supabase.rpc('is_viva_leve_admin');
+      if (adminError || !isAdmin) {
+        router.replace('/login');
+        return;
+      }
       setUsuarioEmail(user.email ?? '');
       setLoading(false);
     }

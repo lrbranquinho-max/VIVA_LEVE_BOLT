@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '../supabase';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { supabase } from '../supabase';
+import Logo from '../components/Logo';
 
 interface Produto {
   id: number;
@@ -20,11 +21,29 @@ interface Produto {
   ativo: boolean;
 }
 
+interface CupomDesconto {
+  id: string;
+  percentual_desconto: number;
+  data_validade: string;
+}
+
+interface CanalLoja {
+  nome_rede: string;
+  endereco: string;
+}
+
 interface Toast {
   id: number;
   texto: string;
   tipo: 'sucesso' | 'erro' | 'info';
 }
+
+const FRETE_PADRAO = 10;
+const LIMITE_FRETE_GRATIS = 100;
+const LIMITE_DESCONTO_AUTOMATICO = 300;
+const DESCONTO_AUTOMATICO_PERCENTUAL = 10;
+
+let toastId = 0;
 
 function formatarNumeroBR(valor: number | string, casas = 1) {
   return Number(valor || 0).toLocaleString('pt-BR', {
@@ -40,10 +59,11 @@ function formatarMoedaBR(valor: number | string) {
   });
 }
 
-let toastId = 0;
-
 export default function LojaCliente() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [canais, setCanais] = useState<CanalLoja[]>([]);
+  const [cupons, setCupons] = useState<CupomDesconto[]>([]);
+  const [cupomSelecionadoId, setCupomSelecionadoId] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
 
@@ -54,7 +74,8 @@ export default function LojaCliente() {
   const [telefone, setTelefone] = useState('');
   const [endereco, setEndereco] = useState('');
   const [enviando, setEnviando] = useState(false);
-
+  const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix'>('checkout');
+  const [pixGerado, setPixGerado] = useState<{ qrCode: string; qrCodeBase64?: string; ticketUrl?: string } | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const adicionarToast = useCallback((texto: string, tipo: Toast['tipo'] = 'info') => {
@@ -63,21 +84,44 @@ export default function LojaCliente() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
 
+  const carregarCupons = useCallback(async (userId: string) => {
+    const { data, error } = await supabase
+      .from('cupons_desconto')
+      .select('id, percentual_desconto, data_validade')
+      .eq('cliente_id', userId)
+      .eq('status', 'aberto')
+      .gte('data_validade', new Date().toISOString())
+      .order('data_validade', { ascending: true });
+
+    if (error) return;
+    const lista = (data ?? []) as CupomDesconto[];
+    setCupons(lista);
+    setCupomSelecionadoId(lista[0]?.id ?? '');
+  }, []);
+
   useEffect(() => {
     async function init() {
       setCarregando(true);
       setErroCarga(null);
 
       try {
-        const { data: produtosData, error: errProdutos } = await supabase
-          .from('produtos')
-          .select('*')
-          .eq('ativo', true)
-          .gt('estoque', 0)
-          .order('categoria', { ascending: true });
+        const [produtosRes, canaisRes] = await Promise.all([
+          supabase
+            .from('produtos')
+            .select('*')
+            .eq('ativo', true)
+            .gt('estoque', 0)
+            .order('categoria', { ascending: true }),
+          supabase
+            .from('canais_loja')
+            .select('nome_rede,endereco')
+            .eq('ativo', true)
+            .order('nome_rede', { ascending: true }),
+        ]);
 
-        if (errProdutos) throw new Error(errProdutos.message);
-        setProdutos(produtosData ?? []);
+        if (produtosRes.error) throw new Error(produtosRes.error.message);
+        setProdutos(produtosRes.data ?? []);
+        if (!canaisRes.error) setCanais((canaisRes.data ?? []) as CanalLoja[]);
       } catch (err: any) {
         console.error('[Loja] Erro ao carregar produtos:', err);
         setErroCarga(err.message);
@@ -87,40 +131,58 @@ export default function LojaCliente() {
 
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: perfil } = await supabase
-            .from('perfis')
-            .select('nome, telefone')
-            .eq('id', user.id)
-            .maybeSingle();
+        if (!user) return;
 
-          if (perfil) {
-            setNome(perfil.nome ?? '');
-            setTelefone(perfil.telefone ?? '');
-          }
+        const { data: perfil } = await supabase
+          .from('perfis')
+          .select('nome, telefone')
+          .eq('id', user.id)
+          .maybeSingle();
 
-          const { data: perfilCliente } = await supabase
-            .from('perfis_clientes')
-            .select('endereco_rua, endereco_numero, bairro, regiao_df')
-            .eq('id', user.id)
-            .maybeSingle();
-
-          if (perfilCliente) {
-            const parts = [
-              perfilCliente.endereco_rua,
-              perfilCliente.endereco_numero,
-              perfilCliente.bairro,
-              perfilCliente.regiao_df,
-            ].filter(Boolean);
-            setEndereco(parts.join(', '));
-          }
+        if (perfil) {
+          setNome(perfil.nome ?? '');
+          setTelefone(perfil.telefone ?? '');
         }
-      } catch (err: any) {
+
+        const { data: perfilCliente } = await supabase
+          .from('perfis_clientes')
+          .select('endereco_rua, endereco_numero, bairro, regiao_df')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (perfilCliente) {
+          setEndereco([
+            perfilCliente.endereco_rua,
+            perfilCliente.endereco_numero,
+            perfilCliente.bairro,
+            perfilCliente.regiao_df,
+          ].filter(Boolean).join(', '));
+        }
+
+        await carregarCupons(user.id);
+      } catch (err) {
         console.error('[Loja] Erro ao carregar perfil:', err);
       }
     }
+
     init();
-  }, []);
+  }, [carregarCupons]);
+
+  const subtotalProdutos = useMemo(() => Object.entries(carrinho).reduce((total, [id, qtd]) => {
+    const produto = produtos.find(p => p.id === Number(id));
+    return total + (produto ? produto.preco * qtd : 0);
+  }, 0), [carrinho, produtos]);
+
+  const cupomSelecionado = cupons.find(cupom => cupom.id === cupomSelecionadoId);
+  const descontoCupomPercentual = Number(cupomSelecionado?.percentual_desconto ?? 0);
+  const descontoAutomaticoPercentual = subtotalProdutos >= LIMITE_DESCONTO_AUTOMATICO ? DESCONTO_AUTOMATICO_PERCENTUAL : 0;
+  const descontoPercentual = Math.max(descontoCupomPercentual, descontoAutomaticoPercentual);
+  const descontoValor = subtotalProdutos * (descontoPercentual / 100);
+  const valorFrete = subtotalProdutos > 0 && subtotalProdutos < LIMITE_FRETE_GRATIS ? FRETE_PADRAO : 0;
+  const totalPedidoFinal = Math.max(subtotalProdutos - descontoValor + valorFrete, 0);
+  const totalItens = Object.values(carrinho).reduce((a, b) => a + b, 0);
+
+  const canalPorNome = (nomeRede: string) => canais.find(canal => canal.nome_rede.toLowerCase() === nomeRede.toLowerCase());
 
   const adicionarAoCarrinho = (id: number) => {
     const produto = produtos.find(p => p.id === id);
@@ -151,14 +213,6 @@ export default function LojaCliente() {
     });
   };
 
-  const totalItens = Object.values(carrinho).reduce((a, b) => a + b, 0);
-
-  const calcularTotalPreco = () =>
-    Object.entries(carrinho).reduce((total, [id, qtd]) => {
-      const produto = produtos.find(p => p.id === Number(id));
-      return total + (produto ? produto.preco * qtd : 0);
-    }, 0);
-
   const revalidarEstoqueCarrinho = async () => {
     const ids = Object.keys(carrinho).map(Number);
     if (ids.length === 0) return [];
@@ -173,7 +227,6 @@ export default function LojaCliente() {
     const produtosAtualizados = (data ?? []) as Produto[];
     const mapa = new Map(produtosAtualizados.map(produto => [produto.id, produto]));
     const carrinhoCorrigido = { ...carrinho };
-
     let erroEstoque = '';
 
     for (const [idTexto, qtd] of Object.entries(carrinho)) {
@@ -181,12 +234,12 @@ export default function LojaCliente() {
       const produto = mapa.get(id);
       if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
         delete carrinhoCorrigido[id];
-        erroEstoque = `"${produto?.nome ?? 'Produto'}" não está mais disponível.`;
+        erroEstoque = `"${produto?.nome ?? 'Produto'}" nao esta mais disponivel.`;
         continue;
       }
       if (qtd > Number(produto.estoque || 0)) {
         carrinhoCorrigido[id] = Number(produto.estoque || 0);
-        erroEstoque = `Estoque insuficiente para "${produto.nome}". Disponível: ${produto.estoque} unidade(s).`;
+        erroEstoque = `Estoque insuficiente para "${produto.nome}". Disponivel: ${produto.estoque} unidade(s).`;
       }
     }
 
@@ -204,7 +257,7 @@ export default function LojaCliente() {
     e.preventDefault();
 
     if (!nome.trim() || !telefone.trim() || !endereco.trim()) {
-      adicionarToast('Preencha nome, telefone e endereço!', 'erro');
+      adicionarToast('Preencha nome, telefone e endereco!', 'erro');
       return;
     }
     if (totalItens === 0) {
@@ -218,7 +271,7 @@ export default function LojaCliente() {
       const { data: { session }, error: errSession } = await supabase.auth.getSession();
       const user = session?.user;
       if (errSession || !session || !user) {
-        adicionarToast('Você precisa estar logado para finalizar o pedido!', 'erro');
+        adicionarToast('Voce precisa estar logado para finalizar o pedido!', 'erro');
         setEnviando(false);
         return;
       }
@@ -227,23 +280,34 @@ export default function LojaCliente() {
       const produtosParaPedido = estoqueAtualizado.length > 0 ? estoqueAtualizado : produtos;
 
       const listaItens = Object.entries(carrinho).map(([id, qtd]) => {
-        const p = produtosParaPedido.find(prod => prod.id === Number(id));
+        const produto = produtosParaPedido.find(prod => prod.id === Number(id));
         return {
           id: Number(id),
-          nome: p?.nome ?? 'Produto',
-          preco: p?.preco ?? 0,
+          nome: produto?.nome ?? 'Produto',
+          preco: produto?.preco ?? 0,
           quantidade: qtd,
-          subtotal: (p?.preco ?? 0) * qtd,
+          subtotal: (produto?.preco ?? 0) * qtd,
         };
       });
 
-      const valorTotal = listaItens.reduce((total, item) => total + item.subtotal, 0);
+      const subtotalValidado = listaItens.reduce((total, item) => total + item.subtotal, 0);
+      const freteValidado = subtotalValidado > 0 && subtotalValidado < LIMITE_FRETE_GRATIS ? FRETE_PADRAO : 0;
+      const descontoAutomaticoValidado = subtotalValidado >= LIMITE_DESCONTO_AUTOMATICO ? DESCONTO_AUTOMATICO_PERCENTUAL : 0;
+      const descontoCupomValidado = cupomSelecionado ? Number(cupomSelecionado.percentual_desconto) : 0;
+      const descontoPercentualValidado = Math.max(descontoAutomaticoValidado, descontoCupomValidado);
+      const descontoValorValidado = subtotalValidado * (descontoPercentualValidado / 100);
+      const valorTotal = Math.max(subtotalValidado - descontoValorValidado + freteValidado, 0);
 
       const { data: pedidoCriado, error: errPedido } = await supabase
         .from('pedidos')
         .insert([{
           cliente_id: user.id,
           endereco_entrega: endereco,
+          subtotal_produtos: subtotalValidado,
+          valor_frete: freteValidado,
+          desconto_percentual: descontoPercentualValidado,
+          desconto_valor: descontoValorValidado,
+          cupom_id: cupomSelecionado?.id ?? null,
           valor_total: valorTotal,
           itens: listaItens,
           status: 'Aguardando Pagamento',
@@ -251,12 +315,9 @@ export default function LojaCliente() {
         .select('id')
         .maybeSingle();
 
-      if (errPedido) {
-        console.error('[Pedido] Erro ao gravar pedido:', errPedido);
-        throw new Error(errPedido.message);
-      }
+      if (errPedido) throw new Error(errPedido.message);
 
-      const respostaPagamento = await fetch('/api/mercadopago/preference', {
+      const respostaPagamento = await fetch(metodoPagamento === 'pix' ? '/api/mercadopago/pix' : '/api/mercadopago/preference', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -274,18 +335,29 @@ export default function LojaCliente() {
       });
 
       const pagamento = await respostaPagamento.json();
-      if (!respostaPagamento.ok) {
-        throw new Error(pagamento.error || 'Erro ao iniciar pagamento.');
+      if (!respostaPagamento.ok) throw new Error(pagamento.error || 'Erro ao iniciar pagamento.');
+
+      if (metodoPagamento === 'pix') {
+        setPixGerado({
+          qrCode: pagamento.qrCode,
+          qrCodeBase64: pagamento.qrCodeBase64,
+          ticketUrl: pagamento.ticketUrl,
+        });
+        setCarrinho({});
+        setVerCarrinho(false);
+        setCupomSelecionadoId('');
+        adicionarToast('Pix gerado. Copie o codigo para pagar.', 'sucesso');
+        return;
       }
 
       const checkoutUrl = pagamento.initPoint || pagamento.sandboxInitPoint;
-      if (!checkoutUrl) throw new Error('Mercado Pago não retornou a URL de pagamento.');
+      if (!checkoutUrl) throw new Error('Mercado Pago nao retornou a URL de pagamento.');
 
       setCarrinho({});
       setVerCarrinho(false);
+      setCupomSelecionadoId('');
       adicionarToast('Pedido registrado. Redirecionando para pagamento...', 'sucesso');
       window.location.href = checkoutUrl;
-
     } catch (err: any) {
       console.error('[Pedido] Falha:', err);
       adicionarToast('Erro ao enviar pedido: ' + (err.message ?? 'tente novamente'), 'erro');
@@ -295,18 +367,20 @@ export default function LojaCliente() {
   };
 
   const categorias = Array.from(new Set(produtos.map(p => p.categoria)));
+  const instagram = canalPorNome('Instagram');
+  const whatsapp = canalPorNome('WhatsApp');
+  const ifood = canalPorNome('iFood');
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans max-w-md mx-auto shadow-2xl relative pb-20">
-
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-[calc(100%-2rem)] max-w-sm space-y-2 pointer-events-none">
+    <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl">
+      <div className="pointer-events-none fixed left-1/2 top-4 z-[100] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 space-y-2">
         {toasts.map(t => (
           <div
             key={t.id}
-            className={`px-4 py-3 rounded-xl text-sm font-semibold shadow-lg text-center ${
+            className={`rounded-xl px-4 py-3 text-center text-sm font-semibold shadow-lg ${
               t.tipo === 'sucesso' ? 'bg-green-500 text-white' :
-              t.tipo === 'erro'   ? 'bg-red-500 text-white' :
-                                    'bg-gray-800 text-white'
+              t.tipo === 'erro' ? 'bg-red-500 text-white' :
+              'bg-gray-800 text-white'
             }`}
           >
             {t.texto}
@@ -314,115 +388,120 @@ export default function LojaCliente() {
         ))}
       </div>
 
-      <header className="bg-viva-roxo text-white p-5 rounded-b-3xl shadow-md">
-        <div className="flex justify-between items-center gap-3">
-          <h1 className="text-2xl font-extrabold text-viva-verde tracking-tight">VIVA LEVE</h1>
-          <Link href="/perfil" className="text-white/80 hover:text-white transition flex-shrink-0">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+      <header className="border-b border-gray-100 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <Logo />
+          </div>
+          <Link href="/perfil" className="p-1 text-gray-400 hover:text-viva-roxo" aria-label="Abrir perfil">
+            <span className="text-xl">&#128100;</span>
           </Link>
         </div>
+        <h1 className="mt-3 text-xl font-bold text-gray-800">Cardapio Virtual</h1>
+        {/*
+          <a href="#" target="_blank" rel="noreferrer" className="hidden">
+            iFood · Viva-Leve no Ifood
+          </a>
+        */}
       </header>
 
-      <main className="p-4 space-y-4">
-        <h2 className="font-bold text-gray-800 text-lg">Cardápio Virtual</h2>
+      <main className="space-y-4 p-4">
+        {(instagram || whatsapp || ifood) && (
+          <div className="grid grid-cols-3 gap-2">
+            {instagram && (
+              <a href={instagram.endereco} target="_blank" rel="noreferrer" className="rounded-xl border border-gray-100 bg-white px-2 py-2 text-center text-xs font-black text-viva-roxo shadow-sm">
+                Instagram
+              </a>
+            )}
+            {whatsapp && (
+              <a href={whatsapp.endereco} target="_blank" rel="noreferrer" className="rounded-xl border border-gray-100 bg-white px-2 py-2 text-center text-xs font-black text-viva-roxo shadow-sm">
+                WhatsApp
+              </a>
+            )}
+            {ifood && (
+              <a href={ifood.endereco} target="_blank" rel="noreferrer" className="rounded-xl border border-gray-100 bg-white px-2 py-2 text-center text-xs font-black text-viva-roxo shadow-sm">
+                iFood - Viva-Leve no Ifood
+              </a>
+            )}
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-viva-verde/40 bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
+          Ganhe 10% de desconto em compras acima de {formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)}.
+        </div>
 
         {carregando ? (
-          <p className="text-center text-gray-500 animate-pulse py-10">Carregando refeições...</p>
+          <p className="animate-pulse py-10 text-center text-gray-500">Carregando refeicoes...</p>
         ) : erroCarga ? (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
-            <p className="text-red-600 font-semibold text-sm">Não foi possível carregar o cardápio.</p>
-            <p className="text-red-400 text-xs mt-1">{erroCarga}</p>
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+            <p className="text-sm font-semibold text-red-600">Nao foi possivel carregar o cardapio.</p>
+            <p className="mt-1 text-xs text-red-400">{erroCarga}</p>
           </div>
         ) : produtos.length === 0 ? (
-          <div className="text-center py-16 text-gray-500">
-            <p className="text-4xl mb-3">🥗</p>
+          <div className="py-16 text-center text-gray-500">
+            <p className="mb-3 text-4xl">VL</p>
             <p className="font-semibold">Nenhum item em estoque no momento.</p>
           </div>
         ) : (
-          categorias.map(cat => {
-            const itensCat = produtos.filter(p => p.categoria === cat);
-            return (
-              <div key={cat || 'sem-categoria'}>
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 mt-3">{cat || 'Outros'}</h3>
-                <div className="space-y-3">
-                  {itensCat.map(item => (
-                    <div key={item.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex gap-4 relative">
-                      {item.imagem_url ? (
-                        <img
-                          src={item.imagem_url}
-                          alt={item.nome}
-                          className="w-20 h-20 rounded-xl flex-shrink-0 object-cover"
-                        />
-                      ) : (
-                        <div className="w-20 h-20 bg-gradient-to-br from-green-50 to-green-100 rounded-xl flex-shrink-0 flex items-center justify-center text-3xl">
-                          🥗
-                        </div>
-                      )}
+          categorias.map(cat => (
+            <div key={cat || 'sem-categoria'}>
+              <h3 className="mb-2 mt-3 text-xs font-bold uppercase tracking-widest text-gray-400">{cat || 'Outros'}</h3>
+              <div className="space-y-3">
+                {produtos.filter(p => p.categoria === cat).map(item => (
+                  <div key={item.id} className="relative flex gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+                    {item.imagem_url ? (
+                      <img src={item.imagem_url} alt={item.nome} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" />
+                    ) : (
+                      <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-green-50 to-green-100 text-lg font-black text-viva-roxo">
+                        VL
+                      </div>
+                    )}
 
-                      <div className="flex-1 flex flex-col justify-between min-w-0">
-                        <div>
-                          <h3 className="font-bold text-gray-800 text-sm leading-tight">{item.nome}</h3>
-                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.descricao}</p>
-                          {(item.kcal > 0 || item.proteinas > 0 || item.carboidratos > 0 || item.gorduras > 0 || item.porcao_g) && (
-                            <p className="text-[10px] text-gray-400 mt-1">
-                              {item.porcao_g ? `${formatarNumeroBR(item.porcao_g, 0)}g porção · ` : ''}
-                              {formatarNumeroBR(item.kcal, 0)} kcal · {formatarNumeroBR(item.proteinas)}g prot · {formatarNumeroBR(item.carboidratos)}g carb · {formatarNumeroBR(item.gorduras)}g gord
-                            </p>
-                          )}
-                        </div>
+                    <div className="flex min-w-0 flex-1 flex-col justify-between">
+                      <div>
+                        <h3 className="text-sm font-bold leading-tight text-gray-800">{item.nome}</h3>
+                        <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{item.descricao}</p>
+                        {(item.kcal > 0 || item.proteinas > 0 || item.carboidratos > 0 || item.gorduras > 0 || item.porcao_g) && (
+                          <p className="mt-1 text-[10px] text-gray-400">
+                            {item.porcao_g ? `${formatarNumeroBR(item.porcao_g, 0)}g porcao · ` : ''}
+                            {formatarNumeroBR(item.kcal, 0)} kcal · {formatarNumeroBR(item.proteinas)}g prot · {formatarNumeroBR(item.carboidratos)}g carb · {formatarNumeroBR(item.gorduras)}g gord
+                          </p>
+                        )}
+                      </div>
 
-                        <div className="flex justify-between items-center mt-2">
-                          <p className="font-extrabold text-viva-roxo text-base">{formatarMoedaBR(item.preco)}</p>
-
-                          {carrinho[item.id] ? (
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => removerDoCarrinho(item.id)}
-                                className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 font-bold flex items-center justify-center text-sm active:scale-90 transition"
-                              >
-                                −
-                              </button>
-                              <span className="font-bold text-sm w-4 text-center text-gray-800">{carrinho[item.id]}</span>
-                              <button
-                                onClick={() => adicionarAoCarrinho(item.id)}
-                                disabled={carrinho[item.id] >= Number(item.estoque || 0)}
-                                className="w-7 h-7 rounded-full bg-viva-verde text-viva-roxo font-bold flex items-center justify-center text-sm active:scale-90 transition"
-                              >
-                                +
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => adicionarAoCarrinho(item.id)}
-                              disabled={Number(item.estoque || 0) <= 0}
-                              className="bg-viva-verde text-viva-roxo font-bold py-1.5 px-3 rounded-full text-xs shadow-sm active:scale-95 transition-transform"
-                            >
-                              + Adicionar
-                            </button>
-                          )}
-                        </div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <p className="text-base font-extrabold text-viva-roxo">{formatarMoedaBR(item.preco)}</p>
+                        {carrinho[item.id] ? (
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
+                            <span className="w-4 text-center text-sm font-bold text-gray-800">{carrinho[item.id]}</span>
+                            <button onClick={() => adicionarAoCarrinho(item.id)} disabled={carrinho[item.id] >= Number(item.estoque || 0)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => adicionarAoCarrinho(item.id)} disabled={Number(item.estoque || 0) <= 0} className="rounded-full bg-viva-verde px-3 py-1.5 text-xs font-bold text-viva-roxo shadow-sm transition-transform active:scale-95 disabled:opacity-40">
+                            + Adicionar
+                          </button>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            );
-          })
+            </div>
+          ))
         )}
       </main>
 
       {verCarrinho && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center max-w-md mx-auto">
-          <div className="bg-white w-full rounded-t-3xl p-6 max-h-[92vh] overflow-y-auto space-y-5">
-            <div className="flex justify-between items-center border-b pb-3">
+        <div className="fixed inset-0 z-50 mx-auto flex max-w-md items-end justify-center bg-black/50">
+          <div className="max-h-[92vh] w-full space-y-5 overflow-y-auto rounded-t-3xl bg-white p-6">
+            <div className="flex items-center justify-between border-b pb-3">
               <h3 className="text-lg font-bold text-viva-roxo">Sua Sacola</h3>
-              <button onClick={() => setVerCarrinho(false)} className="text-gray-400 text-sm font-semibold">Fechar ✕</button>
+              <button onClick={() => setVerCarrinho(false)} className="text-sm font-semibold text-gray-400">Fechar</button>
             </div>
 
             {totalItens === 0 ? (
-              <p className="text-center text-gray-500 py-8">Sua sacola está vazia.</p>
+              <p className="py-8 text-center text-gray-500">Sua sacola esta vazia.</p>
             ) : (
               <>
                 <div className="space-y-2">
@@ -430,44 +509,86 @@ export default function LojaCliente() {
                     const prod = produtos.find(p => p.id === Number(id));
                     if (!prod) return null;
                     return (
-                      <div key={id} className="flex justify-between items-center text-sm py-2 border-b border-gray-100">
-                        <span className="text-gray-700 flex-1 font-medium">{prod.nome}</span>
-                        <div className="flex items-center gap-2 ml-2">
-                          <button onClick={() => removerDoCarrinho(prod.id)} className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 font-bold flex items-center justify-center text-xs active:scale-90">−</button>
-                          <span className="font-bold w-4 text-center">{qtd}</span>
-                          <button onClick={() => adicionarAoCarrinho(prod.id)} className="w-6 h-6 rounded-full bg-viva-verde text-viva-roxo font-bold flex items-center justify-center text-xs active:scale-90">+</button>
-                          <span className="font-bold text-viva-roxo w-16 text-right">{formatarMoedaBR(prod.preco * qtd)}</span>
+                      <div key={id} className="flex items-center justify-between border-b border-gray-100 py-2 text-sm">
+                        <span className="flex-1 font-medium text-gray-700">{prod.nome}</span>
+                        <div className="ml-2 flex items-center gap-2">
+                          <button onClick={() => removerDoCarrinho(prod.id)} className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600 active:scale-90">-</button>
+                          <span className="w-4 text-center font-bold">{qtd}</span>
+                          <button onClick={() => adicionarAoCarrinho(prod.id)} className="flex h-6 w-6 items-center justify-center rounded-full bg-viva-verde text-xs font-bold text-viva-roxo active:scale-90">+</button>
+                          <span className="w-16 text-right font-bold text-viva-roxo">{formatarMoedaBR(prod.preco * qtd)}</span>
                         </div>
                       </div>
                     );
                   })}
-                  <div className="flex justify-between font-extrabold text-lg pt-2 text-gray-800">
-                    <span>Total:</span>
-                    <span className="text-viva-roxo">{formatarMoedaBR(calcularTotalPreco())}</span>
+
+                  <div className="rounded-xl bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
+                    Frete gratis em compras a partir de {formatarMoedaBR(LIMITE_FRETE_GRATIS)}. Compras acima de {formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)} ganham 10% de desconto.
+                  </div>
+
+                  {cupons.length > 0 && (
+                    <div className="rounded-xl border border-purple-100 bg-purple-50 p-3">
+                      <label className="mb-1 block text-xs font-bold text-viva-roxo">Cupom disponivel</label>
+                      <select value={cupomSelecionadoId} onChange={e => setCupomSelecionadoId(e.target.value)} className="w-full rounded-lg border border-purple-100 bg-white p-2 text-sm font-semibold text-gray-700">
+                        <option value="">Nao aplicar cupom</option>
+                        {cupons.map(cupom => (
+                          <option key={cupom.id} value={cupom.id}>
+                            {formatarNumeroBR(cupom.percentual_desconto, 0)}% de desconto · valido ate {new Date(cupom.data_validade).toLocaleDateString('pt-BR')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="space-y-1 border-t border-gray-100 pt-2 text-sm">
+                    <div className="flex justify-between text-gray-600">
+                      <span>Subtotal</span>
+                      <span>{formatarMoedaBR(subtotalProdutos)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-600">
+                      <span>Frete</span>
+                      <span>{valorFrete === 0 ? 'Gratis' : formatarMoedaBR(valorFrete)}</span>
+                    </div>
+                    {descontoPercentual > 0 && (
+                      <div className="flex justify-between text-green-700">
+                        <span>Desconto ({formatarNumeroBR(descontoPercentual, 0)}%)</span>
+                        <span>- {formatarMoedaBR(descontoValor)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-2 text-lg font-extrabold text-gray-800">
+                      <span>Total:</span>
+                      <span className="text-viva-roxo">{formatarMoedaBR(totalPedidoFinal)}</span>
+                    </div>
                   </div>
                 </div>
 
-                <form onSubmit={finalizarPedido} className="space-y-4 pt-2 border-t border-gray-100">
-                  <h4 className="font-bold text-sm text-gray-500 uppercase tracking-wider">Dados para Entrega</h4>
+                <form onSubmit={finalizarPedido} className="space-y-4 border-t border-gray-100 pt-2">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500">Dados para Entrega</h4>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-gray-600">Nome completo *</label>
+                    <input required type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-gray-600">WhatsApp *</label>
+                    <input required type="tel" value={telefone} onChange={e => setTelefone(e.target.value)} className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-gray-600">Endereco de entrega *</label>
+                    <input required type="text" value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Quadra, Bairro..." className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                  </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">Nome completo *</label>
-                    <input required type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-xl text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">WhatsApp *</label>
-                    <input required type="tel" value={telefone} onChange={e => setTelefone(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-xl text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">Endereço de entrega *</label>
-                    <input required type="text" value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Quadra, Bairro..." className="w-full p-2.5 border border-gray-200 rounded-xl text-sm" />
+                    <label className="mb-2 block text-xs font-bold text-gray-600">Meio de pagamento</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setMetodoPagamento('checkout')} className={`rounded-xl border px-3 py-2 text-xs font-black ${metodoPagamento === 'checkout' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
+                        Cartao / Debito
+                      </button>
+                      <button type="button" onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border px-3 py-2 text-xs font-black ${metodoPagamento === 'pix' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
+                        Pix copia e cola
+                      </button>
+                    </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={enviando}
-                    className="w-full bg-viva-roxo text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-[0.99] transition-all disabled:opacity-60 text-center"
-                  >
+                  <button type="submit" disabled={enviando} className="w-full rounded-xl bg-viva-roxo py-3.5 text-center font-bold text-white shadow-lg transition-all active:scale-[0.99] disabled:opacity-60">
                     {enviando ? 'Processando...' : 'Confirmar Pedido'}
                   </button>
                 </form>
@@ -477,30 +598,66 @@ export default function LojaCliente() {
         </div>
       )}
 
-      <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 flex justify-around p-3 pb-5 z-10">
-        <Link href="/" className="flex flex-col items-center text-viva-roxo">
-          <span className="text-xl">🏠</span>
-          <span className="text-[10px] font-bold mt-1">Loja</span>
-        </Link>
+      {pixGerado && (
+        <div className="fixed inset-0 z-[70] mx-auto flex max-w-md items-center justify-center bg-black/60 p-4">
+          <div className="w-full rounded-2xl bg-white p-5 text-center shadow-2xl">
+            <h3 className="text-lg font-black text-viva-roxo">Pix gerado</h3>
+            <p className="mt-1 text-xs font-semibold text-gray-500">Copie o codigo Pix no seu banco para concluir o pagamento.</p>
+            {pixGerado.qrCodeBase64 && (
+              <img src={`data:image/png;base64,${pixGerado.qrCodeBase64}`} alt="QR Code Pix" className="mx-auto mt-4 h-44 w-44" />
+            )}
+            <textarea readOnly value={pixGerado.qrCode} className="mt-4 h-24 w-full resize-none rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700" />
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(pixGerado.qrCode);
+                adicionarToast('Codigo Pix copiado.', 'sucesso');
+              }}
+              className="mt-3 w-full rounded-xl bg-viva-roxo py-3 text-sm font-black text-white"
+            >
+              Copiar codigo Pix
+            </button>
+            {pixGerado.ticketUrl && (
+              <a href={pixGerado.ticketUrl} target="_blank" rel="noreferrer" className="mt-3 block text-xs font-bold text-viva-roxo">
+                Abrir comprovante no Mercado Pago
+              </a>
+            )}
+            <Link href="/pedidos" onClick={() => setPixGerado(null)} className="mt-3 block rounded-xl bg-gray-100 py-3 text-sm font-bold text-gray-700">
+              Ver meus pedidos
+            </Link>
+          </div>
+        </div>
+      )}
 
-        <button onClick={() => setVerCarrinho(true)} className="flex flex-col items-center text-gray-400 relative hover:text-viva-roxo transition">
-          <span className="text-xl">🛒</span>
-          <span className="text-[10px] font-bold mt-1">Carrinho</span>
-          {totalItens > 0 && (
-            <span className="absolute -top-1.5 -right-2 bg-red-500 text-white rounded-full w-4 h-4 text-[9px] flex items-center justify-center font-bold">
-              {totalItens}
-            </span>
-          )}
+      <button
+        type="button"
+        onClick={() => setVerCarrinho(true)}
+        className="fixed bottom-24 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full bg-viva-roxo px-5 py-3 text-sm font-black text-white shadow-xl transition active:scale-95"
+      >
+        <span>Sacola</span>
+        {totalItens > 0 && (
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-viva-verde px-1.5 text-[10px] font-black text-viva-roxo">
+            {totalItens}
+          </span>
+        )}
+      </button>
+
+      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5">
+        <button className="flex flex-col items-center text-viva-roxo">
+          <span className="text-xl">&#127968;</span>
+          <span className="mt-1 text-[10px] font-bold">Loja</span>
         </button>
-
-        <Link href="/pedidos" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo transition">
-          <span className="text-xl">📋</span>
-          <span className="text-[10px] font-bold mt-1">Pedidos</span>
+        <Link href="/pedidos" className="flex flex-col items-center text-gray-400 transition hover:text-viva-roxo">
+          <span className="text-xl">&#128203;</span>
+          <span className="mt-1 text-[10px] font-bold">Pedidos</span>
         </Link>
-
-        <Link href="/dieta" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo transition">
-          <span className="text-xl">📱</span>
-          <span className="text-[10px] font-bold mt-1">Dieta</span>
+        <Link href="/dieta" className="flex flex-col items-center text-gray-400 transition hover:text-viva-roxo">
+          <span className="text-xl">&#128241;</span>
+          <span className="mt-1 text-[10px] font-bold">Dieta</span>
+        </Link>
+        <Link href="/perfil" className="flex flex-col items-center text-gray-400 transition hover:text-viva-roxo">
+          <span className="text-xl">&#128100;</span>
+          <span className="mt-1 text-[10px] font-bold">Perfil</span>
         </Link>
       </nav>
     </div>

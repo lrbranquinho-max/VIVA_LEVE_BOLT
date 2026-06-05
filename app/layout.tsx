@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   title: 'Viva Leve',
   description: 'Comida saudavel e rastreamento de dieta.',
   manifest: '/manifest.webmanifest',
+  themeColor: '#6B21A8',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -39,10 +40,6 @@ export const metadata: Metadata = {
       },
     ],
   },
-};
-
-export const viewport = {
-  themeColor: '#6B21A8',
 };
 
 export default function RootLayout({

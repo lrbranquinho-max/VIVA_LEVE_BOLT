@@ -124,6 +124,9 @@ export async function POST(request: NextRequest) {
       'Aguardando Pagamento';
 
     await processarPagamentoComFallback(supabase, String(pedidoId), String(paymentId), statusPagamento, statusPedido);
+    if (statusPagamento === 'approved') {
+      await supabase.rpc('finalizar_cupom_pedido', { p_pedido_id: String(pedidoId) });
+    }
 
     return NextResponse.json({ received: true, pedidoId, status: statusPedido });
   } catch (error: any) {
