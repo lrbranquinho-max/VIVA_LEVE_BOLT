@@ -155,6 +155,12 @@ function enderecoPedido(pedido: Pedido) {
   return pedido.endereco_entrega || pedido.endereco || 'Endereço não informado';
 }
 
+function telefoneWhatsApp(telefone?: string) {
+  const digitos = String(telefone ?? '').replace(/\D/g, '');
+  if (!digitos) return '';
+  return digitos.startsWith('55') ? digitos : `55${digitos}`;
+}
+
 function idPerfil(perfil: PerfilCliente) {
   return String(perfil.id ?? perfil.cliente_id ?? perfil.user_id ?? '');
 }
@@ -730,6 +736,7 @@ export default function AdminPage() {
                 {pedidosFiltrados.map(pedido => {
                   const perfil = perfis[pedido.cliente_id];
                   const nomeCliente = nomePerfil(perfil);
+                  const whatsappCliente = telefoneWhatsApp(perfil?.telefone);
 
                   return (
                     <article key={pedido.id} className="rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -739,6 +746,16 @@ export default function AdminPage() {
                             <p className="font-mono text-xs font-bold text-gray-400">#{String(pedido.id).slice(0, 10).toUpperCase()}</p>
                             <h2 className="mt-1 text-lg font-black">{nomeCliente}</h2>
                             <p className="text-xs text-gray-500">{perfil?.telefone || 'Telefone não informado'}</p>
+                            {whatsappCliente && (
+                              <a
+                                href={`https://wa.me/${whatsappCliente}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-2 inline-flex rounded-lg bg-green-500 px-3 py-2 text-xs font-black text-white shadow-sm hover:bg-green-600"
+                              >
+                                Falar com cliente
+                              </a>
+                            )}
                           </div>
                           <span className={`rounded-full border px-3 py-1 text-xs font-black ${statusClasse(pedido.status)}`}>
                             {pedido.status}

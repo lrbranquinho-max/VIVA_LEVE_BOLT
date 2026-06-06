@@ -309,6 +309,9 @@ export default function MeusPedidos() {
       </header>
 
       <main className="space-y-4 p-4">
+        <div className="rounded-2xl border border-viva-verde/40 bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
+          Prazo estimado de entrega: ate 24hs apos a confirmacao do pedido.
+        </div>
         <>
         {pedidos.length === 0 ? (
           <div className="flex flex-col items-center justify-center space-y-4 py-16">

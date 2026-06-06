@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../supabase';
 import Logo from '../components/Logo';
 
@@ -32,6 +33,13 @@ interface CanalLoja {
   endereco: string;
 }
 
+interface PerfilPedido {
+  nome: string;
+  telefone: string;
+  endereco: string;
+  regiao: string;
+}
+
 interface Toast {
   id: number;
   texto: string;
@@ -59,7 +67,45 @@ function formatarMoedaBR(valor: number | string) {
   });
 }
 
+function somenteDigitos(valor: string) {
+  return valor.replace(/\D/g, '');
+}
+
+function normalizarTexto(valor: string) {
+  return valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function CanalIcone({ nome }: { nome: string }) {
+  const rede = nome.toLowerCase();
+
+  if (rede.includes('instagram')) {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="4" y="4" width="16" height="16" rx="5" stroke="currentColor" strokeWidth="2" />
+        <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth="2" />
+        <circle cx="17" cy="7" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (rede.includes('whatsapp')) {
+    return (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M5 19l1.2-3.6A7.5 7.5 0 1112 19.5a7.7 7.7 0 01-3.4-.8L5 19z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9.5 8.8c.2-.4.4-.4.7-.4h.5c.2 0 .4.1.5.4l.4 1c.1.3.1.5-.1.7l-.3.4c.5.9 1.1 1.5 2 2l.4-.3c.2-.2.4-.2.7-.1l1 .4c.3.1.4.3.4.5v.5c0 .3 0 .5-.4.7-.5.3-1.7.5-3.4-.4-1.5-.8-2.7-2-3.5-3.5-.9-1.7-.7-2.9-.4-3.5z" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  return <span className="text-[11px] font-black leading-none">iF</span>;
+}
+
 export default function LojaCliente() {
+  const router = useRouter();
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [canais, setCanais] = useState<CanalLoja[]>([]);
   const [cupons, setCupons] = useState<CupomDesconto[]>([]);
@@ -184,6 +230,64 @@ export default function LojaCliente() {
 
   const canalPorNome = (nomeRede: string) => canais.find(canal => canal.nome_rede.toLowerCase() === nomeRede.toLowerCase());
 
+  const validarCadastroPedido = async (userId: string): Promise<PerfilPedido> => {
+    const [{ data: perfil, error: errPerfil }, { data: perfilCliente, error: errCliente }] = await Promise.all([
+      supabase
+        .from('perfis')
+        .select('nome, telefone')
+        .eq('id', userId)
+        .maybeSingle(),
+      supabase
+        .from('perfis_clientes')
+        .select('endereco_rua, endereco_numero, bairro, regiao_df')
+        .eq('id', userId)
+        .maybeSingle(),
+    ]);
+
+    if (errPerfil) throw new Error(errPerfil.message);
+    if (errCliente) throw new Error(errCliente.message);
+
+    const nomePerfil = String(perfil?.nome ?? nome).trim();
+    const telefonePerfil = String(perfil?.telefone ?? telefone).trim();
+    const digitosTelefone = somenteDigitos(telefonePerfil);
+    const rua = String(perfilCliente?.endereco_rua ?? '').trim();
+    const numero = String(perfilCliente?.endereco_numero ?? '').trim();
+    const bairroPerfil = String(perfilCliente?.bairro ?? '').trim();
+    const regiao = String(perfilCliente?.regiao_df ?? '').trim();
+    const cadastroCompleto = Boolean(nomePerfil && digitosTelefone.length >= 10 && rua && numero && bairroPerfil && regiao);
+
+    if (!cadastroCompleto) {
+      adicionarToast('Cadastro incompleto. Informe nome, telefone com DDD e endereco de entrega no perfil.', 'erro');
+      setTimeout(() => router.push('/perfil'), 1300);
+      throw new Error('Cadastro incompleto para finalizar pedido.');
+    }
+
+    const { data: regioes, error: errRegiao } = await supabase
+      .from('regioes_atendimento')
+      .select('regiao, uf, status')
+      .eq('status', 'ativa');
+
+    if (errRegiao) throw new Error(errRegiao.message);
+
+    const regiaoAtiva = (regioes ?? []).some(item => normalizarTexto(item.regiao) === normalizarTexto(regiao));
+    if (!regiaoAtiva) {
+      adicionarToast('Ainda nao atendemos essa regiao. Atualize a regiao de entrega no perfil.', 'erro');
+      throw new Error('Regiao de entrega fora da area ativa de atendimento.');
+    }
+
+    const enderecoPerfil = [rua, numero, bairroPerfil, regiao].filter(Boolean).join(', ');
+    setNome(nomePerfil);
+    setTelefone(telefonePerfil);
+    setEndereco(enderecoPerfil);
+
+    return {
+      nome: nomePerfil,
+      telefone: telefonePerfil,
+      endereco: enderecoPerfil,
+      regiao,
+    };
+  };
+
   const adicionarAoCarrinho = (id: number) => {
     const produto = produtos.find(p => p.id === id);
     if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
@@ -256,10 +360,6 @@ export default function LojaCliente() {
   const finalizarPedido = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!nome.trim() || !telefone.trim() || !endereco.trim()) {
-      adicionarToast('Preencha nome, telefone e endereco!', 'erro');
-      return;
-    }
     if (totalItens === 0) {
       adicionarToast('Adicione itens ao carrinho!', 'erro');
       return;
@@ -276,6 +376,7 @@ export default function LojaCliente() {
         return;
       }
 
+      const cadastroPedido = await validarCadastroPedido(user.id);
       const estoqueAtualizado = await revalidarEstoqueCarrinho();
       const produtosParaPedido = estoqueAtualizado.length > 0 ? estoqueAtualizado : produtos;
 
@@ -302,7 +403,7 @@ export default function LojaCliente() {
         .from('pedidos')
         .insert([{
           cliente_id: user.id,
-          endereco_entrega: endereco,
+          endereco_entrega: cadastroPedido.endereco,
           subtotal_produtos: subtotalValidado,
           valor_frete: freteValidado,
           desconto_percentual: descontoPercentualValidado,
@@ -327,8 +428,8 @@ export default function LojaCliente() {
           pedidoId: pedidoCriado?.id,
           itens: listaItens,
           payer: {
-            nome,
-            telefone,
+            nome: cadastroPedido.nome,
+            telefone: cadastroPedido.telefone,
             email: user.email,
           },
         }),
@@ -393,11 +494,26 @@ export default function LojaCliente() {
           <div className="flex-1">
             <Logo />
           </div>
+          <div className="flex items-center gap-1.5">
+            {[instagram, whatsapp, ifood].filter(Boolean).map(canal => (
+              <a
+                key={canal!.nome_rede}
+                href={canal!.endereco}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={canal!.nome_rede === 'iFood' ? 'Viva-Leve no Ifood' : canal!.nome_rede}
+                title={canal!.nome_rede === 'iFood' ? 'Viva-Leve no Ifood' : canal!.nome_rede}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-100 bg-gray-50 text-viva-roxo transition hover:border-viva-roxo hover:bg-white"
+              >
+                <CanalIcone nome={canal!.nome_rede} />
+              </a>
+            ))}
+          </div>
           <Link href="/perfil" className="p-1 text-gray-400 hover:text-viva-roxo" aria-label="Abrir perfil">
             <span className="text-xl">&#128100;</span>
           </Link>
         </div>
-        <h1 className="mt-3 text-xl font-bold text-gray-800">Cardapio Virtual</h1>
+        <h1 className="mt-3 text-xl font-bold text-gray-800">Cardapio</h1>
         {/*
           <a href="#" target="_blank" rel="noreferrer" className="hidden">
             iFood · Viva-Leve no Ifood
@@ -406,26 +522,6 @@ export default function LojaCliente() {
       </header>
 
       <main className="space-y-4 p-4">
-        {(instagram || whatsapp || ifood) && (
-          <div className="grid grid-cols-3 gap-2">
-            {instagram && (
-              <a href={instagram.endereco} target="_blank" rel="noreferrer" className="rounded-xl border border-gray-100 bg-white px-2 py-2 text-center text-xs font-black text-viva-roxo shadow-sm">
-                Instagram
-              </a>
-            )}
-            {whatsapp && (
-              <a href={whatsapp.endereco} target="_blank" rel="noreferrer" className="rounded-xl border border-gray-100 bg-white px-2 py-2 text-center text-xs font-black text-viva-roxo shadow-sm">
-                WhatsApp
-              </a>
-            )}
-            {ifood && (
-              <a href={ifood.endereco} target="_blank" rel="noreferrer" className="rounded-xl border border-gray-100 bg-white px-2 py-2 text-center text-xs font-black text-viva-roxo shadow-sm">
-                iFood - Viva-Leve no Ifood
-              </a>
-            )}
-          </div>
-        )}
-
         <div className="rounded-2xl border border-viva-verde/40 bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
           Ganhe 10% de desconto em compras acima de {formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)}.
         </div>
