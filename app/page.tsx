@@ -122,6 +122,7 @@ export default function LojaCliente() {
   const [enviando, setEnviando] = useState(false);
   const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix'>('checkout');
   const [pixGerado, setPixGerado] = useState<{ qrCode: string; qrCodeBase64?: string; ticketUrl?: string } | null>(null);
+  const [produtoExpandidoId, setProdutoExpandidoId] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const adicionarToast = useCallback((texto: string, tipo: Toast['tipo'] = 'info') => {
@@ -543,8 +544,12 @@ export default function LojaCliente() {
             <div key={cat || 'sem-categoria'}>
               <h3 className="mb-2 mt-3 text-xs font-bold uppercase tracking-widest text-gray-400">{cat || 'Outros'}</h3>
               <div className="space-y-3">
-                {produtos.filter(p => p.categoria === cat).map(item => (
-                  <div key={item.id} className="relative flex gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+                {produtos.filter(p => p.categoria === cat).map(item => {
+                  const expandido = produtoExpandidoId === item.id;
+
+                  return (
+                  <div key={item.id} className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                    <button type="button" onClick={() => setProdutoExpandidoId(expandido ? null : item.id)} className="flex w-full gap-4 p-4 text-left" aria-expanded={expandido}>
                     {item.imagem_url ? (
                       <img src={item.imagem_url} alt={item.nome} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" />
                     ) : (
@@ -558,30 +563,59 @@ export default function LojaCliente() {
                         <h3 className="text-sm font-bold leading-tight text-gray-800">{item.nome}</h3>
                         <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{item.descricao}</p>
                         {(item.kcal > 0 || item.proteinas > 0 || item.carboidratos > 0 || item.gorduras > 0 || item.porcao_g) && (
+                          <>
                           <p className="mt-1 text-[10px] text-gray-400">
+                            {item.porcao_g ? <><strong className="font-black text-gray-600">porcao</strong> {formatarNumeroBR(item.porcao_g, 0)}g · </> : ''}
+                            {formatarNumeroBR(item.kcal, 0)} kcal · {formatarNumeroBR(item.proteinas)}g prot · {formatarNumeroBR(item.carboidratos)}g carb · {formatarNumeroBR(item.gorduras)}g gord
+                          </p>
+                          <p className="hidden">
                             {item.porcao_g ? `${formatarNumeroBR(item.porcao_g, 0)}g porcao · ` : ''}
                             {formatarNumeroBR(item.kcal, 0)} kcal · {formatarNumeroBR(item.proteinas)}g prot · {formatarNumeroBR(item.carboidratos)}g carb · {formatarNumeroBR(item.gorduras)}g gord
                           </p>
+                          </>
                         )}
                       </div>
 
-                      <div className="mt-2 flex items-center justify-between">
+                      <div className="mt-2 flex items-center justify-between gap-2">
                         <p className="text-base font-extrabold text-viva-roxo">{formatarMoedaBR(item.preco)}</p>
-                        {carrinho[item.id] ? (
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
-                            <span className="w-4 text-center text-sm font-bold text-gray-800">{carrinho[item.id]}</span>
-                            <button onClick={() => adicionarAoCarrinho(item.id)} disabled={carrinho[item.id] >= Number(item.estoque || 0)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => adicionarAoCarrinho(item.id)} disabled={Number(item.estoque || 0) <= 0} className="rounded-full bg-viva-verde px-3 py-1.5 text-xs font-bold text-viva-roxo shadow-sm transition-transform active:scale-95 disabled:opacity-40">
-                            + Adicionar
-                          </button>
-                        )}
+                        <span className="text-xs font-black text-viva-roxo">{expandido ? 'Fechar detalhes' : 'Ver detalhes'}</span>
                       </div>
                     </div>
+                    </button>
+
+                    {expandido && (
+                      <div className="space-y-3 border-t border-gray-100 bg-gray-50 p-4">
+                        {item.imagem_url ? (
+                          <img src={item.imagem_url} alt={item.nome} className="h-56 w-full rounded-xl object-cover" />
+                        ) : (
+                          <div className="flex h-40 w-full items-center justify-center rounded-xl bg-gradient-to-br from-green-50 to-green-100 text-3xl font-black text-viva-roxo">
+                            VL
+                          </div>
+                        )}
+                        <div>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-gray-400">Descricao e ingredientes</h4>
+                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-gray-700">{item.descricao || 'Sem descricao cadastrada.'}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+                      <p className="text-xs font-semibold text-gray-400">Toque no card para detalhes</p>
+                      {carrinho[item.id] ? (
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
+                          <span className="w-4 text-center text-sm font-bold text-gray-800">{carrinho[item.id]}</span>
+                          <button onClick={() => adicionarAoCarrinho(item.id)} disabled={carrinho[item.id] >= Number(item.estoque || 0)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => adicionarAoCarrinho(item.id)} disabled={Number(item.estoque || 0) <= 0} className="rounded-full bg-viva-verde px-3 py-1.5 text-xs font-bold text-viva-roxo shadow-sm transition-transform active:scale-95 disabled:opacity-40">
+                          + Adicionar
+                        </button>
+                      )}
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))
