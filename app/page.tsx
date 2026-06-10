@@ -85,9 +85,9 @@ function CanalIcone({ nome }: { nome: string }) {
   if (rede.includes('instagram')) {
     return (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="4" y="4" width="16" height="16" rx="5" stroke="currentColor" strokeWidth="2" />
-        <circle cx="12" cy="12" r="3.5" stroke="currentColor" strokeWidth="2" />
-        <circle cx="17" cy="7" r="1" fill="currentColor" />
+        <rect x="3.5" y="3.5" width="17" height="17" rx="5.2" stroke="currentColor" strokeWidth="2" />
+        <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
+        <circle cx="17.2" cy="6.8" r="1.2" fill="currentColor" />
       </svg>
     );
   }
@@ -95,8 +95,8 @@ function CanalIcone({ nome }: { nome: string }) {
   if (rede.includes('whatsapp')) {
     return (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M5 19l1.2-3.6A7.5 7.5 0 1112 19.5a7.7 7.7 0 01-3.4-.8L5 19z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M9.5 8.8c.2-.4.4-.4.7-.4h.5c.2 0 .4.1.5.4l.4 1c.1.3.1.5-.1.7l-.3.4c.5.9 1.1 1.5 2 2l.4-.3c.2-.2.4-.2.7-.1l1 .4c.3.1.4.3.4.5v.5c0 .3 0 .5-.4.7-.5.3-1.7.5-3.4-.4-1.5-.8-2.7-2-3.5-3.5-.9-1.7-.7-2.9-.4-3.5z" fill="currentColor" />
+        <path d="M4.2 20l1.2-4.1A8.4 8.4 0 113.9 11a8.3 8.3 0 011.1 4.1L4.2 20z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9.1 7.9c.2-.4.4-.5.8-.5h.5c.3 0 .5.1.6.5l.5 1.2c.1.3.1.6-.1.8l-.4.5c.6 1.1 1.5 2 2.6 2.6l.5-.4c.2-.2.5-.2.8-.1l1.2.5c.4.1.5.3.5.6v.5c0 .4-.1.6-.5.8-.6.3-2.1.7-4.2-.4a8.9 8.9 0 01-3.8-3.8c-1.1-2.1-.7-3.6-.4-4.2z" fill="currentColor" />
       </svg>
     );
   }
@@ -472,6 +472,12 @@ export default function LojaCliente() {
   const instagram = canalPorNome('Instagram');
   const whatsapp = canalPorNome('WhatsApp');
   const ifood = canalPorNome('iFood');
+  const classeCanal = (nomeRede: string) => {
+    const rede = nomeRede.toLowerCase();
+    if (rede.includes('whatsapp')) return 'text-emerald-600 hover:border-emerald-500 hover:bg-emerald-50';
+    if (rede.includes('instagram')) return 'text-viva-roxo hover:border-viva-roxo hover:bg-purple-50';
+    return 'text-red-600 hover:border-red-500 hover:bg-red-50';
+  };
 
   return (
     <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl">
@@ -504,7 +510,7 @@ export default function LojaCliente() {
                 rel="noreferrer"
                 aria-label={canal!.nome_rede === 'iFood' ? 'Viva-Leve no Ifood' : canal!.nome_rede}
                 title={canal!.nome_rede === 'iFood' ? 'Viva-Leve no Ifood' : canal!.nome_rede}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-100 bg-gray-50 text-viva-roxo transition hover:border-viva-roxo hover:bg-white"
+                className={`flex h-8 w-8 items-center justify-center rounded-full border border-gray-100 bg-gray-50 transition ${classeCanal(canal!.nome_rede)}`}
               >
                 <CanalIcone nome={canal!.nome_rede} />
               </a>
