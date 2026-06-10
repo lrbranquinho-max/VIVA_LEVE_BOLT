@@ -84,7 +84,7 @@ function CanalIcone({ nome }: { nome: string }) {
 
   if (rede.includes('instagram')) {
     return (
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <rect x="3.5" y="3.5" width="17" height="17" rx="5.2" stroke="currentColor" strokeWidth="2" />
         <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
         <circle cx="17.2" cy="6.8" r="1.2" fill="currentColor" />
@@ -94,7 +94,7 @@ function CanalIcone({ nome }: { nome: string }) {
 
   if (rede.includes('whatsapp')) {
     return (
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M4.2 20l1.2-4.1A8.4 8.4 0 113.9 11a8.3 8.3 0 011.1 4.1L4.2 20z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M9.1 7.9c.2-.4.4-.5.8-.5h.5c.3 0 .5.1.6.5l.5 1.2c.1.3.1.6-.1.8l-.4.5c.6 1.1 1.5 2 2.6 2.6l.5-.4c.2-.2.5-.2.8-.1l1.2.5c.4.1.5.3.5.6v.5c0 .4-.1.6-.5.8-.6.3-2.1.7-4.2-.4a8.9 8.9 0 01-3.8-3.8c-1.1-2.1-.7-3.6-.4-4.2z" fill="currentColor" />
       </svg>
@@ -471,13 +471,6 @@ export default function LojaCliente() {
   const categorias = Array.from(new Set(produtos.map(p => p.categoria)));
   const instagram = canalPorNome('Instagram');
   const whatsapp = canalPorNome('WhatsApp');
-  const ifood = canalPorNome('iFood');
-  const classeCanal = (nomeRede: string) => {
-    const rede = nomeRede.toLowerCase();
-    if (rede.includes('whatsapp')) return 'text-emerald-600 hover:border-emerald-500 hover:bg-emerald-50';
-    if (rede.includes('instagram')) return 'text-viva-roxo hover:border-viva-roxo hover:bg-purple-50';
-    return 'text-red-600 hover:border-red-500 hover:bg-red-50';
-  };
 
   return (
     <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl">
@@ -500,21 +493,6 @@ export default function LojaCliente() {
         <div className="flex items-center gap-3">
           <div className="flex-1">
             <Logo />
-          </div>
-          <div className="flex items-center gap-1.5">
-            {[instagram, whatsapp, ifood].filter(Boolean).map(canal => (
-              <a
-                key={canal!.nome_rede}
-                href={canal!.endereco}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={canal!.nome_rede === 'iFood' ? 'Viva-Leve no Ifood' : canal!.nome_rede}
-                title={canal!.nome_rede === 'iFood' ? 'Viva-Leve no Ifood' : canal!.nome_rede}
-                className={`flex h-8 w-8 items-center justify-center rounded-full border border-gray-100 bg-gray-50 transition ${classeCanal(canal!.nome_rede)}`}
-              >
-                <CanalIcone nome={canal!.nome_rede} />
-              </a>
-            ))}
           </div>
           <Link href="/perfil" className="p-1 text-gray-400 hover:text-viva-roxo" aria-label="Abrir perfil">
             <span className="text-xl">&#128100;</span>
@@ -777,6 +755,32 @@ export default function LojaCliente() {
           </span>
         )}
       </button>
+
+      {instagram && (
+        <a
+          href={instagram.endereco}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Instagram Viva Leve"
+          title="Instagram Viva Leve"
+          className="fixed bottom-24 left-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400 text-white shadow-xl ring-4 ring-white transition active:scale-95"
+        >
+          <CanalIcone nome={instagram.nome_rede} />
+        </a>
+      )}
+
+      {whatsapp && (
+        <a
+          href={whatsapp.endereco}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="WhatsApp Viva Leve"
+          title="WhatsApp Viva Leve"
+          className="fixed bottom-24 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-xl ring-4 ring-white transition active:scale-95"
+        >
+          <CanalIcone nome={whatsapp.nome_rede} />
+        </a>
+      )}
 
       <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5">
         <button className="flex flex-col items-center text-viva-roxo">
