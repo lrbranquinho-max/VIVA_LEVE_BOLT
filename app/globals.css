@@ -25,3 +25,20 @@ body {
     )
     rgb(var(--background-start-rgb));
 }
+
+@keyframes viva-marquee {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+.viva-marquee {
+  animation: viva-marquee 28s linear infinite;
+}
+
+.viva-marquee:hover {
+  animation-play-state: paused;
+}

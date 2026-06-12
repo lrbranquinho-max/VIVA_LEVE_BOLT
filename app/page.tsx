@@ -94,9 +94,8 @@ function CanalIcone({ nome }: { nome: string }) {
 
   if (rede.includes('whatsapp')) {
     return (
-      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M4.2 20l1.2-4.1A8.4 8.4 0 113.9 11a8.3 8.3 0 011.1 4.1L4.2 20z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M9.1 7.9c.2-.4.4-.5.8-.5h.5c.3 0 .5.1.6.5l.5 1.2c.1.3.1.6-.1.8l-.4.5c.6 1.1 1.5 2 2.6 2.6l.5-.4c.2-.2.5-.2.8-.1l1.2.5c.4.1.5.3.5.6v.5c0 .4-.1.6-.5.8-.6.3-2.1.7-4.2-.4a8.9 8.9 0 01-3.8-3.8c-1.1-2.1-.7-3.6-.4-4.2z" fill="currentColor" />
+      <svg className="h-8 w-8" viewBox="0 0 448 512" fill="currentColor" aria-hidden="true">
+        <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32 101.3 32 1.6 131.7 1.6 254.3c0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.6 0 222.3-99.7 222.3-222.3 0-59.3-23.1-115-65.3-156.7zM223.9 438.7h-.1c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3 18.6-68.1-4.4-7c-18.5-29.4-28.2-63.3-28.2-98 0-101.3 82.4-183.7 183.8-183.7 49.1 0 95.2 19.1 129.9 53.8 34.7 34.7 53.8 80.9 53.7 130 0 101.4-82.4 183.8-183.8 183.8zm100.8-137.7c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.5-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.5-19.4 19-19.4 46.3s19.9 53.7 22.6 57.4c2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z" />
       </svg>
     );
   }
@@ -228,6 +227,19 @@ export default function LojaCliente() {
   const valorFrete = subtotalProdutos > 0 && subtotalProdutos < LIMITE_FRETE_GRATIS ? FRETE_PADRAO : 0;
   const totalPedidoFinal = Math.max(subtotalProdutos - descontoValor + valorFrete, 0);
   const totalItens = Object.values(carrinho).reduce((a, b) => a + b, 0);
+  const mensagensPromocionais = useMemo(() => {
+    const mensagens = [
+      '🚚 Prazo de entrega: 24hs (amanhã).',
+      `💸 Ganhe ${DESCONTO_AUTOMATICO_PERCENTUAL}% de desconto em compras acima de ${formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)}.`,
+      `📦 Frete Grátis nas compras acima de ${formatarMoedaBR(LIMITE_FRETE_GRATIS)}.`,
+    ];
+
+    cupons.forEach(cupom => {
+      mensagens.push(`🎟️ Você tem ${formatarNumeroBR(cupom.percentual_desconto, 0)}% em cupom de desconto. APROVEITE!!!`);
+    });
+
+    return mensagens;
+  }, [cupons]);
 
   const canalPorNome = (nomeRede: string) => canais.find(canal => canal.nome_rede.toLowerCase() === nomeRede.toLowerCase());
 
@@ -507,8 +519,15 @@ export default function LojaCliente() {
       </header>
 
       <main className="space-y-4 p-4">
-        <div className="rounded-2xl border border-viva-verde/40 bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
-          Ganhe 10% de desconto em compras acima de {formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)}.
+        <div className="overflow-hidden rounded-2xl border border-viva-verde/40 bg-viva-verde/20 py-3 text-xs font-black text-viva-roxo">
+          <div className="viva-marquee flex w-max items-center whitespace-nowrap px-4">
+            {[...mensagensPromocionais, ...mensagensPromocionais].map((mensagem, index) => (
+              <span key={`${mensagem}-${index}`} className="mx-4 inline-flex items-center gap-4">
+                <span>{mensagem}</span>
+                <span className="text-viva-roxo/50">✨</span>
+              </span>
+            ))}
+          </div>
         </div>
 
         {carregando ? (
@@ -776,7 +795,7 @@ export default function LojaCliente() {
           rel="noreferrer"
           aria-label="WhatsApp Viva Leve"
           title="WhatsApp Viva Leve"
-          className="fixed bottom-24 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366] text-white shadow-xl ring-4 ring-white transition active:scale-95"
+          className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-4 ring-white transition hover:scale-110 active:scale-95"
         >
           <CanalIcone nome={whatsapp.nome_rede} />
         </a>

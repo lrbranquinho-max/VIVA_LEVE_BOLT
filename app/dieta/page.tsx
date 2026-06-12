@@ -90,6 +90,25 @@ function deslocarData(dataISO: string, dias: number) {
   return data.toISOString().slice(0, 10);
 }
 
+function periodoMes(dataISO: string) {
+  const base = new Date(`${dataISO}T12:00:00`);
+  const inicio = new Date(base.getFullYear(), base.getMonth(), 1, 12);
+  const fim = new Date(base.getFullYear(), base.getMonth() + 1, 0, 12);
+  return {
+    inicio: inicio.toISOString().slice(0, 10),
+    fim: fim.toISOString().slice(0, 10),
+    diasNoMes: fim.getDate(),
+    rotulo: base.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+  };
+}
+
+function diasParaMetaMensal(dataISO: string) {
+  const base = new Date(`${dataISO}T12:00:00`);
+  const hoje = new Date();
+  const mesmoMesAtual = base.getFullYear() === hoje.getFullYear() && base.getMonth() === hoje.getMonth();
+  return mesmoMesAtual ? hoje.getDate() : periodoMes(dataISO).diasNoMes;
+}
+
 function arredondar(valor: number, casas = 1) {
   const fator = 10 ** casas;
   return Math.round((Number(valor) || 0) * fator) / fator;
@@ -159,7 +178,10 @@ export default function Dieta() {
   const [dataSelecionada, setDataSelecionada] = useState(hojeLocal());
   const [metaCalorias, setMetaCalorias] = useState(2000);
   const [refeicoes, setRefeicoes] = useState<HistoricoRefeicao[]>([]);
+  const [refeicoesMes, setRefeicoesMes] = useState<HistoricoRefeicao[]>([]);
   const [carregandoDia, setCarregandoDia] = useState(false);
+  const [carregandoMes, setCarregandoMes] = useState(false);
+  const [dashboardAberto, setDashboardAberto] = useState(false);
   const [perfilAberto, setPerfilAberto] = useState(false);
   const [salvandoPerfil, setSalvandoPerfil] = useState(false);
   const [perfilCalorico, setPerfilCalorico] = useState<PerfilCaloricoForm>({ ...PERFIL_CALORICO_INICIAL });
@@ -219,6 +241,28 @@ export default function Dieta() {
     }
   }, [mostrarToast]);
 
+  const carregarMes = useCallback(async (userId: string, dataISO: string) => {
+    const periodo = periodoMes(dataISO);
+    setCarregandoMes(true);
+    try {
+      const { data, error } = await supabase
+        .from('historico_refeicoes')
+        .select('*')
+        .eq('cliente_id', userId)
+        .gte('data_consumo', periodo.inicio)
+        .lte('data_consumo', periodo.fim)
+        .order('data_consumo', { ascending: true });
+
+      if (error) throw error;
+      setRefeicoesMes(data ?? []);
+    } catch (err: any) {
+      mostrarToast(`Erro ao carregar dashboard mensal: ${err.message}`, 'erro');
+      setRefeicoesMes([]);
+    } finally {
+      setCarregandoMes(false);
+    }
+  }, [mostrarToast]);
+
   useEffect(() => {
     async function init() {
       try {
@@ -257,6 +301,7 @@ export default function Dieta() {
         }
 
         await carregarDia(user.id, dataSelecionada);
+        await carregarMes(user.id, dataSelecionada);
       } catch (err: any) {
         mostrarToast(`Erro ao iniciar dieta: ${err.message}`, 'erro');
       } finally {
@@ -264,12 +309,13 @@ export default function Dieta() {
       }
     }
     init();
-  }, [router, carregarDia, dataSelecionada, mostrarToast]);
+  }, [router, carregarDia, carregarMes, dataSelecionada, mostrarToast]);
 
   useEffect(() => {
     if (!clienteId) return;
     carregarDia(clienteId, dataSelecionada);
-  }, [clienteId, dataSelecionada, carregarDia]);
+    carregarMes(clienteId, dataSelecionada);
+  }, [clienteId, dataSelecionada, carregarDia, carregarMes]);
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -303,6 +349,48 @@ export default function Dieta() {
       carboidratos: arredondar(kcalCarboidratos / 4, 0),
     };
   }, [metaCalorias, perfilCalorico.peso_kg]);
+
+  const dashboardMes = useMemo(() => {
+    const periodo = periodoMes(dataSelecionada);
+    const diasMeta = diasParaMetaMensal(dataSelecionada);
+    const totaisMes = refeicoesMes.reduce((acc, item) => ({
+      kcal: acc.kcal + Number(item.kcal ?? 0),
+      proteinas: acc.proteinas + Number(item.proteinas ?? 0),
+      carboidratos: acc.carboidratos + Number(item.carboidratos ?? 0),
+      gorduras: acc.gorduras + Number(item.gorduras ?? 0),
+    }), { kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0 });
+
+    const metasMes = {
+      kcal: metaCalorias * diasMeta,
+      proteinas: metasMacros.proteinas * diasMeta,
+      carboidratos: metasMacros.carboidratos * diasMeta,
+      gorduras: metasMacros.gorduras * diasMeta,
+    };
+
+    const porDia = new Map<string, number>();
+    refeicoesMes.forEach(item => {
+      porDia.set(item.data_consumo, (porDia.get(item.data_consumo) ?? 0) + Number(item.kcal ?? 0));
+    });
+
+    const grafico = Array.from({ length: diasMeta }, (_, idx) => {
+      const data = new Date(`${periodo.inicio}T12:00:00`);
+      data.setDate(idx + 1);
+      const iso = data.toISOString().slice(0, 10);
+      return {
+        dia: idx + 1,
+        kcal: porDia.get(iso) ?? 0,
+      };
+    });
+
+    return {
+      periodo,
+      diasMeta,
+      totaisMes,
+      metasMes,
+      saldoKcal: Math.round(totaisMes.kcal - metasMes.kcal),
+      grafico,
+    };
+  }, [dataSelecionada, refeicoesMes, metaCalorias, metasMacros]);
 
   const refeicoesPorTipo = useMemo(() => TIPOS_REFEICAO.map(tipo => ({
     tipo,
@@ -494,6 +582,7 @@ export default function Dieta() {
       }
       fecharModal();
       await carregarDia(clienteId, dataSelecionada);
+      await carregarMes(clienteId, dataSelecionada);
     } catch (err: any) {
       const mensagem = `Erro ao salvar refeição: ${err.message}`;
       setErroModal(mensagem);
@@ -589,6 +678,7 @@ export default function Dieta() {
       if (error) throw error;
       mostrarToast('Registro removido.', 'sucesso');
       await carregarDia(clienteId, dataSelecionada);
+      await carregarMes(clienteId, dataSelecionada);
     } catch (err: any) {
       mostrarToast(`Erro ao remover: ${err.message}`, 'erro');
     }
@@ -666,6 +756,84 @@ export default function Dieta() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-viva-verde/40 bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={() => setDashboardAberto(valor => !valor)}
+            className="flex w-full items-center justify-between gap-3 bg-viva-roxo px-4 py-4 text-left text-white"
+          >
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-viva-verde">Dashboard mensal</p>
+              <h2 className="text-lg font-black">Resultados da dieta 🏆</h2>
+            </div>
+            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black">{dashboardAberto ? 'Ocultar' : 'Ver mês'}</span>
+          </button>
+
+          {dashboardAberto && (
+            <div className="space-y-4 p-4">
+              <div className="rounded-xl bg-gray-50 p-3">
+                <div className="mx-auto max-w-[190px]">
+                  <Logo />
+                </div>
+                <p className="mt-2 text-center text-xs font-bold uppercase tracking-wider text-gray-500">{dashboardMes.periodo.rotulo}</p>
+              </div>
+
+              {carregandoMes ? (
+                <p className="rounded-xl bg-gray-50 p-4 text-center text-xs font-bold text-gray-400">Carregando resultados do mês...</p>
+              ) : (
+                <>
+                  <div className={`rounded-2xl p-4 text-center ${dashboardMes.saldoKcal <= 0 ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
+                    <p className="text-xs font-black uppercase tracking-wider">Saldo calórico acumulado</p>
+                    <p className="mt-1 text-3xl font-black">
+                      {dashboardMes.saldoKcal > 0 ? '+' : ''}{dashboardMes.saldoKcal.toLocaleString('pt-BR')} kcal
+                    </p>
+                    <p className="mt-1 text-xs font-semibold">
+                      {dashboardMes.saldoKcal <= 0 ? 'Déficit acumulado no mês. Excelente consistência! 🎯' : 'Ganho calórico acumulado no mês. Ajuste fino para seguir evoluindo. 💪'}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'Proteínas', valor: dashboardMes.totaisMes.proteinas, meta: dashboardMes.metasMes.proteinas, cor: 'bg-red-400' },
+                      { label: 'Carbos', valor: dashboardMes.totaisMes.carboidratos, meta: dashboardMes.metasMes.carboidratos, cor: 'bg-blue-400' },
+                      { label: 'Gorduras', valor: dashboardMes.totaisMes.gorduras, meta: dashboardMes.metasMes.gorduras, cor: 'bg-yellow-400' },
+                    ].map(item => (
+                      <div key={item.label} className="rounded-xl bg-gray-50 p-3 text-center">
+                        <p className="text-[10px] font-black uppercase text-gray-500">{item.label}</p>
+                        <p className="mt-1 text-sm font-black text-gray-800">{arredondar(item.valor, 0)}g</p>
+                        <p className="text-[10px] font-bold text-gray-500">meta {arredondar(item.meta, 0)}g</p>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-200">
+                          <div className={`${item.cor} h-full rounded-full`} style={{ width: `${percentual(item.valor, item.meta)}%` }} />
+                        </div>
+                        <p className="mt-1 text-[10px] font-bold text-viva-roxo">{arredondar(percentual(item.valor, item.meta), 0)}%</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-2xl bg-gray-50 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-gray-500">Evolução diária de kcal</h3>
+                      <span className="text-xs font-bold text-viva-roxo">meta {metaCalorias} kcal</span>
+                    </div>
+                    <div className="flex h-28 items-end gap-1 overflow-hidden rounded-xl bg-white p-2">
+                      {dashboardMes.grafico.map(dia => (
+                        <div key={dia.dia} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
+                          <div
+                            title={`Dia ${dia.dia}: ${Math.round(dia.kcal)} kcal`}
+                            className={`w-full rounded-t ${dia.kcal > metaCalorias ? 'bg-yellow-400' : 'bg-viva-roxo'}`}
+                            style={{ height: `${Math.max(4, percentual(dia.kcal, metaCalorias))}%` }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-center text-xs font-semibold text-gray-500">🌱 Cada registro aproxima você do próximo resultado.</p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </section>
 
         <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
