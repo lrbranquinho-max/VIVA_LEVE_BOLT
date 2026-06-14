@@ -14,6 +14,7 @@
 
 # production
 /build
+/outputs/
 
 # misc
 .DS_Store
@@ -26,6 +27,13 @@ yarn-error.log*
 dev-server*.log
 public/sw.js
 public/workbox-*.js
+
+# android local build caches/artifacts
+/android/caches/
+/android/daemon/
+/android/native/
+/android/wrapper/
+/android/.tmp/
 
 # local env files
 .env*.local

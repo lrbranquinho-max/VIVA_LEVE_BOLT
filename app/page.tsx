@@ -122,6 +122,7 @@ export default function LojaCliente() {
   const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix'>('checkout');
   const [pixGerado, setPixGerado] = useState<{ qrCode: string; qrCodeBase64?: string; ticketUrl?: string } | null>(null);
   const [produtoExpandidoId, setProdutoExpandidoId] = useState<number | null>(null);
+  const [categoriaSelecionada, setCategoriaSelecionada] = useState('todos');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const adicionarToast = useCallback((texto: string, tipo: Toast['tipo'] = 'info') => {
@@ -480,7 +481,8 @@ export default function LojaCliente() {
     }
   };
 
-  const categorias = Array.from(new Set(produtos.map(p => p.categoria)));
+  const categorias = Array.from(new Set(produtos.map(p => p.categoria))).filter(Boolean);
+  const categoriasVisiveis = categoriaSelecionada === 'todos' ? categorias : categorias.filter(cat => cat === categoriaSelecionada);
   const instagram = canalPorNome('Instagram');
   const whatsapp = canalPorNome('WhatsApp');
 
@@ -510,7 +512,35 @@ export default function LojaCliente() {
             <span className="text-xl">&#128100;</span>
           </Link>
         </div>
-        <h1 className="mt-3 text-xl font-bold text-gray-800">Cardapio</h1>
+        {categorias.length > 0 && (
+          <div className="mt-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            <button
+              type="button"
+              onClick={() => setCategoriaSelecionada('todos')}
+              className={`flex-shrink-0 rounded-full px-4 py-2 text-xs font-black transition ${
+                categoriaSelecionada === 'todos'
+                  ? 'bg-viva-roxo text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              Todos
+            </button>
+            {categorias.map(cat => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoriaSelecionada(cat)}
+                className={`flex-shrink-0 rounded-full px-4 py-2 text-xs font-black transition ${
+                  categoriaSelecionada === cat
+                    ? 'bg-viva-roxo text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
         {/*
           <a href="#" target="_blank" rel="noreferrer" className="hidden">
             iFood · Viva-Leve no Ifood
@@ -543,7 +573,7 @@ export default function LojaCliente() {
             <p className="font-semibold">Nenhum item em estoque no momento.</p>
           </div>
         ) : (
-          categorias.map(cat => (
+          categoriasVisiveis.map(cat => (
             <div key={cat || 'sem-categoria'}>
               <h3 className="mb-2 mt-3 text-xs font-bold uppercase tracking-widest text-gray-400">{cat || 'Outros'}</h3>
               <div className="space-y-3">

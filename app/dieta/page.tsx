@@ -102,13 +102,6 @@ function periodoMes(dataISO: string) {
   };
 }
 
-function diasParaMetaMensal(dataISO: string) {
-  const base = new Date(`${dataISO}T12:00:00`);
-  const hoje = new Date();
-  const mesmoMesAtual = base.getFullYear() === hoje.getFullYear() && base.getMonth() === hoje.getMonth();
-  return mesmoMesAtual ? hoje.getDate() : periodoMes(dataISO).diasNoMes;
-}
-
 function arredondar(valor: number, casas = 1) {
   const fator = 10 ** casas;
   return Math.round((Number(valor) || 0) * fator) / fator;
@@ -352,7 +345,8 @@ export default function Dieta() {
 
   const dashboardMes = useMemo(() => {
     const periodo = periodoMes(dataSelecionada);
-    const diasMeta = diasParaMetaMensal(dataSelecionada);
+    const diasComRegistro = Array.from(new Set(refeicoesMes.map(item => item.data_consumo))).sort();
+    const diasMeta = diasComRegistro.length;
     const totaisMes = refeicoesMes.reduce((acc, item) => ({
       kcal: acc.kcal + Number(item.kcal ?? 0),
       proteinas: acc.proteinas + Number(item.proteinas ?? 0),
@@ -372,12 +366,10 @@ export default function Dieta() {
       porDia.set(item.data_consumo, (porDia.get(item.data_consumo) ?? 0) + Number(item.kcal ?? 0));
     });
 
-    const grafico = Array.from({ length: diasMeta }, (_, idx) => {
-      const data = new Date(`${periodo.inicio}T12:00:00`);
-      data.setDate(idx + 1);
-      const iso = data.toISOString().slice(0, 10);
+    const grafico = diasComRegistro.map(iso => {
+      const data = new Date(`${iso}T12:00:00`);
       return {
-        dia: idx + 1,
+        dia: data.getDate(),
         kcal: porDia.get(iso) ?? 0,
       };
     });
@@ -635,6 +627,15 @@ export default function Dieta() {
 
     async function iniciarScanner() {
       try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Seu dispositivo nao disponibilizou acesso a camera para este app.');
+        }
+
+        const permissao = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+        });
+        permissao.getTracks().forEach(track => track.stop());
+
         const { Html5Qrcode } = await import('html5-qrcode');
         if (cancelado) return;
 
@@ -778,10 +779,21 @@ export default function Dieta() {
                   <Logo />
                 </div>
                 <p className="mt-2 text-center text-xs font-bold uppercase tracking-wider text-gray-500">{dashboardMes.periodo.rotulo}</p>
+                <p className="mt-1 text-center text-[11px] font-semibold text-gray-400">
+                  {dashboardMes.diasMeta > 0
+                    ? `${dashboardMes.diasMeta} dia(s) com registro considerados nas metas`
+                    : 'Nenhum registro no mes selecionado'}
+                </p>
               </div>
 
               {carregandoMes ? (
                 <p className="rounded-xl bg-gray-50 p-4 text-center text-xs font-bold text-gray-400">Carregando resultados do mês...</p>
+              ) : dashboardMes.diasMeta === 0 ? (
+                <div className="rounded-2xl bg-gray-50 p-5 text-center">
+                  <p className="text-3xl">VL</p>
+                  <p className="mt-2 text-sm font-black text-gray-700">Sem registros para calcular este mes.</p>
+                  <p className="mt-1 text-xs font-semibold text-gray-500">Inclua pelo menos uma refeicao para visualizar saldo, metas e evolucao.</p>
+                </div>
               ) : (
                 <>
                   <div className={`rounded-2xl p-4 text-center ${dashboardMes.saldoKcal <= 0 ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
