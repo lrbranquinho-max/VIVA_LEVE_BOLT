@@ -87,6 +87,7 @@ export default function PlanoNutriPage() {
           .select('*')
           .eq('user_id', user.id)
           .order('data_plano', { ascending: false })
+          .order('criado_em', { ascending: false })
           .limit(1)
           .maybeSingle(),
         supabase

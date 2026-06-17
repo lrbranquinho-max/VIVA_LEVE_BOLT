@@ -46,6 +46,7 @@ export default function AdminPlanosNutriPage() {
       const { data, error } = await supabase
         .from('planos_requisicoes')
         .select('*')
+        .eq('status', 'pendente')
         .order('criado_em', { ascending: false });
       if (error) throw error;
 
@@ -95,18 +96,14 @@ export default function AdminPlanosNutriPage() {
   const perfilSelecionado = selecionada ? perfis[selecionada.user_id] : null;
   const clienteSelecionado = selecionada ? clientes[selecionada.user_id] : null;
 
-  const contadores = useMemo(() => ({
-    pendente: requisicoes.filter(item => item.status === 'pendente').length,
-    revisao: requisicoes.filter(item => item.status === 'em_revisao').length,
-    concluido: requisicoes.filter(item => item.status === 'concluido').length,
-  }), [requisicoes]);
+  const totalPendentes = useMemo(() => requisicoes.length, [requisicoes]);
 
   const abrirDetalhe = async (req: RequisicaoPlano) => {
     setSelecionada(req);
     setEditorJson('');
     if (req.status === 'pendente') {
       await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', req.id);
-      setRequisicoes(prev => prev.map(item => item.id === req.id ? { ...item, status: 'em_revisao' } : item));
+      setRequisicoes(prev => prev.filter(item => item.id !== req.id));
       setSelecionada({ ...req, status: 'em_revisao' });
     }
   };
@@ -196,10 +193,10 @@ export default function AdminPlanosNutriPage() {
           </button>
         </header>
 
-        <section className="mb-6 grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl bg-white p-4 shadow-sm"><p className="text-xs font-bold text-gray-400">Pendentes</p><p className="text-2xl font-black">{contadores.pendente}</p></div>
-          <div className="rounded-xl bg-white p-4 shadow-sm"><p className="text-xs font-bold text-gray-400">Em revisao</p><p className="text-2xl font-black">{contadores.revisao}</p></div>
-          <div className="rounded-xl bg-white p-4 shadow-sm"><p className="text-xs font-bold text-gray-400">Concluidos</p><p className="text-2xl font-black">{contadores.concluido}</p></div>
+        <section className="mb-6 rounded-xl bg-white p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Fila de solicitacoes pendentes</p>
+          <p className="mt-1 text-2xl font-black">{totalPendentes}</p>
+          <p className="mt-1 text-xs font-semibold text-gray-500">A tela lista somente pedidos ainda pendentes de revisao.</p>
         </section>
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)]">

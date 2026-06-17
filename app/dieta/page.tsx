@@ -225,6 +225,7 @@ export default function Dieta() {
   const [planoNutri, setPlanoNutri] = useState<PlanoNutriForm>({ ...PLANO_NUTRI_INICIAL });
   const [receitaNutri, setReceitaNutri] = useState<File | null>(null);
   const [solicitandoPlano, setSolicitandoPlano] = useState(false);
+  const [planoNutriAberto, setPlanoNutriAberto] = useState(false);
 
   const [modalAberto, setModalAberto] = useState(false);
   const [scannerAberto, setScannerAberto] = useState(false);
@@ -630,6 +631,7 @@ export default function Dieta() {
         ...PLANO_NUTRI_INICIAL,
         refeicoes: { ...PLANO_NUTRI_INICIAL.refeicoes },
       });
+      setPlanoNutriAberto(false);
       mostrarToast('Recebemos seus dados! Em ate 24hs seu plano estara disponivel.', 'sucesso');
     } catch (err: any) {
       mostrarToast(`Erro ao solicitar plano: ${err.message}`, 'erro');
@@ -1024,13 +1026,22 @@ export default function Dieta() {
         </section>
 
         <section className="rounded-2xl border border-viva-verde/40 bg-white p-5 shadow-sm">
-          <div>
-            <p className="text-xs font-black uppercase tracking-wider text-viva-roxo">Solicitar Plano Nutri Inteligente</p>
-            <h2 className="mt-1 text-lg font-black text-gray-800">Plano semanal com IA e revisao humana</h2>
-            <p className="mt-1 text-xs font-semibold text-gray-500">Envie suas preferencias. O plano sera liberado apos revisao do time Viva Leve.</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-viva-roxo">Plano Nutri Inteligente</p>
+              <h2 className="mt-1 text-lg font-black text-gray-800">Plano semanal com IA e revisao humana</h2>
+              <p className="mt-1 text-xs font-semibold text-gray-500">O formulario fica oculto para manter a dieta leve. Abra quando quiser solicitar um novo plano.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPlanoNutriAberto(prev => !prev)}
+              className="shrink-0 rounded-xl bg-viva-roxo px-4 py-3 text-xs font-black text-white shadow-sm"
+            >
+              {planoNutriAberto ? 'Ocultar' : 'Solicitar'}
+            </button>
           </div>
 
-          <form onSubmit={solicitarPlanoNutri} className="mt-4 space-y-4">
+          {planoNutriAberto && <form onSubmit={solicitarPlanoNutri} className="mt-4 space-y-4 border-t border-gray-100 pt-4">
             <label>
               <span className="mb-1 block text-xs font-bold text-gray-600">Objetivo</span>
               <select value={planoNutri.objetivo} onChange={e => setPlanoNutri(prev => ({ ...prev, objetivo: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm font-semibold text-gray-900">
@@ -1105,7 +1116,7 @@ export default function Dieta() {
             <button disabled={solicitandoPlano} className="w-full rounded-xl bg-viva-verde py-3 text-sm font-black text-viva-roxo shadow-sm disabled:opacity-60">
               {solicitandoPlano ? 'Enviando...' : 'Solicitar plano em ate 24hs'}
             </button>
-          </form>
+          </form>}
         </section>
 
         <div className="grid grid-cols-2 gap-3">

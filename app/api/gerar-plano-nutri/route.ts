@@ -53,6 +53,59 @@ function extrairJson(texto: string) {
   }
 }
 
+function produtoPorId(produtos: any[]) {
+  return new Map(produtos.map(produto => [String(produto.id), produto]));
+}
+
+function removerFrutasDeAlmocoJantar(texto: unknown) {
+  const frutas = /\b(banana|maca|maçã|morango|mamao|mamão|melancia|uva|abacaxi|abacate|laranja|kiwi|melao|melão|pera|goiaba|manga)\b/gi;
+  return String(texto ?? '').replace(frutas, 'salada').replace(/\s{2,}/g, ' ').trim();
+}
+
+function normalizarPlanoComProdutos(plano: any, produtos: any[]) {
+  const mapaProdutos = produtoPorId(produtos);
+  const refeicoesComProduto = ['Almoco', 'Jantar', 'Ceia'];
+  const dias = Array.isArray(plano?.dias) ? plano.dias : Array.isArray(plano?.plano_semanal) ? plano.plano_semanal : [];
+
+  return {
+    ...plano,
+    dias: dias.map((dia: any) => ({
+      ...dia,
+      refeicoes: Array.isArray(dia?.refeicoes) ? dia.refeicoes.map((item: any) => {
+        const refeicao = String(item?.refeicao ?? '');
+        const produto = item?.produto_id ? mapaProdutos.get(String(item.produto_id)) : null;
+        if (!produto) {
+          const semProduto = { ...item, produto_id: null };
+          if (['Almoco', 'Jantar'].includes(refeicao)) {
+            return {
+              ...semProduto,
+              nome: removerFrutasDeAlmocoJantar(semProduto.nome),
+              descricao: removerFrutasDeAlmocoJantar(semProduto.descricao),
+            };
+          }
+          return semProduto;
+        }
+
+        if (!refeicoesComProduto.includes(refeicao)) {
+          return { ...item, produto_id: null };
+        }
+
+        return {
+          ...item,
+          nome: produto.nome,
+          descricao: produto.descricao ?? item.descricao ?? '',
+          porcao: `${produto.porcao_g ?? 300}g`,
+          kcal: Math.round(Number(produto.kcal ?? item.kcal ?? 0) * (Number(produto.porcao_g ?? 100) / 100)),
+          proteinas: Number(produto.proteinas ?? item.proteinas ?? 0),
+          carboidratos: Number(produto.carboidratos ?? item.carboidratos ?? 0),
+          gorduras: Number(produto.gorduras ?? item.gorduras ?? 0),
+          produto_id: produto.id,
+        };
+      }) : [],
+    })),
+  };
+}
+
 function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], preferencias: any, padrao: any) {
   const dias = ['Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado', 'Domingo'];
   const refeicoes = Object.entries(padrao ?? {}).filter(([, ativo]) => ativo).map(([nome]) => nome);
@@ -72,7 +125,7 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], pref
         const produtoDia = produtosRefeicao[(idx + refIdx) % Math.max(produtosRefeicao.length, 1)];
         const produtoLeve = produtosLeves[(idx + refIdx) % Math.max(produtosLeves.length, 1)];
         const usarProduto = produtoDia && ['Almoco', 'Jantar'].includes(refeicao);
-        const usarProdutoLeve = produtoLeve && ['Ceia', 'Lanche da Tarde'].includes(refeicao);
+        const usarProdutoLeve = produtoLeve && refeicao === 'Ceia';
         const principal = principais[(idx + refIdx) % Math.max(principais.length, 1)] ?? 'Refeicao caseira equilibrada';
         const fruta = frutas[(idx + refIdx) % Math.max(frutas.length, 1)] ?? 'fruta';
         const lanche = lanches[(idx + refIdx) % Math.max(lanches.length, 1)] ?? 'iogurte natural';
@@ -86,6 +139,7 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], pref
             refeicao === 'Ceia' ? `Ceia leve com ${fruta} ou iogurte` :
             `${principal} com ${salada}`
           ),
+          descricao: produtoEscolhido?.descricao ?? '',
           porcao: produtoEscolhido ? `${produtoEscolhido.porcao_g ?? 300}g` : '1 porcao',
           kcal: produtoEscolhido ? Math.round(Number(produtoEscolhido.kcal ?? 0) * ((Number(produtoEscolhido.porcao_g ?? 100)) / 100)) : Math.round(metaKcal / Math.max(refeicoes.length, 1)),
           proteinas: produtoEscolhido ? Number(produtoEscolhido.proteinas ?? 0) : 25,
@@ -146,7 +200,7 @@ export async function POST(request: NextRequest) {
     const [{ data: perfil }, { data: perfilCliente }, { data: produtos, error: produtosError }] = await Promise.all([
       supabase.from('perfis').select('*').eq('id', requisicao.user_id).maybeSingle(),
       supabase.from('perfis_clientes').select('*').eq('id', requisicao.user_id).maybeSingle(),
-      supabase.from('produtos').select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras,preco').eq('ativo', true).gt('estoque', 0).limit(40),
+      supabase.from('produtos').select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras,preco').eq('ativo', true).gt('estoque', 0).order('categoria', { ascending: true }).order('nome', { ascending: true }),
     ]);
     if (produtosError) throw produtosError;
 
@@ -177,11 +231,12 @@ Regras obrigatorias:
 2. Se houver receita_url, leia a imagem com prioridade. Se a receita do nutricionista exigir alimento especifico que a Viva Leve nao vende, obedeca a receita e use produto_id null.
 3. Se nao houver receita, use a meta calculada: Perda de Peso = TDEE - 23%; Manutencao = TDEE; Ganho de Massa = TDEE + 23%.
 4. Use as preferencias selecionadas e tambem preferencias.outros, que traz texto livre separado por virgulas.
+5. Leia todos os itens de produtos_ativos_viva_leve, principalmente nome, categoria e descricao. Use a descricao para entender o que o produto realmente contem antes de encaixa-lo em uma refeicao.
 
 Regras de coerencia por refeicao:
 - Cafe da Manha: somente itens leves e matinais, como ovos mexidos, paes/torradas, frutas, cafe, vitaminas, tapioca ou aveia. NUNCA colocar marmita de almoco ou prato pesado no cafe da manha.
 - Lanche da Manha e Lanche da Tarde: praticos e leves, como frutas com iogurte/castanhas, whey protein, pequenos sanduiches saudaveis, tapioca pequena ou queijo branco.
-- Almoco e Jantar: refeicoes completas e solidas, com carboidrato, proteina e legumes/salada. Aqui podem entrar marmitas Viva Leve.
+- Almoco e Jantar: priorize marmitas/refeicoes completas da Viva Leve quando existirem produtos adequados. Nestas refeicoes, adicione no maximo saladas como complemento externo. NAO colocar frutas em almoco ou jantar.
 - Ceia: leve e facil de digerir, como caldo leve, cha, fruta pequena ou iogurte. Evite marmitas pesadas.
 
 Regra antirrepeticao:
@@ -192,12 +247,13 @@ Regra antirrepeticao:
 Equilibrio loja x alimentos externos:
 - Nao coloque produtos Viva Leve em todas as refeicoes.
 - Alimentos naturais e frescos externos devem aparecer normalmente: frutas, ovos, paes, saladas cruas, leite, iogurte, castanhas.
-- Priorize produtos ativos da loja apenas em Almoco, Jantar e, se houver produto adequado, alguns lanches ou ceia (ex: caldo leve, doce fit, lanche fit).
-- Produtos com produto_id devem corresponder a itens da lista produtos_ativos_viva_leve. Alimentos externos devem usar produto_id null.
+- Produtos da loja so podem aparecer em Almoco, Jantar e Ceia. Nunca use produto_id em Cafe da Manha, Lanche da Manha ou Lanche da Tarde.
+- Produtos com produto_id devem corresponder a itens da lista produtos_ativos_viva_leve. Quando usar produto da loja, o campo nome deve ser EXATAMENTE igual ao nome cadastrado do produto, e o campo descricao deve repetir a descricao cadastrada, sem inventar variacoes.
+- Alimentos externos devem usar produto_id null.
 
 Retorne no formato:
-{"objetivo_estabelecido":"...","kcal_diaria_meta":2000,"dias":[{"dia":"Segunda","refeicoes":[{"refeicao":"Almoco","nome":"...","porcao":"300g","kcal":420,"proteinas":40,"carboidratos":45,"gorduras":12,"produto_id":123|null}]}]}
-Contexto: ${JSON.stringify(contexto).slice(0, 15000)}`;
+{"objetivo_estabelecido":"...","kcal_diaria_meta":2000,"dias":[{"dia":"Segunda","refeicoes":[{"refeicao":"Almoco","nome":"...","descricao":"...","porcao":"300g","kcal":420,"proteinas":40,"carboidratos":45,"gorduras":12,"produto_id":123|null}]}]}
+Contexto: ${JSON.stringify(contexto).slice(0, 30000)}`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (requisicao.receita_url) {
@@ -222,7 +278,7 @@ Contexto: ${JSON.stringify(contexto).slice(0, 15000)}`;
       throw new Error(json.error?.message || 'Erro ao chamar OpenAI.');
     }
 
-    const plano = extrairJson(extrairTextoOpenAI(json));
+    const plano = normalizarPlanoComProdutos(extrairJson(extrairTextoOpenAI(json)), produtos ?? []);
     await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', requisicaoId);
 
     return NextResponse.json({ plano });
