@@ -56,7 +56,12 @@ function extrairJson(texto: string) {
 function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], preferencias: any, padrao: any) {
   const dias = ['Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado', 'Domingo'];
   const refeicoes = Object.entries(padrao ?? {}).filter(([, ativo]) => ativo).map(([nome]) => nome);
-  const produtoPrincipal = produtos[0];
+  const principais = [...(preferencias?.principais ?? []), ...String(preferencias?.outros?.principais ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
+  const frutas = [...(preferencias?.frutas ?? []), ...String(preferencias?.outros?.frutas ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
+  const lanches = [...(preferencias?.lanches ?? []), ...String(preferencias?.outros?.lanches ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
+  const saladas = [...(preferencias?.saladas ?? []), ...String(preferencias?.outros?.saladas ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
+  const produtosRefeicao = produtos.filter(produto => !/doce|sobremesa|lanche|snack/i.test(`${produto.categoria} ${produto.nome}`));
+  const produtosLeves = produtos.filter(produto => /caldo|sopa|lanche|doce|fit|sobremesa/i.test(`${produto.categoria} ${produto.nome}`));
 
   return {
     objetivo_estabelecido: objetivo,
@@ -64,26 +69,39 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], pref
     dias: dias.map((dia, idx) => ({
       dia,
       refeicoes: refeicoes.length ? refeicoes.map((refeicao, refIdx) => {
-        const usarProduto = produtoPrincipal && ['Almoco', 'Jantar', 'Ceia'].includes(refeicao);
+        const produtoDia = produtosRefeicao[(idx + refIdx) % Math.max(produtosRefeicao.length, 1)];
+        const produtoLeve = produtosLeves[(idx + refIdx) % Math.max(produtosLeves.length, 1)];
+        const usarProduto = produtoDia && ['Almoco', 'Jantar'].includes(refeicao);
+        const usarProdutoLeve = produtoLeve && ['Ceia', 'Lanche da Tarde'].includes(refeicao);
+        const principal = principais[(idx + refIdx) % Math.max(principais.length, 1)] ?? 'Refeicao caseira equilibrada';
+        const fruta = frutas[(idx + refIdx) % Math.max(frutas.length, 1)] ?? 'fruta';
+        const lanche = lanches[(idx + refIdx) % Math.max(lanches.length, 1)] ?? 'iogurte natural';
+        const salada = saladas[(idx + refIdx) % Math.max(saladas.length, 1)] ?? 'salada crua';
+        const produtoEscolhido = usarProduto ? produtoDia : usarProdutoLeve ? produtoLeve : null;
         return {
           refeicao,
-          nome: usarProduto ? produtoPrincipal.nome : `${preferencias?.principais?.[refIdx] ?? 'Refeicao caseira equilibrada'} com ${preferencias?.frutas?.[0] ?? 'fruta'}`,
-          porcao: usarProduto ? `${produtoPrincipal.porcao_g ?? 300}g` : '1 porcao',
-          kcal: usarProduto ? Number(produtoPrincipal.kcal ?? 0) * ((Number(produtoPrincipal.porcao_g ?? 100)) / 100) : Math.round(metaKcal / Math.max(refeicoes.length, 1)),
-          proteinas: usarProduto ? Number(produtoPrincipal.proteinas ?? 0) : 25,
-          carboidratos: usarProduto ? Number(produtoPrincipal.carboidratos ?? 0) : 45,
-          gorduras: usarProduto ? Number(produtoPrincipal.gorduras ?? 0) : 12,
-          produto_id: usarProduto ? produtoPrincipal.id : null,
+          nome: produtoEscolhido?.nome ?? (
+            refeicao === 'Cafe da Manha' ? `Ovos ou tapioca com ${fruta}` :
+            refeicao.includes('Lanche') ? `${lanche} com ${fruta}` :
+            refeicao === 'Ceia' ? `Ceia leve com ${fruta} ou iogurte` :
+            `${principal} com ${salada}`
+          ),
+          porcao: produtoEscolhido ? `${produtoEscolhido.porcao_g ?? 300}g` : '1 porcao',
+          kcal: produtoEscolhido ? Math.round(Number(produtoEscolhido.kcal ?? 0) * ((Number(produtoEscolhido.porcao_g ?? 100)) / 100)) : Math.round(metaKcal / Math.max(refeicoes.length, 1)),
+          proteinas: produtoEscolhido ? Number(produtoEscolhido.proteinas ?? 0) : 25,
+          carboidratos: produtoEscolhido ? Number(produtoEscolhido.carboidratos ?? 0) : 45,
+          gorduras: produtoEscolhido ? Number(produtoEscolhido.gorduras ?? 0) : 12,
+          produto_id: produtoEscolhido?.id ?? null,
         };
       }) : [{
         refeicao: 'Almoco',
-        nome: produtoPrincipal?.nome ?? 'Prato equilibrado Viva Leve',
-        porcao: `${produtoPrincipal?.porcao_g ?? 300}g`,
+        nome: produtosRefeicao[0]?.nome ?? 'Prato equilibrado com frango, arroz e legumes',
+        porcao: `${produtosRefeicao[0]?.porcao_g ?? 300}g`,
         kcal: Math.round(metaKcal / 3),
         proteinas: 30,
         carboidratos: 45,
         gorduras: 12,
-        produto_id: produtoPrincipal?.id ?? null,
+        produto_id: produtosRefeicao[0]?.id ?? null,
       }],
     })),
   };
@@ -152,13 +170,32 @@ export async function POST(request: NextRequest) {
     };
 
     const prompt = `Voce e um nutricionista assistente da Viva Leve. Gere APENAS JSON valido.
-Regras:
-- Plano semanal para 7 dias.
-- Priorize produtos ativos da loja em almoco, jantar e ceia quando fizer sentido.
-- Misture alimentos caseiros nas demais refeicoes.
-- Se houver receita_url, considere que ela pode conter orientacoes de nutricionista e respeite macros/kcal quando legiveis.
-- Objetivo: Perda de Peso = TDEE - 23%; Manutencao = TDEE; Ganho de Massa = TDEE + 23%.
-- Retorne no formato:
+Objetivo: criar um plano semanal util, variado, coerente com horarios de refeicao e pronto para revisao humana no painel admin.
+
+Regras obrigatorias:
+1. Plano semanal para 7 dias.
+2. Se houver receita_url, leia a imagem com prioridade. Se a receita do nutricionista exigir alimento especifico que a Viva Leve nao vende, obedeca a receita e use produto_id null.
+3. Se nao houver receita, use a meta calculada: Perda de Peso = TDEE - 23%; Manutencao = TDEE; Ganho de Massa = TDEE + 23%.
+4. Use as preferencias selecionadas e tambem preferencias.outros, que traz texto livre separado por virgulas.
+
+Regras de coerencia por refeicao:
+- Cafe da Manha: somente itens leves e matinais, como ovos mexidos, paes/torradas, frutas, cafe, vitaminas, tapioca ou aveia. NUNCA colocar marmita de almoco ou prato pesado no cafe da manha.
+- Lanche da Manha e Lanche da Tarde: praticos e leves, como frutas com iogurte/castanhas, whey protein, pequenos sanduiches saudaveis, tapioca pequena ou queijo branco.
+- Almoco e Jantar: refeicoes completas e solidas, com carboidrato, proteina e legumes/salada. Aqui podem entrar marmitas Viva Leve.
+- Ceia: leve e facil de digerir, como caldo leve, cha, fruta pequena ou iogurte. Evite marmitas pesadas.
+
+Regra antirrepeticao:
+- E proibido repetir o mesmo prato, mesma combinacao ou mesmo lanche em dias seguidos.
+- Intercale proteinas, carboidratos, frutas e lanches. Exemplo: se segunda usa patinho com arroz integral, terca deve usar frango/peixe/ovos com batata, pure, mandioca ou outro acompanhamento.
+- Nao use a mesma fruta ou o mesmo lanche todos os dias. O plano deve ser dinamico e prazeroso.
+
+Equilibrio loja x alimentos externos:
+- Nao coloque produtos Viva Leve em todas as refeicoes.
+- Alimentos naturais e frescos externos devem aparecer normalmente: frutas, ovos, paes, saladas cruas, leite, iogurte, castanhas.
+- Priorize produtos ativos da loja apenas em Almoco, Jantar e, se houver produto adequado, alguns lanches ou ceia (ex: caldo leve, doce fit, lanche fit).
+- Produtos com produto_id devem corresponder a itens da lista produtos_ativos_viva_leve. Alimentos externos devem usar produto_id null.
+
+Retorne no formato:
 {"objetivo_estabelecido":"...","kcal_diaria_meta":2000,"dias":[{"dia":"Segunda","refeicoes":[{"refeicao":"Almoco","nome":"...","porcao":"300g","kcal":420,"proteinas":40,"carboidratos":45,"gorduras":12,"produto_id":123|null}]}]}
 Contexto: ${JSON.stringify(contexto).slice(0, 15000)}`;
 

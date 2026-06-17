@@ -59,6 +59,12 @@ interface PlanoNutriForm {
   principais: string[];
   saladas: string[];
   lanches: string[];
+  outros: {
+    frutas: string;
+    principais: string;
+    saladas: string;
+    lanches: string;
+  };
   refeicoes: Record<string, boolean>;
 }
 
@@ -87,10 +93,15 @@ const PERFIL_CALORICO_INICIAL: PerfilCaloricoForm = {
   nivel_atividade: 'sedentario',
 };
 const OPCOES_PLANO_NUTRI = {
-  frutas: ['Banana', 'Maca', 'Morango', 'Mamao', 'Abacaxi', 'Uva'],
-  principais: ['Arroz integral', 'Feijao', 'Frango grelhado', 'Patinho moido', 'Ovos', 'Batata doce'],
-  saladas: ['Alface', 'Tomate', 'Couve', 'Cenoura', 'Brocolis', 'Pepino'],
-  lanches: ['Leite', 'Whey', 'Castanhas', 'Iogurte', 'Pao', 'Pasta de amendoim'],
+  frutas: ['Banana', 'Maca', 'Morango', 'Mamao', 'Melancia', 'Uva', 'Abacaxi', 'Abacate', 'Laranja', 'Kiwi', 'Melao'],
+  principais: [
+    'Arroz branco', 'Arroz integral', 'Macarrao integral', 'Macarrao', 'Batata Inglesa', 'Batata doce',
+    'Mandioca', 'Pure de batata', 'Feijao carioca', 'Feijao preto', 'Lentilha', 'Grao de bico',
+    'File de frango', 'Patinho moido', 'File de peixe', 'Iscas de carne', 'Ovos', 'Mix de legumes',
+    'Cenoura', 'Beterraba', 'Brocolis', 'Abobora',
+  ],
+  saladas: ['Alface', 'Tomate', 'Couve', 'Rucula', 'Agriao', 'Pepino', 'Cebola'],
+  lanches: ['Pao de forma', 'Pao integral', 'Tapioca', 'Aveia', 'Iogurte integral', 'Iogurte desnatado', 'Leite', 'Whey Protein', 'Castanhas', 'Pasta de amendoim', 'Queijo branco'],
 };
 const REFEICOES_PLANO_NUTRI = ['Cafe da Manha', 'Lanche da Manha', 'Almoco', 'Lanche da Tarde', 'Jantar', 'Ceia'];
 const PLANO_NUTRI_INICIAL: PlanoNutriForm = {
@@ -99,6 +110,12 @@ const PLANO_NUTRI_INICIAL: PlanoNutriForm = {
   principais: [],
   saladas: [],
   lanches: [],
+  outros: {
+    frutas: '',
+    principais: '',
+    saladas: '',
+    lanches: '',
+  },
   refeicoes: REFEICOES_PLANO_NUTRI.reduce((acc, item) => ({
     ...acc,
     [item]: ['Cafe da Manha', 'Almoco', 'Jantar'].includes(item),
@@ -601,6 +618,7 @@ export default function Dieta() {
           principais: planoNutri.principais,
           saladas: planoNutri.saladas,
           lanches: planoNutri.lanches,
+          outros: planoNutri.outros,
         },
         padrao_refeicoes: planoNutri.refeicoes,
         status: 'pendente',
@@ -1050,6 +1068,18 @@ export default function Dieta() {
                     );
                   })}
                 </div>
+                <label className="mt-2 block">
+                  <span className="mb-1 block text-[11px] font-semibold text-gray-500">Outro? Digite aqui separado por virgula se nao encontrou na lista</span>
+                  <input
+                    value={planoNutri.outros[grupo]}
+                    onChange={e => setPlanoNutri(prev => ({
+                      ...prev,
+                      outros: { ...prev.outros, [grupo]: e.target.value },
+                    }))}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-viva-verde"
+                    placeholder="Ex: pera, tilapia, quinoa..."
+                  />
+                </label>
               </div>
             ))}
 
