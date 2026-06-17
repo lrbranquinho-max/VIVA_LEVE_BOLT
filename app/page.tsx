@@ -215,6 +215,32 @@ export default function LojaCliente() {
     init();
   }, [carregarCupons]);
 
+  useEffect(() => {
+    if (produtos.length === 0) return;
+    const bruto = localStorage.getItem('viva-leve-plano-carrinho');
+    if (!bruto) return;
+
+    try {
+      const itens = JSON.parse(bruto) as Record<string, number>;
+      const disponiveis = new Set(produtos.map(produto => String(produto.id)));
+      const validos = Object.fromEntries(
+        Object.entries(itens)
+          .filter(([id, qtd]) => disponiveis.has(id) && Number(qtd) > 0)
+          .map(([id, qtd]) => [Number(id), Number(qtd)]),
+      );
+
+      if (Object.keys(validos).length > 0) {
+        setCarrinho(prev => ({ ...prev, ...validos }));
+        setVerCarrinho(true);
+        adicionarToast('Itens do Plano Nutri adicionados a sacola.', 'sucesso');
+      }
+    } catch {
+      adicionarToast('Nao foi possivel importar os itens do Plano Nutri.', 'erro');
+    } finally {
+      localStorage.removeItem('viva-leve-plano-carrinho');
+    }
+  }, [produtos, adicionarToast]);
+
   const subtotalProdutos = useMemo(() => Object.entries(carrinho).reduce((total, [id, qtd]) => {
     const produto = produtos.find(p => p.id === Number(id));
     return total + (produto ? produto.preco * qtd : 0);
@@ -549,6 +575,12 @@ export default function LojaCliente() {
       </header>
 
       <main className="space-y-4 p-4">
+        <Link href="/dieta" className="block rounded-2xl bg-gradient-to-r from-viva-roxo to-gray-900 p-4 text-white shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-viva-verde">Novidade</p>
+          <p className="mt-1 text-sm font-black">Gere sua dieta personalizada gratuita e descubra exatamente quais marmitas comprar.</p>
+          <p className="mt-2 text-xs font-bold text-white/75">Clique aqui e crie seu Plano Nutri.</p>
+        </Link>
+
         <div className="overflow-hidden rounded-2xl border border-viva-verde/40 bg-viva-verde/20 py-3 text-xs font-black text-viva-roxo">
           <div className="viva-marquee flex w-max items-center whitespace-nowrap px-4">
             {[...mensagensPromocionais, ...mensagensPromocionais].map((mensagem, index) => (

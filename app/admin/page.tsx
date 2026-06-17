@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '../../supabase';
 
 type AbaAdmin = 'pedidos' | 'produtos';
@@ -692,6 +693,13 @@ export default function AdminPage() {
                 <span className={`mt-1 block text-xs ${aba === item.id ? 'text-gray-300' : 'text-gray-400'}`}>{item.desc}</span>
               </button>
             ))}
+            <Link
+              href="/admin/planos-nutri"
+              className="min-w-48 rounded-xl bg-viva-verde px-4 py-3 text-left text-viva-roxo transition hover:brightness-95 lg:min-w-0"
+            >
+              <span className="block text-sm font-black">Planos Nutri</span>
+              <span className="mt-1 block text-xs font-bold text-viva-roxo/70">IA e revisao humana</span>
+            </Link>
           </nav>
         </aside>
 

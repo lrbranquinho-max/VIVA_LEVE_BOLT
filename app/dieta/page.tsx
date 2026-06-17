@@ -53,6 +53,15 @@ interface PerfilCaloricoForm {
   nivel_atividade: string;
 }
 
+interface PlanoNutriForm {
+  objetivo: string;
+  frutas: string[];
+  principais: string[];
+  saladas: string[];
+  lanches: string[];
+  refeicoes: Record<string, boolean>;
+}
+
 const TIPOS_REFEICAO = ['Café da Manhã', 'Almoço', 'Lanche', 'Jantar'];
 const FATORES_ATIVIDADE = [
   { valor: 'sedentario', label: 'Sedentário', fator: 1.2 },
@@ -76,6 +85,24 @@ const PERFIL_CALORICO_INICIAL: PerfilCaloricoForm = {
   altura_cm: '',
   idade: '',
   nivel_atividade: 'sedentario',
+};
+const OPCOES_PLANO_NUTRI = {
+  frutas: ['Banana', 'Maca', 'Morango', 'Mamao', 'Abacaxi', 'Uva'],
+  principais: ['Arroz integral', 'Feijao', 'Frango grelhado', 'Patinho moido', 'Ovos', 'Batata doce'],
+  saladas: ['Alface', 'Tomate', 'Couve', 'Cenoura', 'Brocolis', 'Pepino'],
+  lanches: ['Leite', 'Whey', 'Castanhas', 'Iogurte', 'Pao', 'Pasta de amendoim'],
+};
+const REFEICOES_PLANO_NUTRI = ['Cafe da Manha', 'Lanche da Manha', 'Almoco', 'Lanche da Tarde', 'Jantar', 'Ceia'];
+const PLANO_NUTRI_INICIAL: PlanoNutriForm = {
+  objetivo: 'Perda de Peso',
+  frutas: [],
+  principais: [],
+  saladas: [],
+  lanches: [],
+  refeicoes: REFEICOES_PLANO_NUTRI.reduce((acc, item) => ({
+    ...acc,
+    [item]: ['Cafe da Manha', 'Almoco', 'Jantar'].includes(item),
+  }), {}),
 };
 
 function hojeLocal() {
@@ -178,6 +205,9 @@ export default function Dieta() {
   const [perfilAberto, setPerfilAberto] = useState(false);
   const [salvandoPerfil, setSalvandoPerfil] = useState(false);
   const [perfilCalorico, setPerfilCalorico] = useState<PerfilCaloricoForm>({ ...PERFIL_CALORICO_INICIAL });
+  const [planoNutri, setPlanoNutri] = useState<PlanoNutriForm>({ ...PLANO_NUTRI_INICIAL });
+  const [receitaNutri, setReceitaNutri] = useState<File | null>(null);
+  const [solicitandoPlano, setSolicitandoPlano] = useState(false);
 
   const [modalAberto, setModalAberto] = useState(false);
   const [scannerAberto, setScannerAberto] = useState(false);
@@ -533,6 +563,63 @@ export default function Dieta() {
     }
   };
 
+  const alternarPreferenciaPlano = (grupo: keyof Pick<PlanoNutriForm, 'frutas' | 'principais' | 'saladas' | 'lanches'>, valor: string) => {
+    setPlanoNutri(prev => ({
+      ...prev,
+      [grupo]: prev[grupo].includes(valor)
+        ? prev[grupo].filter(item => item !== valor)
+        : [...prev[grupo], valor],
+    }));
+  };
+
+  const solicitarPlanoNutri = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!clienteId) return;
+
+    setSolicitandoPlano(true);
+    try {
+      let receitaUrl: string | null = null;
+
+      if (receitaNutri) {
+        const extensao = receitaNutri.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const caminho = `${clienteId}/${Date.now()}-receita.${extensao}`;
+        const { error: uploadError } = await supabase.storage
+          .from('receitas_nutri')
+          .upload(caminho, receitaNutri, { upsert: false });
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrl } = supabase.storage.from('receitas_nutri').getPublicUrl(caminho);
+        receitaUrl = publicUrl.publicUrl;
+      }
+
+      const { error } = await supabase.from('planos_requisicoes').insert([{
+        user_id: clienteId,
+        objetivo: planoNutri.objetivo,
+        receita_url: receitaUrl,
+        preferencias: {
+          frutas: planoNutri.frutas,
+          principais: planoNutri.principais,
+          saladas: planoNutri.saladas,
+          lanches: planoNutri.lanches,
+        },
+        padrao_refeicoes: planoNutri.refeicoes,
+        status: 'pendente',
+      }]);
+      if (error) throw error;
+
+      setReceitaNutri(null);
+      setPlanoNutri({
+        ...PLANO_NUTRI_INICIAL,
+        refeicoes: { ...PLANO_NUTRI_INICIAL.refeicoes },
+      });
+      mostrarToast('Recebemos seus dados! Em ate 24hs seu plano estara disponivel.', 'sucesso');
+    } catch (err: any) {
+      mostrarToast(`Erro ao solicitar plano: ${err.message}`, 'erro');
+    } finally {
+      setSolicitandoPlano(false);
+    }
+  };
+
   const salvarRefeicao = async (event: React.FormEvent) => {
     event.preventDefault();
     setErroModal(null);
@@ -722,6 +809,17 @@ export default function Dieta() {
           </button>
         )}
 
+        <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-viva-roxo to-gray-900 p-5 text-white shadow-sm">
+          <p className="text-xs font-black uppercase tracking-wider text-viva-verde">Plano Nutri com IA</p>
+          <h2 className="mt-1 text-xl font-black">Nao sabe o que comer?</h2>
+          <p className="mt-2 text-sm font-semibold text-white/85">
+            Deixe nossa Inteligencia Artificial criar um plano alimentar para voce e seu objetivo, usando nossas refeicoes.
+          </p>
+          <Link href="/dieta/plano-nutri" className="mt-4 inline-flex rounded-xl bg-viva-verde px-4 py-2 text-xs font-black text-viva-roxo shadow-sm">
+            Ver meu Plano Nutri
+          </Link>
+        </section>
+
         <section className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Resumo do Dia</h2>
@@ -905,6 +1003,79 @@ export default function Dieta() {
               </button>
             </form>
           )}
+        </section>
+
+        <section className="rounded-2xl border border-viva-verde/40 bg-white p-5 shadow-sm">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-viva-roxo">Solicitar Plano Nutri Inteligente</p>
+            <h2 className="mt-1 text-lg font-black text-gray-800">Plano semanal com IA e revisao humana</h2>
+            <p className="mt-1 text-xs font-semibold text-gray-500">Envie suas preferencias. O plano sera liberado apos revisao do time Viva Leve.</p>
+          </div>
+
+          <form onSubmit={solicitarPlanoNutri} className="mt-4 space-y-4">
+            <label>
+              <span className="mb-1 block text-xs font-bold text-gray-600">Objetivo</span>
+              <select value={planoNutri.objetivo} onChange={e => setPlanoNutri(prev => ({ ...prev, objetivo: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm font-semibold text-gray-900">
+                <option>Perda de Peso</option>
+                <option>Manutencao</option>
+                <option>Ganho de Massa</option>
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs font-bold text-gray-600">Possui receita do nutricionista? Anexe aqui</span>
+              <input type="file" accept="image/*" onChange={e => setReceitaNutri(e.target.files?.[0] ?? null)} className="w-full rounded-xl border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-600" />
+            </label>
+
+            {([
+              ['frutas', 'Frutas'],
+              ['principais', 'Principais'],
+              ['saladas', 'Saladas'],
+              ['lanches', 'Lanches'],
+            ] as const).map(([grupo, label]) => (
+              <div key={grupo}>
+                <p className="mb-2 text-xs font-bold text-gray-600">{label}</p>
+                <div className="flex flex-wrap gap-2">
+                  {OPCOES_PLANO_NUTRI[grupo].map(opcao => {
+                    const ativo = planoNutri[grupo].includes(opcao);
+                    return (
+                      <button
+                        key={opcao}
+                        type="button"
+                        onClick={() => alternarPreferenciaPlano(grupo, opcao)}
+                        className={`rounded-full px-3 py-2 text-xs font-black ${ativo ? 'bg-viva-roxo text-white' : 'bg-gray-100 text-gray-600'}`}
+                      >
+                        {opcao}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <div>
+              <p className="mb-2 text-xs font-bold text-gray-600">Padrao de refeicoes</p>
+              <div className="grid grid-cols-2 gap-2">
+                {REFEICOES_PLANO_NUTRI.map(refeicao => (
+                  <label key={refeicao} className="flex items-center gap-2 rounded-xl bg-gray-50 p-3 text-xs font-bold text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(planoNutri.refeicoes[refeicao])}
+                      onChange={e => setPlanoNutri(prev => ({
+                        ...prev,
+                        refeicoes: { ...prev.refeicoes, [refeicao]: e.target.checked },
+                      }))}
+                    />
+                    {refeicao}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <button disabled={solicitandoPlano} className="w-full rounded-xl bg-viva-verde py-3 text-sm font-black text-viva-roxo shadow-sm disabled:opacity-60">
+              {solicitandoPlano ? 'Enviando...' : 'Solicitar plano em ate 24hs'}
+            </button>
+          </form>
         </section>
 
         <div className="grid grid-cols-2 gap-3">
