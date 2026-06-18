@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { criarSupabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 
@@ -57,13 +58,68 @@ function produtoPorId(produtos: any[]) {
   return new Map(produtos.map(produto => [String(produto.id), produto]));
 }
 
+function receitaPorId(receitas: any[]) {
+  return new Map(receitas.map(receita => [String(receita.id), receita]));
+}
+
+const ORDEM_REFEICOES = ['Cafe da Manha', 'Lanche da Manha', 'Almoco', 'Lanche da Tarde', 'Jantar', 'Ceia'];
+
+function ordemRefeicao(refeicao: unknown) {
+  const texto = String(refeicao ?? '');
+  const index = ORDEM_REFEICOES.indexOf(texto);
+  return index >= 0 ? index : ORDEM_REFEICOES.length;
+}
+
+function tipoExternoParaRefeicao(refeicao: string) {
+  if (refeicao === 'Cafe da Manha') return 'Cafe da Manha';
+  if (refeicao === 'Lanche da Manha' || refeicao === 'Lanche da Tarde') return 'Lanche';
+  if (refeicao === 'Almoco' || refeicao === 'Jantar') return 'Almoco_Jantar';
+  if (refeicao === 'Ceia') return 'Ceia';
+  return '';
+}
+
+function categoriaProduto(produto: any) {
+  return String(produto?.categoria ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function produtoPermitidoNaRefeicao(produto: any, refeicao: string) {
+  const categoria = categoriaProduto(produto);
+  if (categoria.includes('marmita')) return ['Almoco', 'Jantar'].includes(refeicao);
+  if (categoria.includes('lanche') || categoria.includes('suplemento')) return ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde'].includes(refeicao);
+  if (categoria.includes('caldo')) return ['Jantar', 'Ceia'].includes(refeicao);
+  return ['Almoco', 'Jantar', 'Ceia'].includes(refeicao);
+}
+
+function gramasDoItem(item: any, fallback = 100) {
+  const direto = Number(item?.gramas);
+  if (Number.isFinite(direto) && direto > 0) return Math.round(direto);
+  const texto = `${item?.porcao ?? ''} ${item?.nome ?? ''}`;
+  const match = texto.match(/(\d+(?:[,.]\d+)?)\s*g/i);
+  if (match) {
+    const gramas = Number(match[1].replace(',', '.'));
+    if (Number.isFinite(gramas) && gramas > 0) return Math.round(gramas);
+  }
+  return fallback;
+}
+
+function macrosPorGramas(base100g: any, gramas: number) {
+  const fator = gramas / 100;
+  return {
+    kcal: Math.round(Number(base100g.kcal_100g ?? base100g.kcal ?? 0) * fator),
+    carboidratos: Number((Number(base100g.carb_100g ?? base100g.carboidratos ?? 0) * fator).toFixed(1)),
+    proteinas: Number((Number(base100g.prot_100g ?? base100g.proteinas ?? 0) * fator).toFixed(1)),
+    gorduras: Number((Number(base100g.gord_100g ?? base100g.gorduras ?? 0) * fator).toFixed(1)),
+  };
+}
+
 function removerFrutasDeAlmocoJantar(texto: unknown) {
   const frutas = /\b(banana|maca|maçã|morango|mamao|mamão|melancia|uva|abacaxi|abacate|laranja|kiwi|melao|melão|pera|goiaba|manga)\b/gi;
   return String(texto ?? '').replace(frutas, 'salada').replace(/\s{2,}/g, ' ').trim();
 }
 
-function normalizarPlanoComProdutos(plano: any, produtos: any[]) {
+function normalizarPlano(plano: any, produtos: any[], receitas: any[]) {
   const mapaProdutos = produtoPorId(produtos);
+  const mapaReceitas = receitaPorId(receitas);
   const refeicoesComProduto = ['Almoco', 'Jantar', 'Ceia'];
   const dias = Array.isArray(plano?.dias) ? plano.dias : Array.isArray(plano?.plano_semanal) ? plano.plano_semanal : [];
 
@@ -74,8 +130,30 @@ function normalizarPlanoComProdutos(plano: any, produtos: any[]) {
       refeicoes: Array.isArray(dia?.refeicoes) ? dia.refeicoes.map((item: any) => {
         const refeicao = String(item?.refeicao ?? '');
         const produto = item?.produto_id ? mapaProdutos.get(String(item.produto_id)) : null;
+        const receita = item?.receita_externa_id ? mapaReceitas.get(String(item.receita_externa_id)) : null;
+
+        if (receita) {
+          const tipoEsperado = tipoExternoParaRefeicao(refeicao);
+          if (receita.tipo_refeicao === tipoEsperado) {
+            const gramas = gramasDoItem(item, 100);
+            const macros = macrosPorGramas(receita, gramas);
+            return {
+              ...item,
+              nome: `${receita.nome_receita} (${gramas}g)`,
+              descricao: receita.modo_preparo ?? '',
+              modo_preparo: receita.modo_preparo ?? '',
+              porcao: `${gramas}g`,
+              gramas,
+              ...macros,
+              produto_id: null,
+              receita_externa_id: receita.id,
+            };
+          }
+        }
+
         if (!produto) {
-          const semProduto = { ...item, produto_id: null };
+          const gramas = gramasDoItem(item, 100);
+          const semProduto = { ...item, gramas, porcao: item?.porcao ?? `${gramas}g`, produto_id: null, receita_externa_id: null };
           if (['Almoco', 'Jantar'].includes(refeicao)) {
             return {
               ...semProduto,
@@ -86,35 +164,45 @@ function normalizarPlanoComProdutos(plano: any, produtos: any[]) {
           return semProduto;
         }
 
-        if (!refeicoesComProduto.includes(refeicao)) {
-          return { ...item, produto_id: null };
+        if (!refeicoesComProduto.includes(refeicao) || !produtoPermitidoNaRefeicao(produto, refeicao)) {
+          return { ...item, produto_id: null, receita_externa_id: null };
         }
 
+        const gramas = Number(produto.porcao_g ?? 300) || 300;
         return {
           ...item,
-          nome: produto.nome,
+          nome: `${produto.nome} (${gramas}g)`,
           descricao: produto.descricao ?? item.descricao ?? '',
-          porcao: `${produto.porcao_g ?? 300}g`,
-          kcal: Math.round(Number(produto.kcal ?? item.kcal ?? 0) * (Number(produto.porcao_g ?? 100) / 100)),
+          modo_preparo: produto.descricao ?? item.modo_preparo ?? '',
+          porcao: `${gramas}g`,
+          gramas,
+          kcal: Math.round(Number(produto.kcal ?? item.kcal ?? 0) * (gramas / 100)),
           proteinas: Number(produto.proteinas ?? item.proteinas ?? 0),
           carboidratos: Number(produto.carboidratos ?? item.carboidratos ?? 0),
           gorduras: Number(produto.gorduras ?? item.gorduras ?? 0),
           produto_id: produto.id,
+          receita_externa_id: null,
         };
-      }) : [],
+      }).sort((a: any, b: any) => ordemRefeicao(a.refeicao) - ordemRefeicao(b.refeicao)) : [],
     })),
   };
 }
 
-function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], preferencias: any, padrao: any) {
+function receitasPorTipo(receitas: any[], tipo: string) {
+  return receitas.filter(receita => receita.tipo_refeicao === tipo);
+}
+
+function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], receitas: any[], preferencias: any, padrao: any) {
   const dias = ['Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado', 'Domingo'];
-  const refeicoes = Object.entries(padrao ?? {}).filter(([, ativo]) => ativo).map(([nome]) => nome);
+  const refeicoes = Object.entries(padrao ?? {})
+    .filter(([, ativo]) => ativo)
+    .map(([nome]) => nome)
+    .sort((a, b) => ordemRefeicao(a) - ordemRefeicao(b));
   const principais = [...(preferencias?.principais ?? []), ...String(preferencias?.outros?.principais ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
   const frutas = [...(preferencias?.frutas ?? []), ...String(preferencias?.outros?.frutas ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
   const lanches = [...(preferencias?.lanches ?? []), ...String(preferencias?.outros?.lanches ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
   const saladas = [...(preferencias?.saladas ?? []), ...String(preferencias?.outros?.saladas ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)];
-  const produtosRefeicao = produtos.filter(produto => !/doce|sobremesa|lanche|snack/i.test(`${produto.categoria} ${produto.nome}`));
-  const produtosLeves = produtos.filter(produto => /caldo|sopa|lanche|doce|fit|sobremesa/i.test(`${produto.categoria} ${produto.nome}`));
+  const produtosPorRefeicao = (refeicao: string) => produtos.filter(produto => produtoPermitidoNaRefeicao(produto, refeicao));
 
   return {
     objetivo_estabelecido: objetivo,
@@ -122,43 +210,69 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], pref
     dias: dias.map((dia, idx) => ({
       dia,
       refeicoes: refeicoes.length ? refeicoes.map((refeicao, refIdx) => {
-        const produtoDia = produtosRefeicao[(idx + refIdx) % Math.max(produtosRefeicao.length, 1)];
-        const produtoLeve = produtosLeves[(idx + refIdx) % Math.max(produtosLeves.length, 1)];
-        const usarProduto = produtoDia && ['Almoco', 'Jantar'].includes(refeicao);
-        const usarProdutoLeve = produtoLeve && refeicao === 'Ceia';
+        const produtosValidos = produtosPorRefeicao(refeicao);
+        const produtoDia = produtosValidos[(idx + refIdx) % Math.max(produtosValidos.length, 1)];
+        const tipoReceita = tipoExternoParaRefeicao(refeicao);
+        const receitasValidas = receitasPorTipo(receitas, tipoReceita);
+        const receita = receitasValidas[(idx + refIdx) % Math.max(receitasValidas.length, 1)];
+        const usarProduto = produtoDia && (idx + refIdx) % 2 === 0;
         const principal = principais[(idx + refIdx) % Math.max(principais.length, 1)] ?? 'Refeicao caseira equilibrada';
         const fruta = frutas[(idx + refIdx) % Math.max(frutas.length, 1)] ?? 'fruta';
         const lanche = lanches[(idx + refIdx) % Math.max(lanches.length, 1)] ?? 'iogurte natural';
         const salada = saladas[(idx + refIdx) % Math.max(saladas.length, 1)] ?? 'salada crua';
-        const produtoEscolhido = usarProduto ? produtoDia : usarProdutoLeve ? produtoLeve : null;
+        const produtoEscolhido = usarProduto ? produtoDia : null;
+        const receitaEscolhida = produtoEscolhido ? null : receita;
+        const gramas = produtoEscolhido ? Number(produtoEscolhido.porcao_g ?? 300) || 300 : receitaEscolhida ? 120 : 100;
+        const macrosReceita = receitaEscolhida ? macrosPorGramas(receitaEscolhida, gramas) : null;
         return {
           refeicao,
-          nome: produtoEscolhido?.nome ?? (
+          nome: produtoEscolhido ? `${produtoEscolhido.nome} (${gramas}g)` : receitaEscolhida ? `${receitaEscolhida.nome_receita} (${gramas}g)` : (
             refeicao === 'Cafe da Manha' ? `Ovos ou tapioca com ${fruta}` :
             refeicao.includes('Lanche') ? `${lanche} com ${fruta}` :
             refeicao === 'Ceia' ? `Ceia leve com ${fruta} ou iogurte` :
             `${principal} com ${salada}`
           ),
-          descricao: produtoEscolhido?.descricao ?? '',
-          porcao: produtoEscolhido ? `${produtoEscolhido.porcao_g ?? 300}g` : '1 porcao',
-          kcal: produtoEscolhido ? Math.round(Number(produtoEscolhido.kcal ?? 0) * ((Number(produtoEscolhido.porcao_g ?? 100)) / 100)) : Math.round(metaKcal / Math.max(refeicoes.length, 1)),
-          proteinas: produtoEscolhido ? Number(produtoEscolhido.proteinas ?? 0) : 25,
-          carboidratos: produtoEscolhido ? Number(produtoEscolhido.carboidratos ?? 0) : 45,
-          gorduras: produtoEscolhido ? Number(produtoEscolhido.gorduras ?? 0) : 12,
+          descricao: produtoEscolhido?.descricao ?? receitaEscolhida?.modo_preparo ?? '',
+          modo_preparo: produtoEscolhido?.descricao ?? receitaEscolhida?.modo_preparo ?? '',
+          porcao: `${gramas}g`,
+          gramas,
+          kcal: produtoEscolhido ? Math.round(Number(produtoEscolhido.kcal ?? 0) * (gramas / 100)) : macrosReceita?.kcal ?? Math.round(metaKcal / Math.max(refeicoes.length, 1)),
+          proteinas: produtoEscolhido ? Number(produtoEscolhido.proteinas ?? 0) : macrosReceita?.proteinas ?? 25,
+          carboidratos: produtoEscolhido ? Number(produtoEscolhido.carboidratos ?? 0) : macrosReceita?.carboidratos ?? 45,
+          gorduras: produtoEscolhido ? Number(produtoEscolhido.gorduras ?? 0) : macrosReceita?.gorduras ?? 12,
           produto_id: produtoEscolhido?.id ?? null,
+          receita_externa_id: receitaEscolhida?.id ?? null,
         };
       }) : [{
         refeicao: 'Almoco',
-        nome: produtosRefeicao[0]?.nome ?? 'Prato equilibrado com frango, arroz e legumes',
-        porcao: `${produtosRefeicao[0]?.porcao_g ?? 300}g`,
+        nome: produtosPorRefeicao('Almoco')[0]?.nome ?? 'Prato equilibrado com frango, arroz e legumes',
+        porcao: `${produtosPorRefeicao('Almoco')[0]?.porcao_g ?? 300}g`,
         kcal: Math.round(metaKcal / 3),
         proteinas: 30,
         carboidratos: 45,
         gorduras: 12,
-        produto_id: produtosRefeicao[0]?.id ?? null,
+        produto_id: produtosPorRefeicao('Almoco')[0]?.id ?? null,
       }],
     })),
   };
+}
+
+async function salvarPlanoGerado(supabase: any, requisicao: any, plano: any) {
+  const { error: insertError } = await supabase.from('planos_gerados').insert([{
+    user_id: requisicao.user_id,
+    requisicao_id: requisicao.id,
+    data_plano: new Date().toISOString().slice(0, 10),
+    objetivo_estabelecido: plano.objetivo_estabelecido ?? requisicao.objetivo,
+    kcal_diaria_meta: Number(plano.kcal_diaria_meta ?? 2000),
+    plano_semanal: plano.dias ?? plano.plano_semanal ?? plano,
+  }]);
+  if (insertError) throw insertError;
+
+  const { error: updateError } = await supabase
+    .from('planos_requisicoes')
+    .update({ status: 'concluido' })
+    .eq('id', requisicao.id);
+  if (updateError) throw updateError;
 }
 
 export async function POST(request: NextRequest) {
@@ -174,7 +288,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Usuario nao autenticado.' }, { status: 401 });
     }
 
-    const { requisicaoId } = await request.json() as { requisicaoId?: string };
+    const { requisicaoId, salvarAutomaticamente } = await request.json() as { requisicaoId?: string; salvarAutomaticamente?: boolean };
     if (!requisicaoId) {
       return NextResponse.json({ error: 'requisicaoId e obrigatorio.' }, { status: 400 });
     }
@@ -184,10 +298,13 @@ export async function POST(request: NextRequest) {
       auth: { persistSession: false },
     });
 
-    const { data: isAdmin, error: adminError } = await supabase.rpc('is_viva_leve_admin');
-    if (adminError || !isAdmin) {
-      return NextResponse.json({ error: adminError?.message || 'Acesso restrito ao administrador.' }, { status: 403 });
-    }
+    const [{ data: authUser }, { data: isAdmin, error: adminError }, { data: configData }] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.rpc('is_viva_leve_admin'),
+      supabase.from('app_config').select('valor').eq('chave', 'plano_nutri_modo').maybeSingle(),
+    ]);
+    const modoAutomatico = (configData?.valor as any)?.modo === 'automatico';
+    const userId = authUser?.user?.id;
 
     const { data: requisicao, error: reqError } = await supabase
       .from('planos_requisicoes')
@@ -197,19 +314,32 @@ export async function POST(request: NextRequest) {
     if (reqError) throw reqError;
     if (!requisicao) return NextResponse.json({ error: 'Requisicao nao encontrada.' }, { status: 404 });
 
-    const [{ data: perfil }, { data: perfilCliente }, { data: produtos, error: produtosError }] = await Promise.all([
+    if (adminError && !modoAutomatico) {
+      return NextResponse.json({ error: adminError.message || 'Acesso restrito ao administrador.' }, { status: 403 });
+    }
+    if (!isAdmin && (!modoAutomatico || requisicao.user_id !== userId)) {
+      return NextResponse.json({ error: 'Acesso restrito ao administrador ou ao modo automatico ativo.' }, { status: 403 });
+    }
+
+    const [{ data: perfil }, { data: perfilCliente }, { data: produtos, error: produtosError }, { data: receitas, error: receitasError }] = await Promise.all([
       supabase.from('perfis').select('*').eq('id', requisicao.user_id).maybeSingle(),
       supabase.from('perfis_clientes').select('*').eq('id', requisicao.user_id).maybeSingle(),
       supabase.from('produtos').select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras,preco').eq('ativo', true).gt('estoque', 0).order('categoria', { ascending: true }).order('nome', { ascending: true }),
+      supabase.from('receitas_externas').select('id,tipo_refeicao,nome_receita,modo_preparo,kcal_100g,carb_100g,prot_100g,gord_100g').order('tipo_refeicao', { ascending: true }).order('nome_receita', { ascending: true }),
     ]);
     if (produtosError) throw produtosError;
+    if (receitasError) throw receitasError;
 
     const tdee = calcularTdee(perfil, perfilCliente);
     const metaKcal = metaPorObjetivo(tdee, requisicao.objetivo);
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      const fallback = gerarFallback(metaKcal, requisicao.objetivo, produtos ?? [], requisicao.preferencias, requisicao.padrao_refeicoes);
+      const fallback = normalizarPlano(gerarFallback(metaKcal, requisicao.objetivo, produtos ?? [], receitas ?? [], requisicao.preferencias, requisicao.padrao_refeicoes), produtos ?? [], receitas ?? []);
+      if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
+        await salvarPlanoGerado(isAdmin ? supabase : criarSupabaseAdmin(), requisicao, fallback);
+        return NextResponse.json({ plano: fallback, status: 'concluido', aviso: 'OPENAI_API_KEY ausente; plano matematico salvo automaticamente.' });
+      }
       await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', requisicaoId);
       return NextResponse.json({ plano: fallback, aviso: 'OPENAI_API_KEY ausente; rascunho matematico gerado para revisao.' });
     }
@@ -221,6 +351,7 @@ export async function POST(request: NextRequest) {
       tdee_estimado: tdee,
       kcal_meta_por_objetivo: metaKcal,
       produtos_ativos_viva_leve: produtos ?? [],
+      receitas_externas: receitas ?? [],
     };
 
     const prompt = `Voce e um nutricionista assistente da Viva Leve. Gere APENAS JSON valido.
@@ -232,6 +363,8 @@ Regras obrigatorias:
 3. Se nao houver receita, use a meta calculada: Perda de Peso = TDEE - 23%; Manutencao = TDEE; Ganho de Massa = TDEE + 23%.
 4. Use as preferencias selecionadas e tambem preferencias.outros, que traz texto livre separado por virgulas.
 5. Leia todos os itens de produtos_ativos_viva_leve, principalmente nome, categoria e descricao. Use a descricao para entender o que o produto realmente contem antes de encaixa-lo em uma refeicao.
+6. Leia receitas_externas e use apenas receitas cujo tipo_refeicao seja compativel com a refeicao.
+7. Ordem obrigatoria do array refeicoes em cada dia: Cafe da Manha, Lanche da Manha, Almoco, Lanche da Tarde, Jantar, Ceia. Omita somente refeicoes desmarcadas pelo usuario.
 
 Regras de coerencia por refeicao:
 - Cafe da Manha: somente itens leves e matinais, como ovos mexidos, paes/torradas, frutas, cafe, vitaminas, tapioca ou aveia. NUNCA colocar marmita de almoco ou prato pesado no cafe da manha.
@@ -239,21 +372,37 @@ Regras de coerencia por refeicao:
 - Almoco e Jantar: priorize marmitas/refeicoes completas da Viva Leve quando existirem produtos adequados. Nestas refeicoes, adicione no maximo saladas como complemento externo. NAO colocar frutas em almoco ou jantar.
 - Ceia: leve e facil de digerir, como caldo leve, cha, fruta pequena ou iogurte. Evite marmitas pesadas.
 
+Uso exclusivo de produtos da loja:
+- Categoria Marmitas: SOMENTE Almoco e Jantar. NUNCA Cafe da Manha, Lanche ou Ceia.
+- Categorias Lanches Rapidos e Suplementos: SOMENTE Cafe da Manha, Lanche da Manha ou Lanche da Tarde.
+- Categoria Caldos: SOMENTE Jantar ou Ceia. NUNCA Almoco.
+- Se o produto nao encaixar pela categoria e horario, nao use produto_id.
+
+Uso da tabela receitas_externas:
+- Cafe da Manha usa apenas receitas_externas.tipo_refeicao = "Cafe da Manha".
+- Lanche da Manha e Lanche da Tarde usam apenas tipo_refeicao = "Lanche".
+- Almoco e Jantar usam apenas tipo_refeicao = "Almoco_Jantar".
+- Ceia usa apenas tipo_refeicao = "Ceia".
+- Mescle produtos da loja com receitas_externas para variar o plano. O mesmo almoco ou jantar em dias seguidos, mesmo com gramatura diferente, e proibido.
+
 Regra antirrepeticao:
 - E proibido repetir o mesmo prato, mesma combinacao ou mesmo lanche em dias seguidos.
 - Intercale proteinas, carboidratos, frutas e lanches. Exemplo: se segunda usa patinho com arroz integral, terca deve usar frango/peixe/ovos com batata, pure, mandioca ou outro acompanhamento.
 - Nao use a mesma fruta ou o mesmo lanche todos os dias. O plano deve ser dinamico e prazeroso.
+- Nao faca combinacoes bizarras. Exemplo proibido: "ovos com abacaxi" como prato unico. Se houver dois itens de categorias diferentes, separe de forma logica: "Ovos mexidos (100g) + abacaxi em cubos (80g)".
+- Todo nome deve trazer gramatura visivel. Exemplos: "Escondidinho de Frango Viva Leve (300g)", "Iogurte natural (170g) + morango (80g)".
 
 Equilibrio loja x alimentos externos:
 - Nao coloque produtos Viva Leve em todas as refeicoes.
 - Alimentos naturais e frescos externos devem aparecer normalmente: frutas, ovos, paes, saladas cruas, leite, iogurte, castanhas.
-- Produtos da loja so podem aparecer em Almoco, Jantar e Ceia. Nunca use produto_id em Cafe da Manha, Lanche da Manha ou Lanche da Tarde.
+- Produtos da loja devem obedecer as categorias permitidas por refeicao. Nunca use marmita em Cafe da Manha, Lanche da Manha ou Lanche da Tarde.
 - Produtos com produto_id devem corresponder a itens da lista produtos_ativos_viva_leve. Quando usar produto da loja, o campo nome deve ser EXATAMENTE igual ao nome cadastrado do produto, e o campo descricao deve repetir a descricao cadastrada, sem inventar variacoes.
-- Alimentos externos devem usar produto_id null.
+- Receitas externas devem usar produto_id null e receita_externa_id com o id real de receitas_externas.
+- Alimentos externos livres devem usar produto_id null e receita_externa_id null.
 
 Retorne no formato:
-{"objetivo_estabelecido":"...","kcal_diaria_meta":2000,"dias":[{"dia":"Segunda","refeicoes":[{"refeicao":"Almoco","nome":"...","descricao":"...","porcao":"300g","kcal":420,"proteinas":40,"carboidratos":45,"gorduras":12,"produto_id":123|null}]}]}
-Contexto: ${JSON.stringify(contexto).slice(0, 30000)}`;
+{"objetivo_estabelecido":"...","kcal_diaria_meta":2000,"dias":[{"dia":"Segunda","refeicoes":[{"refeicao":"Almoco","nome":"... (300g)","descricao":"...","modo_preparo":"...","porcao":"300g","gramas":300,"kcal":420,"proteinas":40,"carboidratos":45,"gorduras":12,"produto_id":123|null,"receita_externa_id":"uuid"|null}]}]}
+Contexto: ${JSON.stringify(contexto).slice(0, 50000)}`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];
     if (requisicao.receita_url) {
@@ -278,7 +427,11 @@ Contexto: ${JSON.stringify(contexto).slice(0, 30000)}`;
       throw new Error(json.error?.message || 'Erro ao chamar OpenAI.');
     }
 
-    const plano = normalizarPlanoComProdutos(extrairJson(extrairTextoOpenAI(json)), produtos ?? []);
+    const plano = normalizarPlano(extrairJson(extrairTextoOpenAI(json)), produtos ?? [], receitas ?? []);
+    if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
+      await salvarPlanoGerado(isAdmin ? supabase : criarSupabaseAdmin(), requisicao, plano);
+      return NextResponse.json({ plano, status: 'concluido' });
+    }
     await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', requisicaoId);
 
     return NextResponse.json({ plano });

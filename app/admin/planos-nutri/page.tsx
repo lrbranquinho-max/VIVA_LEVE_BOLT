@@ -39,16 +39,26 @@ export default function AdminPlanosNutriPage() {
   const [editorJson, setEditorJson] = useState('');
   const [gerando, setGerando] = useState(false);
   const [aprovando, setAprovando] = useState(false);
+  const [modoGeracao, setModoGeracao] = useState<'manual' | 'automatico'>('manual');
+  const [salvandoModo, setSalvandoModo] = useState(false);
   const [toast, setToast] = useState('');
 
   const carregar = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const [{ data, error }, { data: configData }] = await Promise.all([
+        supabase
         .from('planos_requisicoes')
         .select('*')
         .eq('status', 'pendente')
-        .order('criado_em', { ascending: false });
+          .order('criado_em', { ascending: false }),
+        supabase
+          .from('app_config')
+          .select('valor')
+          .eq('chave', 'plano_nutri_modo')
+          .maybeSingle(),
+      ]);
       if (error) throw error;
+      setModoGeracao((configData?.valor as any)?.modo === 'automatico' ? 'automatico' : 'manual');
 
       const lista = (data ?? []) as RequisicaoPlano[];
       setRequisicoes(lista);
@@ -105,6 +115,24 @@ export default function AdminPlanosNutriPage() {
       await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', req.id);
       setRequisicoes(prev => prev.filter(item => item.id !== req.id));
       setSelecionada({ ...req, status: 'em_revisao' });
+    }
+  };
+
+  const alterarModoGeracao = async () => {
+    const proximo = modoGeracao === 'manual' ? 'automatico' : 'manual';
+    setSalvandoModo(true);
+    try {
+      const { error } = await supabase
+        .from('app_config')
+        .update({ valor: { modo: proximo } })
+        .eq('chave', 'plano_nutri_modo');
+      if (error) throw error;
+      setModoGeracao(proximo);
+      setToast(proximo === 'automatico' ? 'Modo automatico ativado.' : 'Modo de aprovacao manual ativado.');
+    } catch (err: any) {
+      setToast(`Erro ao alterar modo: ${err.message}`);
+    } finally {
+      setSalvandoModo(false);
     }
   };
 
@@ -194,9 +222,30 @@ export default function AdminPlanosNutriPage() {
         </header>
 
         <section className="mb-6 rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Fila de solicitacoes pendentes</p>
-          <p className="mt-1 text-2xl font-black">{totalPendentes}</p>
-          <p className="mt-1 text-xs font-semibold text-gray-500">A tela lista somente pedidos ainda pendentes de revisao.</p>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Modo de Geracao</p>
+              <p className="mt-1 text-lg font-black">{modoGeracao === 'automatico' ? 'Automatico na hora' : 'Aprovacao Manual'}</p>
+              <p className="mt-1 text-xs font-semibold text-gray-500">
+                {modoGeracao === 'automatico'
+                  ? 'O cliente recebe o plano assim que solicita, sem passar pela fila.'
+                  : 'A tela lista somente pedidos ainda pendentes de revisao.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={alterarModoGeracao}
+              disabled={salvandoModo}
+              className={`flex w-full items-center justify-between rounded-full p-1 text-xs font-black md:w-64 ${modoGeracao === 'automatico' ? 'bg-viva-verde text-viva-roxo' : 'bg-gray-200 text-gray-700'} disabled:opacity-60`}
+            >
+              <span className={`rounded-full px-4 py-2 ${modoGeracao === 'manual' ? 'bg-white shadow-sm' : ''}`}>Manual</span>
+              <span className={`rounded-full px-4 py-2 ${modoGeracao === 'automatico' ? 'bg-white shadow-sm' : ''}`}>Automatico</span>
+            </button>
+          </div>
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Fila de solicitacoes pendentes</p>
+            <p className="mt-1 text-2xl font-black">{totalPendentes}</p>
+          </div>
         </section>
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)]">

@@ -610,7 +610,14 @@ export default function Dieta() {
         receitaUrl = publicUrl.publicUrl;
       }
 
-      const { error } = await supabase.from('planos_requisicoes').insert([{
+      const { data: configPlano } = await supabase
+        .from('app_config')
+        .select('valor')
+        .eq('chave', 'plano_nutri_modo')
+        .maybeSingle();
+      const modoAutomatico = (configPlano?.valor as any)?.modo === 'automatico';
+
+      const { data: requisicaoCriada, error } = await supabase.from('planos_requisicoes').insert([{
         user_id: clienteId,
         objetivo: planoNutri.objetivo,
         receita_url: receitaUrl,
@@ -623,8 +630,23 @@ export default function Dieta() {
         },
         padrao_refeicoes: planoNutri.refeicoes,
         status: 'pendente',
-      }]);
+      }]).select('id').single();
       if (error) throw error;
+
+      if (modoAutomatico && requisicaoCriada?.id) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) throw new Error('Sessao expirada.');
+        const resposta = await fetch('/api/gerar-plano-nutri', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ requisicaoId: requisicaoCriada.id, salvarAutomaticamente: true }),
+        });
+        const json = await resposta.json();
+        if (!resposta.ok) throw new Error(json.error || 'Erro ao gerar plano automaticamente.');
+      }
 
       setReceitaNutri(null);
       setPlanoNutri({
@@ -632,7 +654,10 @@ export default function Dieta() {
         refeicoes: { ...PLANO_NUTRI_INICIAL.refeicoes },
       });
       setPlanoNutriAberto(false);
-      mostrarToast('Recebemos seus dados! Em ate 24hs seu plano estara disponivel.', 'sucesso');
+      mostrarToast(modoAutomatico ? 'Plano gerado! Abrindo sua tela do Plano Nutri.' : 'Recebemos seus dados! Em ate 24hs seu plano estara disponivel.', 'sucesso');
+      if (modoAutomatico) {
+        window.setTimeout(() => router.push('/dieta/plano-nutri'), 900);
+      }
     } catch (err: any) {
       mostrarToast(`Erro ao solicitar plano: ${err.message}`, 'erro');
     } finally {

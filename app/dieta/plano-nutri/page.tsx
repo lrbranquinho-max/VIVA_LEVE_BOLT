@@ -27,11 +27,15 @@ interface RefeicaoPlano {
   refeicao: string;
   nome: string;
   porcao: string;
+  gramas?: number;
+  descricao?: string;
+  modo_preparo?: string;
   kcal: number;
   proteinas: number;
   carboidratos: number;
   gorduras: number;
   produto_id?: number | null;
+  receita_externa_id?: string | null;
 }
 
 interface DiaPlano {
@@ -53,13 +57,22 @@ function normalizarDias(plano: any): DiaPlano[] {
       refeicao: String(item.refeicao ?? item.tipo_refeicao ?? 'Refeicao'),
       nome: String(item.nome ?? item.nome_alimento ?? item.prato ?? 'Item do plano'),
       porcao: String(item.porcao ?? (item.gramas ? `${item.gramas}g` : '')),
+      gramas: Number(item.gramas ?? String(item.porcao ?? '').replace(/\D/g, '') ?? 0),
+      descricao: String(item.descricao ?? ''),
+      modo_preparo: String(item.modo_preparo ?? item.descricao ?? ''),
       kcal: Number(item.kcal ?? 0),
       proteinas: Number(item.proteinas ?? item.prot ?? 0),
       carboidratos: Number(item.carboidratos ?? item.carb ?? 0),
       gorduras: Number(item.gorduras ?? item.gord ?? 0),
       produto_id: item.produto_id ? Number(item.produto_id) : null,
+      receita_externa_id: item.receita_externa_id ? String(item.receita_externa_id) : null,
     })),
   }));
+}
+
+function textoRefeicao(item: RefeicaoPlano) {
+  if (/\(\s*\d+\s*g\s*\)/i.test(item.nome)) return item.nome;
+  return `${item.nome}${item.porcao ? ` (${item.porcao})` : ''}`;
 }
 
 export default function PlanoNutriPage() {
@@ -69,6 +82,7 @@ export default function PlanoNutriPage() {
   const [plano, setPlano] = useState<PlanoGerado | null>(null);
   const [pendente, setPendente] = useState<PlanoRequisicao | null>(null);
   const [diaAberto, setDiaAberto] = useState(0);
+  const [refeicaoSelecionada, setRefeicaoSelecionada] = useState<RefeicaoPlano | null>(null);
   const [toast, setToast] = useState('');
 
   const carregar = useCallback(async () => {
@@ -119,15 +133,14 @@ export default function PlanoNutriPage() {
 
   const registrarRefeicao = async (item: RefeicaoPlano) => {
     if (!clienteId) return;
-    if (!window.confirm('Deseja registrar esta refeicao agora?')) return;
 
     try {
-      const gramas = Number(String(item.porcao).replace(/\D/g, '')) || 100;
+      const gramas = Number(item.gramas) || Number(String(item.porcao).replace(/\D/g, '')) || 100;
       const { error } = await supabase.from('historico_refeicoes').insert([{
         cliente_id: clienteId,
         data_consumo: hojeLocal(),
         tipo_refeicao: item.refeicao,
-        nome_alimento: item.nome,
+        nome_alimento: textoRefeicao(item),
         gramas,
         kcal: item.kcal,
         proteinas: item.proteinas,
@@ -135,6 +148,7 @@ export default function PlanoNutriPage() {
         gorduras: item.gorduras,
       }]);
       if (error) throw error;
+      setRefeicaoSelecionada(null);
       setToast('Refeicao registrada no diario de hoje.');
       window.setTimeout(() => setToast(''), 3500);
     } catch (err: any) {
@@ -220,9 +234,9 @@ export default function PlanoNutriPage() {
                   {diaAberto === index && (
                     <div className="space-y-3 border-t border-gray-100 p-4">
                       {dia.refeicoes.map((item, itemIndex) => (
-                        <button key={`${item.nome}-${itemIndex}`} type="button" onClick={() => registrarRefeicao(item)} className="w-full rounded-xl bg-gray-50 p-4 text-left">
+                        <button key={`${item.nome}-${itemIndex}`} type="button" onClick={() => setRefeicaoSelecionada(item)} className="w-full rounded-xl bg-gray-50 p-4 text-left">
                           <p className="text-xs font-black uppercase text-viva-roxo">{item.refeicao}</p>
-                          <h3 className="mt-1 text-sm font-black text-gray-900">{item.nome} {item.porcao ? `(${item.porcao})` : ''}</h3>
+                          <h3 className="mt-1 text-sm font-black text-gray-900">{textoRefeicao(item)}</h3>
                           <p className="mt-2 text-xs font-bold text-gray-500">
                             Kcal: {Math.round(item.kcal)} | Prot: {item.proteinas}g | Carb: {item.carboidratos}g | Gord: {item.gorduras}g
                           </p>
@@ -237,6 +251,34 @@ export default function PlanoNutriPage() {
           </>
         )}
       </main>
+
+      {refeicaoSelecionada && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 p-4 sm:items-center">
+          <section className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-3">
+              <div>
+                <p className="text-xs font-black uppercase text-viva-roxo">{refeicaoSelecionada.refeicao}</p>
+                <h2 className="mt-1 text-lg font-black text-gray-900">{textoRefeicao(refeicaoSelecionada)}</h2>
+              </div>
+              <button type="button" onClick={() => setRefeicaoSelecionada(null)} className="rounded-full bg-gray-100 px-3 py-1 text-xs font-black text-gray-500">Fechar</button>
+            </div>
+            <div className="mt-4 space-y-4">
+              <p className="rounded-xl bg-gray-50 p-4 text-sm font-semibold leading-relaxed text-gray-600">
+                {refeicaoSelecionada.modo_preparo || refeicaoSelecionada.descricao || 'Detalhe de preparo nao informado para esta refeicao.'}
+              </p>
+              <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Kcal</p><p className="font-black">{Math.round(refeicaoSelecionada.kcal)}</p></div>
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Prot</p><p className="font-black">{refeicaoSelecionada.proteinas}g</p></div>
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Carb</p><p className="font-black">{refeicaoSelecionada.carboidratos}g</p></div>
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Gord</p><p className="font-black">{refeicaoSelecionada.gorduras}g</p></div>
+              </div>
+              <button type="button" onClick={() => registrarRefeicao(refeicaoSelecionada)} className="w-full rounded-xl bg-viva-verde py-3 text-sm font-black text-viva-roxo shadow-sm">
+                ✅ Registrar Refeição no meu Diário
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5">
         <Link href="/" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo"><span className="text-xl">&#127968;</span><span className="mt-1 text-[10px] font-bold">Loja</span></Link>
