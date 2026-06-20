@@ -89,6 +89,11 @@ function produtoPermitidoNaRefeicao(produto: any, refeicao: string) {
   return ['Almoco', 'Jantar', 'Ceia'].includes(refeicao);
 }
 
+function produtoTemPorcaoFixa(produto: any) {
+  const categoria = categoriaProduto(produto);
+  return categoria.includes('marmita') || categoria.includes('caldo');
+}
+
 function gramasDoItem(item: any, fallback = 100) {
   const direto = Number(item?.gramas);
   if (Number.isFinite(direto) && direto > 0) return Math.round(direto);
@@ -149,24 +154,45 @@ function ajustarDiaParaMetas(dia: any, metas: ReturnType<typeof metasMacros>) {
   const refeicoes = Array.isArray(dia?.refeicoes) ? dia.refeicoes : [];
   if (refeicoes.length === 0) return dia;
 
-  const somaPesos = refeicoes.reduce((total: number, item: any) => total + pesoRefeicao(String(item.refeicao ?? '')), 0) || refeicoes.length;
+  const fixas = refeicoes.filter((item: any) => item.porcao_fixa_loja);
+  const ajustaveis = refeicoes.filter((item: any) => !item.porcao_fixa_loja);
+  if (ajustaveis.length === 0) return dia;
+
+  const consumidoFixo = fixas.reduce((acc: any, item: any) => ({
+    kcal: acc.kcal + Number(item.kcal ?? 0),
+    proteinas: acc.proteinas + Number(item.proteinas ?? 0),
+    carboidratos: acc.carboidratos + Number(item.carboidratos ?? 0),
+    gorduras: acc.gorduras + Number(item.gorduras ?? 0),
+  }), { kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0 });
+
+  const metasAjustaveis = {
+    kcal: Math.max(0, metas.kcal - consumidoFixo.kcal),
+    proteinas: Math.max(0, metas.proteinas - consumidoFixo.proteinas),
+    carboidratos: Math.max(0, metas.carboidratos - consumidoFixo.carboidratos),
+    gorduras: Math.max(0, metas.gorduras - consumidoFixo.gorduras),
+  };
+
+  const somaPesos = ajustaveis.reduce((total: number, item: any) => total + pesoRefeicao(String(item.refeicao ?? '')), 0) || ajustaveis.length;
+  const ultimoAjustavel = ajustaveis[ajustaveis.length - 1];
   let acumulado = { kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0 };
 
-  const ajustadas = refeicoes.map((item: any, index: number) => {
+  const ajustadas = refeicoes.map((item: any) => {
+    if (item.porcao_fixa_loja) return item;
+
     const fator = pesoRefeicao(String(item.refeicao ?? '')) / somaPesos;
-    const ultimo = index === refeicoes.length - 1;
+    const ultimo = item === ultimoAjustavel;
     const alvo = ultimo
       ? {
-          kcal: metas.kcal - acumulado.kcal,
-          proteinas: metas.proteinas - acumulado.proteinas,
-          carboidratos: metas.carboidratos - acumulado.carboidratos,
-          gorduras: metas.gorduras - acumulado.gorduras,
+          kcal: metasAjustaveis.kcal - acumulado.kcal,
+          proteinas: metasAjustaveis.proteinas - acumulado.proteinas,
+          carboidratos: metasAjustaveis.carboidratos - acumulado.carboidratos,
+          gorduras: metasAjustaveis.gorduras - acumulado.gorduras,
         }
       : {
-          kcal: Math.round(metas.kcal * fator),
-          proteinas: Number((metas.proteinas * fator).toFixed(1)),
-          carboidratos: Number((metas.carboidratos * fator).toFixed(1)),
-          gorduras: Number((metas.gorduras * fator).toFixed(1)),
+          kcal: Math.round(metasAjustaveis.kcal * fator),
+          proteinas: Number((metasAjustaveis.proteinas * fator).toFixed(1)),
+          carboidratos: Number((metasAjustaveis.carboidratos * fator).toFixed(1)),
+          gorduras: Number((metasAjustaveis.gorduras * fator).toFixed(1)),
         };
 
     acumulado = {
@@ -277,6 +303,7 @@ function normalizarPlano(plano: any, produtos: any[], receitas: any[]) {
           carboidratos: Number(produto.carboidratos ?? item.carboidratos ?? 0),
           gorduras: Number(produto.gorduras ?? item.gorduras ?? 0),
           produto_id: produto.id,
+          porcao_fixa_loja: produtoTemPorcaoFixa(produto),
           receita_externa_id: null,
         };
       }).sort((a: any, b: any) => ordemRefeicao(a.refeicao) - ordemRefeicao(b.refeicao)) : [],
@@ -481,6 +508,7 @@ Uso exclusivo de produtos da loja:
 - Categorias Lanches Rapidos e Suplementos: SOMENTE Cafe da Manha, Lanche da Manha ou Lanche da Tarde.
 - Categoria Caldos: SOMENTE Jantar ou Ceia. NUNCA Almoco.
 - Se o produto nao encaixar pela categoria e horario, nao use produto_id.
+- Marmitas e caldos da loja devem usar exatamente a porcao_g cadastrada. Nao aumente nem reduza a porcao desses produtos para bater meta calorica; ajuste apenas alimentos/receitas externas.
 
 Uso da tabela receitas_externas:
 - Cafe da Manha usa apenas receitas_externas.tipo_refeicao = "Cafe da Manha".
@@ -501,6 +529,7 @@ Equilibrio loja x alimentos externos:
 - Alimentos naturais e frescos externos devem aparecer normalmente: frutas, ovos, paes, saladas cruas, leite, iogurte, castanhas.
 - Produtos da loja devem obedecer as categorias permitidas por refeicao. Nunca use marmita em Cafe da Manha, Lanche da Manha ou Lanche da Tarde.
 - Produtos com produto_id devem corresponder a itens da lista produtos_ativos_viva_leve. Quando usar produto da loja, o campo nome deve ser EXATAMENTE igual ao nome cadastrado do produto, e o campo descricao deve repetir a descricao cadastrada, sem inventar variacoes.
+- Quando usar marmita ou caldo da loja, porcao e gramas devem ser iguais a porcao_g do produto cadastrado.
 - Receitas externas devem usar produto_id null e receita_externa_id com o id real de receitas_externas.
 - Alimentos externos livres devem usar produto_id null e receita_externa_id null.
 

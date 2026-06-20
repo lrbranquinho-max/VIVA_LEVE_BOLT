@@ -36,6 +36,7 @@ interface RefeicaoPlano {
   gorduras: number;
   produto_id?: number | null;
   receita_externa_id?: string | null;
+  porcao_fixa_loja?: boolean;
 }
 
 interface DiaPlano {
@@ -72,6 +73,7 @@ function normalizarDias(plano: any): DiaPlano[] {
       gorduras: Number(item.gorduras ?? item.gord ?? 0),
       produto_id: item.produto_id ? Number(item.produto_id) : null,
       receita_externa_id: item.receita_externa_id ? String(item.receita_externa_id) : null,
+      porcao_fixa_loja: Boolean(item.porcao_fixa_loja),
     })),
   }));
 }
@@ -91,6 +93,11 @@ function produtoPermitidoNaRefeicao(produto: any, refeicao: string) {
   if (categoria.includes('lanche') || categoria.includes('suplemento')) return ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde'].includes(refeicao);
   if (categoria.includes('caldo')) return ['Jantar', 'Ceia'].includes(refeicao);
   return ['Almoco', 'Jantar', 'Ceia'].includes(refeicao);
+}
+
+function produtoTemPorcaoFixa(produto: any) {
+  const categoria = categoriaProduto(produto);
+  return categoria.includes('marmita') || categoria.includes('caldo');
 }
 
 function tipoReceitaExterna(refeicao: string) {
@@ -246,6 +253,7 @@ export default function PlanoNutriPage() {
             gorduras: Number(produto.gorduras ?? 0),
             produto_id: Number(produto.id),
             receita_externa_id: null,
+            porcao_fixa_loja: produtoTemPorcaoFixa(produto),
           } as RefeicaoPlano;
         });
 
