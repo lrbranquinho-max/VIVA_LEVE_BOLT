@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { criarSupabaseAdmin } from '../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 
@@ -10,24 +9,24 @@ function parseNumero(valor: unknown) {
 }
 
 function calcularTdee(perfil: any, perfilCliente: any) {
-  const meta = Number(perfil?.meta_calorias ?? 0);
-  if (meta > 0) return meta;
-
   const peso = parseNumero(perfilCliente?.peso_kg);
   const altura = parseNumero(perfilCliente?.altura_cm);
   const idade = parseNumero(perfilCliente?.idade);
   const sexo = String(perfilCliente?.sexo ?? '');
-  if (!peso || !altura || !idade) return 2000;
+  if (peso && altura && idade && sexo) {
+    const tmb = (10 * peso) + (6.25 * altura) - (5 * idade) + (sexo === 'masculino' ? 5 : -161);
+    const fatores: Record<string, number> = {
+      sedentario: 1.2,
+      leve: 1.375,
+      moderado: 1.55,
+      muito_ativo: 1.725,
+      extremo: 1.9,
+    };
+    return Math.round(tmb * (fatores[perfilCliente?.nivel_atividade] ?? 1.2));
+  }
 
-  const tmb = (10 * peso) + (6.25 * altura) - (5 * idade) + (sexo === 'masculino' ? 5 : -161);
-  const fatores: Record<string, number> = {
-    sedentario: 1.2,
-    leve: 1.375,
-    moderado: 1.55,
-    muito_ativo: 1.725,
-    extremo: 1.9,
-  };
-  return Math.round(tmb * (fatores[perfilCliente?.nivel_atividade] ?? 1.2));
+  const meta = Number(perfil?.meta_calorias ?? 0);
+  return meta > 0 ? meta : 2000;
 }
 
 function metaPorObjetivo(tdee: number, objetivo: string) {
@@ -109,6 +108,103 @@ function macrosPorGramas(base100g: any, gramas: number) {
     carboidratos: Number((Number(base100g.carb_100g ?? base100g.carboidratos ?? 0) * fator).toFixed(1)),
     proteinas: Number((Number(base100g.prot_100g ?? base100g.proteinas ?? 0) * fator).toFixed(1)),
     gorduras: Number((Number(base100g.gord_100g ?? base100g.gorduras ?? 0) * fator).toFixed(1)),
+  };
+}
+
+function metasMacros(metaKcal: number, perfilCliente: any) {
+  const peso = parseNumero(perfilCliente?.peso_kg);
+  if (!peso) {
+    return {
+      kcal: metaKcal,
+      proteinas: Math.round((metaKcal * 0.25) / 4),
+      gorduras: Math.round((metaKcal * 0.25) / 9),
+      carboidratos: Math.round((metaKcal * 0.5) / 4),
+    };
+  }
+
+  const proteinas = Math.round(peso * 2);
+  const gorduras = Math.round(peso);
+  const kcalRestantes = Math.max(0, metaKcal - (proteinas * 4) - (gorduras * 9));
+  return {
+    kcal: metaKcal,
+    proteinas,
+    gorduras,
+    carboidratos: Math.round(kcalRestantes / 4),
+  };
+}
+
+function pesoRefeicao(refeicao: string) {
+  const pesos: Record<string, number> = {
+    'Cafe da Manha': 0.18,
+    'Lanche da Manha': 0.08,
+    Almoco: 0.3,
+    'Lanche da Tarde': 0.09,
+    Jantar: 0.27,
+    Ceia: 0.08,
+  };
+  return pesos[refeicao] ?? 0.15;
+}
+
+function ajustarDiaParaMetas(dia: any, metas: ReturnType<typeof metasMacros>) {
+  const refeicoes = Array.isArray(dia?.refeicoes) ? dia.refeicoes : [];
+  if (refeicoes.length === 0) return dia;
+
+  const somaPesos = refeicoes.reduce((total: number, item: any) => total + pesoRefeicao(String(item.refeicao ?? '')), 0) || refeicoes.length;
+  let acumulado = { kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0 };
+
+  const ajustadas = refeicoes.map((item: any, index: number) => {
+    const fator = pesoRefeicao(String(item.refeicao ?? '')) / somaPesos;
+    const ultimo = index === refeicoes.length - 1;
+    const alvo = ultimo
+      ? {
+          kcal: metas.kcal - acumulado.kcal,
+          proteinas: metas.proteinas - acumulado.proteinas,
+          carboidratos: metas.carboidratos - acumulado.carboidratos,
+          gorduras: metas.gorduras - acumulado.gorduras,
+        }
+      : {
+          kcal: Math.round(metas.kcal * fator),
+          proteinas: Number((metas.proteinas * fator).toFixed(1)),
+          carboidratos: Number((metas.carboidratos * fator).toFixed(1)),
+          gorduras: Number((metas.gorduras * fator).toFixed(1)),
+        };
+
+    acumulado = {
+      kcal: acumulado.kcal + Number(alvo.kcal),
+      proteinas: acumulado.proteinas + Number(alvo.proteinas),
+      carboidratos: acumulado.carboidratos + Number(alvo.carboidratos),
+      gorduras: acumulado.gorduras + Number(alvo.gorduras),
+    };
+
+    const kcalOriginal = Number(item.kcal ?? 0);
+    const gramasOriginais = gramasDoItem(item, 100);
+    const fatorGramas = kcalOriginal > 0 ? Number(alvo.kcal) / kcalOriginal : 1;
+    const gramas = Math.max(20, Math.round(gramasOriginais * fatorGramas));
+    const nomeBase = String(item.nome ?? '').replace(/\(\s*\d+\s*g\s*\)/gi, '').trim();
+
+    return {
+      ...item,
+      nome: `${nomeBase} (${gramas}g)`,
+      porcao: `${gramas}g`,
+      gramas,
+      kcal: Math.max(0, Math.round(Number(alvo.kcal))),
+      proteinas: Math.max(0, Number(Number(alvo.proteinas).toFixed(1))),
+      carboidratos: Math.max(0, Number(Number(alvo.carboidratos).toFixed(1))),
+      gorduras: Math.max(0, Number(Number(alvo.gorduras).toFixed(1))),
+    };
+  });
+
+  return { ...dia, refeicoes: ajustadas };
+}
+
+function ajustarPlanoParaMetas(plano: any, metaKcal: number, perfilCliente: any) {
+  const metas = metasMacros(metaKcal, perfilCliente);
+  const dias = Array.isArray(plano?.dias) ? plano.dias : [];
+  return {
+    ...plano,
+    kcal_diaria_meta: metaKcal,
+    metas_macros_diarias: metas,
+    dias: dias.map((dia: any) => ajustarDiaParaMetas(dia, metas)),
   };
 }
 
@@ -335,9 +431,13 @@ export async function POST(request: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      const fallback = normalizarPlano(gerarFallback(metaKcal, requisicao.objetivo, produtos ?? [], receitas ?? [], requisicao.preferencias, requisicao.padrao_refeicoes), produtos ?? [], receitas ?? []);
+      const fallback = ajustarPlanoParaMetas(
+        normalizarPlano(gerarFallback(metaKcal, requisicao.objetivo, produtos ?? [], receitas ?? [], requisicao.preferencias, requisicao.padrao_refeicoes), produtos ?? [], receitas ?? []),
+        metaKcal,
+        perfilCliente,
+      );
       if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
-        await salvarPlanoGerado(isAdmin ? supabase : criarSupabaseAdmin(), requisicao, fallback);
+        await salvarPlanoGerado(supabase, requisicao, fallback);
         return NextResponse.json({ plano: fallback, status: 'concluido', aviso: 'OPENAI_API_KEY ausente; plano matematico salvo automaticamente.' });
       }
       await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', requisicaoId);
@@ -350,12 +450,13 @@ export async function POST(request: NextRequest) {
       perfilCliente,
       tdee_estimado: tdee,
       kcal_meta_por_objetivo: metaKcal,
+      metas_macros_diarias: metasMacros(metaKcal, perfilCliente),
       produtos_ativos_viva_leve: produtos ?? [],
       receitas_externas: receitas ?? [],
     };
 
     const prompt = `Voce e um nutricionista assistente da Viva Leve. Gere APENAS JSON valido.
-Objetivo: criar um plano semanal util, variado, coerente com horarios de refeicao e pronto para revisao humana no painel admin.
+Objetivo: criar um plano semanal util, variado e coerente com horarios de refeicao.
 
 Regras obrigatorias:
 1. Plano semanal para 7 dias.
@@ -365,6 +466,9 @@ Regras obrigatorias:
 5. Leia todos os itens de produtos_ativos_viva_leve, principalmente nome, categoria e descricao. Use a descricao para entender o que o produto realmente contem antes de encaixa-lo em uma refeicao.
 6. Leia receitas_externas e use apenas receitas cujo tipo_refeicao seja compativel com a refeicao.
 7. Ordem obrigatoria do array refeicoes em cada dia: Cafe da Manha, Lanche da Manha, Almoco, Lanche da Tarde, Jantar, Ceia. Omita somente refeicoes desmarcadas pelo usuario.
+8. O total de cada dia deve ficar entre 95% e 105% de kcal_meta_por_objetivo.
+9. Macros diarios obrigatorios: proteinas = 2g por kg do usuario, gorduras = 1g por kg do usuario, carboidratos = kcal restante depois de proteinas e gorduras. Use metas_macros_diarias como fonte final.
+10. Use perfilCliente para considerar sexo, peso, altura, idade e nivel_atividade. Se houver receita_url anexada, respeite as orientacoes da receita acima das preferencias do app.
 
 Regras de coerencia por refeicao:
 - Cafe da Manha: somente itens leves e matinais, como ovos mexidos, paes/torradas, frutas, cafe, vitaminas, tapioca ou aveia. NUNCA colocar marmita de almoco ou prato pesado no cafe da manha.
@@ -427,9 +531,9 @@ Contexto: ${JSON.stringify(contexto).slice(0, 50000)}`;
       throw new Error(json.error?.message || 'Erro ao chamar OpenAI.');
     }
 
-    const plano = normalizarPlano(extrairJson(extrairTextoOpenAI(json)), produtos ?? [], receitas ?? []);
+    const plano = ajustarPlanoParaMetas(normalizarPlano(extrairJson(extrairTextoOpenAI(json)), produtos ?? [], receitas ?? []), metaKcal, perfilCliente);
     if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
-      await salvarPlanoGerado(isAdmin ? supabase : criarSupabaseAdmin(), requisicao, plano);
+      await salvarPlanoGerado(supabase, requisicao, plano);
       return NextResponse.json({ plano, status: 'concluido' });
     }
     await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', requisicaoId);

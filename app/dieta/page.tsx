@@ -239,6 +239,15 @@ export default function Dieta() {
   const [buscando, setBuscando] = useState(false);
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('abrirPlano') === '1') {
+      setPlanoNutriAberto(true);
+      window.setTimeout(() => {
+        document.getElementById('solicitar-plano-nutri')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    }
+  }, []);
+
   const mostrarToast = useCallback((texto: string, tipo: ToastTipo = 'info') => {
     setToast({ texto, tipo });
     window.setTimeout(() => setToast(null), 4200);
@@ -525,8 +534,8 @@ export default function Dieta() {
     }));
   };
 
-  const salvarPerfilCalorico = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const salvarPerfilCalorico = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     if (!clienteId) return;
 
     const novaMeta = calcularMetaCalorias(perfilCalorico);
@@ -991,7 +1000,7 @@ export default function Dieta() {
           )}
         </section>
 
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <section className="hidden bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <button
             type="button"
             onClick={() => setPerfilAberto(valor => !valor)}
@@ -1050,12 +1059,11 @@ export default function Dieta() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-viva-verde/40 bg-white p-5 shadow-sm">
+        <section id="solicitar-plano-nutri" className="rounded-2xl border border-viva-verde/40 bg-white p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-black uppercase tracking-wider text-viva-roxo">Plano Nutri Inteligente</p>
-              <h2 className="mt-1 text-lg font-black text-gray-800">Plano semanal com IA e revisao humana</h2>
-              <p className="mt-1 text-xs font-semibold text-gray-500">O formulario fica oculto para manter a dieta leve. Abra quando quiser solicitar um novo plano.</p>
+              <h2 className="mt-1 text-lg font-black text-gray-800">Plano semanal personalizado</h2>
             </div>
             <button
               type="button"
@@ -1067,6 +1075,65 @@ export default function Dieta() {
           </div>
 
           {planoNutriAberto && <form onSubmit={solicitarPlanoNutri} className="mt-4 space-y-4 border-t border-gray-100 pt-4">
+            <section className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+              <button
+                type="button"
+                onClick={() => setPerfilAberto(valor => !valor)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <div>
+                  <h3 className="text-sm font-black text-gray-800">Completar cadastro</h3>
+                  <p className="text-xs font-semibold text-gray-500">Opcional, mas melhora o calculo de kcal e macros.</p>
+                </div>
+                <span className="text-xs font-black text-viva-roxo">{perfilAberto ? 'Fechar' : 'Editar'}</span>
+              </button>
+
+              {perfilAberto && (
+                <div className="mt-4 space-y-4 border-t border-gray-200 pt-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label>
+                      <span className="mb-1 block text-xs font-bold text-gray-600">Sexo</span>
+                      <select value={perfilCalorico.sexo} onChange={e => setPerfilCalorico(prev => ({ ...prev, sexo: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-900">
+                        <option value="">Selecione</option>
+                        <option value="masculino">Masculino</option>
+                        <option value="feminino">Feminino</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      <span className="mb-1 block text-xs font-bold text-gray-600">Idade</span>
+                      <input inputMode="numeric" value={perfilCalorico.idade} onChange={e => setPerfilCalorico(prev => ({ ...prev, idade: e.target.value.replace(/\D/g, '') }))} className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-900" placeholder="anos" />
+                    </label>
+
+                    <label>
+                      <span className="mb-1 block text-xs font-bold text-gray-600">Peso</span>
+                      <input inputMode="decimal" value={perfilCalorico.peso_kg} onChange={e => setPerfilCalorico(prev => ({ ...prev, peso_kg: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-900" placeholder="kg" />
+                    </label>
+
+                    <label>
+                      <span className="mb-1 block text-xs font-bold text-gray-600">Altura</span>
+                      <input inputMode="decimal" value={perfilCalorico.altura_cm} onChange={e => setPerfilCalorico(prev => ({ ...prev, altura_cm: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-900" placeholder="cm" />
+                    </label>
+                  </div>
+
+                  <label>
+                    <span className="mb-1 block text-xs font-bold text-gray-600">Nivel de atividade</span>
+                    <select value={perfilCalorico.nivel_atividade} onChange={e => setPerfilCalorico(prev => ({ ...prev, nivel_atividade: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-900">
+                      {FATORES_ATIVIDADE.map(item => <option key={item.valor} value={item.valor}>{item.label}</option>)}
+                    </select>
+                  </label>
+
+                  <div className="rounded-xl bg-viva-verde/20 p-3 text-center">
+                    <p className="text-xs font-semibold text-viva-roxo">Meta estimada: {calcularMetaCalorias(perfilCalorico)} kcal/dia</p>
+                  </div>
+
+                  <button type="button" onClick={() => salvarPerfilCalorico()} disabled={salvandoPerfil} className="w-full rounded-xl bg-gray-900 py-3 text-sm font-bold text-white disabled:opacity-60">
+                    {salvandoPerfil ? 'Salvando...' : 'Salvar cadastro'}
+                  </button>
+                </div>
+              )}
+            </section>
+
             <label>
               <span className="mb-1 block text-xs font-bold text-gray-600">Objetivo</span>
               <select value={planoNutri.objetivo} onChange={e => setPlanoNutri(prev => ({ ...prev, objetivo: e.target.value }))} className="w-full rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm font-semibold text-gray-900">

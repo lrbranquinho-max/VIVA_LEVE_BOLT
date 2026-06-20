@@ -209,7 +209,7 @@ export default function PlanoNutriPage() {
         {!plano ? (
           <section className="rounded-2xl bg-white p-6 text-center shadow-sm">
             <p className="text-sm font-bold text-gray-500">Nenhum plano aprovado ainda.</p>
-            <Link href="/dieta" className="mt-4 inline-flex rounded-xl bg-viva-roxo px-4 py-3 text-xs font-black text-white">
+            <Link href="/dieta?abrirPlano=1" className="mt-4 inline-flex rounded-xl bg-viva-roxo px-4 py-3 text-xs font-black text-white">
               Solicitar Plano Nutri
             </Link>
           </section>
