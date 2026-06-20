@@ -43,6 +43,12 @@ interface DiaPlano {
   refeicoes: RefeicaoPlano[];
 }
 
+interface SelecaoRefeicao {
+  item: RefeicaoPlano;
+  diaIndex: number;
+  refeicaoIndex: number;
+}
+
 function hojeLocal() {
   const data = new Date();
   data.setMinutes(data.getMinutes() - data.getTimezoneOffset());
@@ -75,6 +81,43 @@ function textoRefeicao(item: RefeicaoPlano) {
   return `${item.nome}${item.porcao ? ` (${item.porcao})` : ''}`;
 }
 
+function categoriaProduto(produto: any) {
+  return String(produto?.categoria ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function produtoPermitidoNaRefeicao(produto: any, refeicao: string) {
+  const categoria = categoriaProduto(produto);
+  if (categoria.includes('marmita')) return ['Almoco', 'Jantar'].includes(refeicao);
+  if (categoria.includes('lanche') || categoria.includes('suplemento')) return ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde'].includes(refeicao);
+  if (categoria.includes('caldo')) return ['Jantar', 'Ceia'].includes(refeicao);
+  return ['Almoco', 'Jantar', 'Ceia'].includes(refeicao);
+}
+
+function tipoReceitaExterna(refeicao: string) {
+  if (refeicao === 'Cafe da Manha') return 'Cafe da Manha';
+  if (refeicao === 'Lanche da Manha' || refeicao === 'Lanche da Tarde') return 'Lanche';
+  if (refeicao === 'Almoco' || refeicao === 'Jantar') return 'Almoco_Jantar';
+  if (refeicao === 'Ceia') return 'Ceia';
+  return '';
+}
+
+function macrosReceita(receita: any, gramas: number) {
+  const fator = gramas / 100;
+  return {
+    kcal: Math.round(Number(receita.kcal_100g ?? 0) * fator),
+    proteinas: Number((Number(receita.prot_100g ?? 0) * fator).toFixed(1)),
+    carboidratos: Number((Number(receita.carb_100g ?? 0) * fator).toFixed(1)),
+    gorduras: Number((Number(receita.gord_100g ?? 0) * fator).toFixed(1)),
+  };
+}
+
+function pontuarAlternativa(base: RefeicaoPlano, item: RefeicaoPlano) {
+  return Math.abs(Number(base.kcal) - Number(item.kcal))
+    + Math.abs(Number(base.proteinas) - Number(item.proteinas)) * 4
+    + Math.abs(Number(base.carboidratos) - Number(item.carboidratos)) * 2
+    + Math.abs(Number(base.gorduras) - Number(item.gorduras)) * 3;
+}
+
 export default function PlanoNutriPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -82,7 +125,10 @@ export default function PlanoNutriPage() {
   const [plano, setPlano] = useState<PlanoGerado | null>(null);
   const [pendente, setPendente] = useState<PlanoRequisicao | null>(null);
   const [diaAberto, setDiaAberto] = useState(0);
-  const [refeicaoSelecionada, setRefeicaoSelecionada] = useState<RefeicaoPlano | null>(null);
+  const [refeicaoSelecionada, setRefeicaoSelecionada] = useState<SelecaoRefeicao | null>(null);
+  const [alternativas, setAlternativas] = useState<RefeicaoPlano[]>([]);
+  const [carregandoAlternativas, setCarregandoAlternativas] = useState(false);
+  const [salvandoAlternativa, setSalvandoAlternativa] = useState(false);
   const [toast, setToast] = useState('');
 
   const carregar = useCallback(async () => {
@@ -149,10 +195,121 @@ export default function PlanoNutriPage() {
       }]);
       if (error) throw error;
       setRefeicaoSelecionada(null);
+      setAlternativas([]);
       setToast('Refeicao registrada no diario de hoje.');
       window.setTimeout(() => setToast(''), 3500);
     } catch (err: any) {
       setToast(`Erro ao registrar refeicao: ${err.message}`);
+    }
+  };
+
+  const abrirRefeicao = (item: RefeicaoPlano, diaIndex: number, refeicaoIndex: number) => {
+    setRefeicaoSelecionada({ item, diaIndex, refeicaoIndex });
+    setAlternativas([]);
+  };
+
+  const buscarAlternativas = async () => {
+    if (!refeicaoSelecionada) return;
+    const itemAtual = refeicaoSelecionada.item;
+    setCarregandoAlternativas(true);
+    setAlternativas([]);
+    try {
+      const [produtosRes, receitasRes] = await Promise.all([
+        supabase
+          .from('produtos')
+          .select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras')
+          .eq('ativo', true)
+          .gt('estoque', 0),
+        supabase
+          .from('receitas_externas')
+          .select('id,tipo_refeicao,nome_receita,modo_preparo,kcal_100g,carb_100g,prot_100g,gord_100g')
+          .eq('tipo_refeicao', tipoReceitaExterna(itemAtual.refeicao)),
+      ]);
+      if (produtosRes.error) throw produtosRes.error;
+      if (receitasRes.error) throw receitasRes.error;
+
+      const gramasBase = Number(itemAtual.gramas) || Number(String(itemAtual.porcao).replace(/\D/g, '')) || 100;
+      const produtos = (produtosRes.data ?? [])
+        .filter(produto => produtoPermitidoNaRefeicao(produto, itemAtual.refeicao))
+        .map((produto: any) => {
+          const gramas = Number(produto.porcao_g ?? gramasBase) || gramasBase;
+          return {
+            refeicao: itemAtual.refeicao,
+            nome: `${produto.nome} (${gramas}g)`,
+            porcao: `${gramas}g`,
+            gramas,
+            descricao: produto.descricao ?? '',
+            modo_preparo: produto.descricao ?? '',
+            kcal: Math.round(Number(produto.kcal ?? 0) * (gramas / 100)),
+            proteinas: Number(produto.proteinas ?? 0),
+            carboidratos: Number(produto.carboidratos ?? 0),
+            gorduras: Number(produto.gorduras ?? 0),
+            produto_id: Number(produto.id),
+            receita_externa_id: null,
+          } as RefeicaoPlano;
+        });
+
+      const receitas = (receitasRes.data ?? []).map((receita: any) => {
+        const macros = macrosReceita(receita, gramasBase);
+        return {
+          refeicao: itemAtual.refeicao,
+          nome: `${receita.nome_receita} (${gramasBase}g)`,
+          porcao: `${gramasBase}g`,
+          gramas: gramasBase,
+          descricao: receita.modo_preparo ?? '',
+          modo_preparo: receita.modo_preparo ?? '',
+          ...macros,
+          produto_id: null,
+          receita_externa_id: String(receita.id),
+        } as RefeicaoPlano;
+      });
+
+      const nomeAtual = textoRefeicao(itemAtual).toLowerCase();
+      const melhores = [...produtos, ...receitas]
+        .filter(item => textoRefeicao(item).toLowerCase() !== nomeAtual)
+        .sort((a, b) => pontuarAlternativa(itemAtual, a) - pontuarAlternativa(itemAtual, b))
+        .slice(0, 3);
+
+      if (melhores.length === 0) {
+        setToast('Nao encontrei alternativas compativeis para esta refeicao.');
+      }
+      setAlternativas(melhores);
+    } catch (err: any) {
+      setToast(`Erro ao buscar alternativas: ${err.message}`);
+    } finally {
+      setCarregandoAlternativas(false);
+    }
+  };
+
+  const trocarRefeicao = async (novaRefeicao: RefeicaoPlano) => {
+    if (!plano || !refeicaoSelecionada) return;
+    setSalvandoAlternativa(true);
+    try {
+      const novosDias = dias.map((dia, diaIndex) => ({
+        ...dia,
+        refeicoes: dia.refeicoes.map((item, refeicaoIndex) => (
+          diaIndex === refeicaoSelecionada.diaIndex && refeicaoIndex === refeicaoSelecionada.refeicaoIndex
+            ? novaRefeicao
+            : item
+        )),
+      }));
+
+      const { error } = await supabase
+        .from('planos_gerados')
+        .update({ plano_semanal: novosDias })
+        .eq('id', plano.id)
+        .eq('user_id', clienteId);
+      if (error) throw error;
+
+      setPlano({ ...plano, plano_semanal: novosDias });
+      setRefeicaoSelecionada({ ...refeicaoSelecionada, item: novaRefeicao });
+      setAlternativas([]);
+      setToast('Item do plano atualizado.');
+      window.setTimeout(() => setToast(''), 3500);
+    } catch (err: any) {
+      setToast(`Erro ao atualizar plano: ${err.message}`);
+    } finally {
+      setSalvandoAlternativa(false);
     }
   };
 
@@ -234,7 +391,7 @@ export default function PlanoNutriPage() {
                   {diaAberto === index && (
                     <div className="space-y-3 border-t border-gray-100 p-4">
                       {dia.refeicoes.map((item, itemIndex) => (
-                        <button key={`${item.nome}-${itemIndex}`} type="button" onClick={() => setRefeicaoSelecionada(item)} className="w-full rounded-xl bg-gray-50 p-4 text-left">
+                        <button key={`${item.nome}-${itemIndex}`} type="button" onClick={() => abrirRefeicao(item, index, itemIndex)} className="w-full rounded-xl bg-gray-50 p-4 text-left">
                           <p className="text-xs font-black uppercase text-viva-roxo">{item.refeicao}</p>
                           <h3 className="mt-1 text-sm font-black text-gray-900">{textoRefeicao(item)}</h3>
                           <p className="mt-2 text-xs font-bold text-gray-500">
@@ -257,24 +414,44 @@ export default function PlanoNutriPage() {
           <section className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-3">
               <div>
-                <p className="text-xs font-black uppercase text-viva-roxo">{refeicaoSelecionada.refeicao}</p>
-                <h2 className="mt-1 text-lg font-black text-gray-900">{textoRefeicao(refeicaoSelecionada)}</h2>
+                <p className="text-xs font-black uppercase text-viva-roxo">{refeicaoSelecionada.item.refeicao}</p>
+                <h2 className="mt-1 text-lg font-black text-gray-900">{textoRefeicao(refeicaoSelecionada.item)}</h2>
               </div>
               <button type="button" onClick={() => setRefeicaoSelecionada(null)} className="rounded-full bg-gray-100 px-3 py-1 text-xs font-black text-gray-500">Fechar</button>
             </div>
             <div className="mt-4 space-y-4">
               <p className="rounded-xl bg-gray-50 p-4 text-sm font-semibold leading-relaxed text-gray-600">
-                {refeicaoSelecionada.modo_preparo || refeicaoSelecionada.descricao || 'Detalhe de preparo nao informado para esta refeicao.'}
+                {refeicaoSelecionada.item.modo_preparo || refeicaoSelecionada.item.descricao || 'Detalhe de preparo nao informado para esta refeicao.'}
               </p>
               <div className="grid grid-cols-4 gap-2 text-center text-xs">
-                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Kcal</p><p className="font-black">{Math.round(refeicaoSelecionada.kcal)}</p></div>
-                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Prot</p><p className="font-black">{refeicaoSelecionada.proteinas}g</p></div>
-                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Carb</p><p className="font-black">{refeicaoSelecionada.carboidratos}g</p></div>
-                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Gord</p><p className="font-black">{refeicaoSelecionada.gorduras}g</p></div>
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Kcal</p><p className="font-black">{Math.round(refeicaoSelecionada.item.kcal)}</p></div>
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Prot</p><p className="font-black">{refeicaoSelecionada.item.proteinas}g</p></div>
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Carb</p><p className="font-black">{refeicaoSelecionada.item.carboidratos}g</p></div>
+                <div className="rounded-xl bg-gray-50 p-2"><p className="font-black text-gray-400">Gord</p><p className="font-black">{refeicaoSelecionada.item.gorduras}g</p></div>
               </div>
-              <button type="button" onClick={() => registrarRefeicao(refeicaoSelecionada)} className="w-full rounded-xl bg-viva-verde py-3 text-sm font-black text-viva-roxo shadow-sm">
+              <button type="button" onClick={() => registrarRefeicao(refeicaoSelecionada.item)} className="w-full rounded-xl bg-viva-verde py-3 text-sm font-black text-viva-roxo shadow-sm">
                 ✅ Registrar Refeição no meu Diário
               </button>
+              <button type="button" onClick={buscarAlternativas} disabled={carregandoAlternativas} className="w-full rounded-xl bg-viva-roxo py-3 text-sm font-black text-white shadow-sm disabled:opacity-60">
+                {carregandoAlternativas ? 'Buscando...' : 'Alterar item'}
+              </button>
+              {alternativas.length > 0 && (
+                <div className="space-y-2 rounded-xl border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-xs font-black uppercase text-gray-500">Escolha uma alternativa</p>
+                  {alternativas.map((alternativa, index) => (
+                    <button
+                      key={`${alternativa.nome}-${index}`}
+                      type="button"
+                      onClick={() => trocarRefeicao(alternativa)}
+                      disabled={salvandoAlternativa}
+                      className="w-full rounded-xl bg-white p-3 text-left text-xs font-bold text-gray-700 shadow-sm disabled:opacity-60"
+                    >
+                      <span className="block text-sm font-black text-gray-900">{textoRefeicao(alternativa)}</span>
+                      <span>Kcal: {Math.round(alternativa.kcal)} | Prot: {alternativa.proteinas}g | Carb: {alternativa.carboidratos}g | Gord: {alternativa.gorduras}g</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         </div>

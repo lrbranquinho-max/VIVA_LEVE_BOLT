@@ -441,10 +441,20 @@ export default function Dieta() {
     };
   }, [dataSelecionada, refeicoesMes, metaCalorias, metasMacros]);
 
-  const refeicoesPorTipo = useMemo(() => TIPOS_REFEICAO.map(tipo => ({
-    tipo,
-    itens: refeicoes.filter(item => item.tipo_refeicao === tipo),
-  })).filter(grupo => grupo.itens.length > 0), [refeicoes]);
+  const refeicoesPorTipo = useMemo(() => {
+    const grupos = [
+      { tipo: 'CafÃ© da ManhÃ£', aliases: ['CafÃ© da ManhÃ£', 'Cafe da Manha'] },
+      { tipo: 'Lanche da ManhÃ£', aliases: ['Lanche da ManhÃ£', 'Lanche da Manha'] },
+      { tipo: 'AlmoÃ§o', aliases: ['AlmoÃ§o', 'Almoco'] },
+      { tipo: 'Lanche da Tarde', aliases: ['Lanche da Tarde', 'Lanche'] },
+      { tipo: 'Jantar', aliases: ['Jantar'] },
+      { tipo: 'Ceia', aliases: ['Ceia'] },
+    ];
+    return grupos.map(grupo => ({
+      tipo: grupo.tipo,
+      itens: refeicoes.filter(item => grupo.aliases.includes(item.tipo_refeicao)),
+    })).filter(grupo => grupo.itens.length > 0);
+  }, [refeicoes]);
 
   const buscarAlimentos = useCallback(async (termo: string) => {
     const busca = termo.trim();
