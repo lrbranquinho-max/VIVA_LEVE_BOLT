@@ -106,6 +106,11 @@ function gramasDoItem(item: any, fallback = 100) {
   return fallback;
 }
 
+function porcaoReceitaExterna(receita: any, fallback = 100) {
+  const porcao = Number(receita?.porcao);
+  return Number.isFinite(porcao) && porcao > 0 ? Math.round(porcao) : fallback;
+}
+
 function macrosPorGramas(base100g: any, gramas: number) {
   const fator = gramas / 100;
   return {
@@ -154,8 +159,9 @@ function ajustarDiaParaMetas(dia: any, metas: ReturnType<typeof metasMacros>) {
   const refeicoes = Array.isArray(dia?.refeicoes) ? dia.refeicoes : [];
   if (refeicoes.length === 0) return dia;
 
-  const fixas = refeicoes.filter((item: any) => item.porcao_fixa_loja);
-  const ajustaveis = refeicoes.filter((item: any) => !item.porcao_fixa_loja);
+  const itemPorcaoFixa = (item: any) => item.porcao_fixa_loja || item.porcao_fixa_receita;
+  const fixas = refeicoes.filter(itemPorcaoFixa);
+  const ajustaveis = refeicoes.filter((item: any) => !itemPorcaoFixa(item));
   if (ajustaveis.length === 0) return dia;
 
   const consumidoFixo = fixas.reduce((acc: any, item: any) => ({
@@ -177,7 +183,7 @@ function ajustarDiaParaMetas(dia: any, metas: ReturnType<typeof metasMacros>) {
   let acumulado = { kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0 };
 
   const ajustadas = refeicoes.map((item: any) => {
-    if (item.porcao_fixa_loja) return item;
+    if (itemPorcaoFixa(item)) return item;
 
     const fator = pesoRefeicao(String(item.refeicao ?? '')) / somaPesos;
     const ultimo = item === ultimoAjustavel;
@@ -257,11 +263,11 @@ function normalizarPlano(plano: any, produtos: any[], receitas: any[]) {
         if (receita) {
           const tipoEsperado = tipoExternoParaRefeicao(refeicao);
           if (receita.tipo_refeicao === tipoEsperado) {
-            const gramas = gramasDoItem(item, 100);
+            const gramas = porcaoReceitaExterna(receita, gramasDoItem(item, 100));
             const macros = macrosPorGramas(receita, gramas);
             return {
               ...item,
-              nome: `${receita.nome_receita} (${gramas}g)`,
+              nome: `${receita.nome_receita} (Porcao: ${gramas}g)`,
               descricao: receita.modo_preparo ?? '',
               modo_preparo: receita.modo_preparo ?? '',
               porcao: `${gramas}g`,
@@ -269,6 +275,7 @@ function normalizarPlano(plano: any, produtos: any[], receitas: any[]) {
               ...macros,
               produto_id: null,
               receita_externa_id: receita.id,
+              porcao_fixa_receita: true,
             };
           }
         }
@@ -345,11 +352,11 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
         const salada = saladas[(idx + refIdx) % Math.max(saladas.length, 1)] ?? 'salada crua';
         const produtoEscolhido = usarProduto ? produtoDia : null;
         const receitaEscolhida = produtoEscolhido ? null : receita;
-        const gramas = produtoEscolhido ? Number(produtoEscolhido.porcao_g ?? 300) || 300 : receitaEscolhida ? 120 : 100;
+        const gramas = produtoEscolhido ? Number(produtoEscolhido.porcao_g ?? 300) || 300 : receitaEscolhida ? porcaoReceitaExterna(receitaEscolhida, 100) : 100;
         const macrosReceita = receitaEscolhida ? macrosPorGramas(receitaEscolhida, gramas) : null;
         return {
           refeicao,
-          nome: produtoEscolhido ? `${produtoEscolhido.nome} (${gramas}g)` : receitaEscolhida ? `${receitaEscolhida.nome_receita} (${gramas}g)` : (
+          nome: produtoEscolhido ? `${produtoEscolhido.nome} (${gramas}g)` : receitaEscolhida ? `${receitaEscolhida.nome_receita} (Porcao: ${gramas}g)` : (
             refeicao === 'Cafe da Manha' ? `Ovos ou tapioca com ${fruta}` :
             refeicao.includes('Lanche') ? `${lanche} com ${fruta}` :
             refeicao === 'Ceia' ? `Ceia leve com ${fruta} ou iogurte` :
@@ -365,6 +372,8 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
           gorduras: produtoEscolhido ? Number(produtoEscolhido.gorduras ?? 0) : macrosReceita?.gorduras ?? 12,
           produto_id: produtoEscolhido?.id ?? null,
           receita_externa_id: receitaEscolhida?.id ?? null,
+          porcao_fixa_loja: produtoEscolhido ? produtoTemPorcaoFixa(produtoEscolhido) : false,
+          porcao_fixa_receita: Boolean(receitaEscolhida),
         };
       }) : [{
         refeicao: 'Almoco',
@@ -448,7 +457,7 @@ export async function POST(request: NextRequest) {
       supabase.from('perfis').select('*').eq('id', requisicao.user_id).maybeSingle(),
       supabase.from('perfis_clientes').select('*').eq('id', requisicao.user_id).maybeSingle(),
       supabase.from('produtos').select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras,preco').eq('ativo', true).gt('estoque', 0).order('categoria', { ascending: true }).order('nome', { ascending: true }),
-      supabase.from('receitas_externas').select('id,tipo_refeicao,nome_receita,modo_preparo,kcal_100g,carb_100g,prot_100g,gord_100g').order('tipo_refeicao', { ascending: true }).order('nome_receita', { ascending: true }),
+      supabase.from('receitas_externas').select('id,tipo_refeicao,nome_receita,modo_preparo,kcal_100g,carb_100g,prot_100g,gord_100g,porcao').order('tipo_refeicao', { ascending: true }).order('nome_receita', { ascending: true }),
     ]);
     if (produtosError) throw produtosError;
     if (receitasError) throw receitasError;
@@ -508,7 +517,10 @@ Uso exclusivo de produtos da loja:
 - Categorias Lanches Rapidos e Suplementos: SOMENTE Cafe da Manha, Lanche da Manha ou Lanche da Tarde.
 - Categoria Caldos: SOMENTE Jantar ou Ceia. NUNCA Almoco.
 - Se o produto nao encaixar pela categoria e horario, nao use produto_id.
-- Marmitas e caldos da loja devem usar exatamente a porcao_g cadastrada. Nao aumente nem reduza a porcao desses produtos para bater meta calorica; ajuste apenas alimentos/receitas externas.
+- Marmitas e caldos da loja devem usar exatamente a porcao_g cadastrada. Nao aumente nem reduza a porcao desses produtos para bater meta calorica; ajuste apenas alimentos externos livres sem produto_id e sem receita_externa_id.
+- Receitas da tabela receitas_externas tambem possuem porcao fixa obrigatoria. Ao selecionar uma receita_externa, use exatamente o valor numerico do campo porcao. E PROIBIDO alterar, calcular, escalar, aumentar ou reduzir essa porcao para bater meta calorica.
+- Se uma receita_externa nao encaixar nas calorias/macros da refeicao, escolha outra receita_externa compativel ou complete a refeicao com um item extra separado e logico. Nunca modifique a porcao da receita escolhida.
+- O texto da receita_externa deve seguir exatamente o formato: "Nome da Receita (Porcao: 350g)". Use o valor real de receitas_externas.porcao no campo gramas e no texto.
 
 Uso da tabela receitas_externas:
 - Cafe da Manha usa apenas receitas_externas.tipo_refeicao = "Cafe da Manha".
@@ -516,13 +528,14 @@ Uso da tabela receitas_externas:
 - Almoco e Jantar usam apenas tipo_refeicao = "Almoco_Jantar".
 - Ceia usa apenas tipo_refeicao = "Ceia".
 - Mescle produtos da loja com receitas_externas para variar o plano. O mesmo almoco ou jantar em dias seguidos, mesmo com gramatura diferente, e proibido.
+- Para receitas_externas, o campo gramas deve ser igual ao campo porcao do banco e inclua "porcao_fixa_receita": true no item retornado.
 
 Regra antirrepeticao:
 - E proibido repetir o mesmo prato, mesma combinacao ou mesmo lanche em dias seguidos.
 - Intercale proteinas, carboidratos, frutas e lanches. Exemplo: se segunda usa patinho com arroz integral, terca deve usar frango/peixe/ovos com batata, pure, mandioca ou outro acompanhamento.
 - Nao use a mesma fruta ou o mesmo lanche todos os dias. O plano deve ser dinamico e prazeroso.
 - Nao faca combinacoes bizarras. Exemplo proibido: "ovos com abacaxi" como prato unico. Se houver dois itens de categorias diferentes, separe de forma logica: "Ovos mexidos (100g) + abacaxi em cubos (80g)".
-- Todo nome deve trazer gramatura visivel. Exemplos: "Escondidinho de Frango Viva Leve (300g)", "Iogurte natural (170g) + morango (80g)".
+- Todo nome deve trazer gramatura visivel. Exemplos: "Escondidinho de Frango Viva Leve (300g)", "Tapioca de Frango Desfiado com Queijo Minas + Suco de Laranja (Porcao: 350g)", "Iogurte natural (170g) + morango (80g)".
 
 Equilibrio loja x alimentos externos:
 - Nao coloque produtos Viva Leve em todas as refeicoes.
@@ -531,10 +544,11 @@ Equilibrio loja x alimentos externos:
 - Produtos com produto_id devem corresponder a itens da lista produtos_ativos_viva_leve. Quando usar produto da loja, o campo nome deve ser EXATAMENTE igual ao nome cadastrado do produto, e o campo descricao deve repetir a descricao cadastrada, sem inventar variacoes.
 - Quando usar marmita ou caldo da loja, porcao e gramas devem ser iguais a porcao_g do produto cadastrado.
 - Receitas externas devem usar produto_id null e receita_externa_id com o id real de receitas_externas.
+- Receitas externas devem usar exatamente receitas_externas.porcao, com porcao_fixa_receita true. Nao invente porcoes como 500g, 850g ou similares se nao estiverem no banco.
 - Alimentos externos livres devem usar produto_id null e receita_externa_id null.
 
-Retorne no formato:
-{"objetivo_estabelecido":"...","kcal_diaria_meta":2000,"dias":[{"dia":"Segunda","refeicoes":[{"refeicao":"Almoco","nome":"... (300g)","descricao":"...","modo_preparo":"...","porcao":"300g","gramas":300,"kcal":420,"proteinas":40,"carboidratos":45,"gorduras":12,"produto_id":123|null,"receita_externa_id":"uuid"|null}]}]}
+Retorne neste formato de JSON valido:
+{"objetivo_estabelecido":"Manutencao","kcal_diaria_meta":2000,"dias":[{"dia":"Segunda","refeicoes":[{"refeicao":"Almoco","nome":"Tapioca de Frango Desfiado com Queijo Minas + Suco de Laranja (Porcao: 350g)","descricao":"...","modo_preparo":"...","porcao":"350g","gramas":350,"kcal":420,"proteinas":40,"carboidratos":45,"gorduras":12,"produto_id":null,"receita_externa_id":"uuid-real","porcao_fixa_receita":true}]}]}
 Contexto: ${JSON.stringify(contexto).slice(0, 50000)}`;
 
     const content: any[] = [{ type: 'input_text', text: prompt }];

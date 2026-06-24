@@ -581,15 +581,21 @@ export default function LojaCliente() {
           <p className="mt-2 text-xs font-bold text-white/75">Clique aqui e crie seu Plano Nutri.</p>
         </Link>
 
-        <div className="overflow-hidden rounded-2xl border border-viva-verde/40 bg-viva-verde/20 py-3 text-xs font-black text-viva-roxo">
-          <div className="viva-marquee flex w-max items-center whitespace-nowrap px-4">
-            {[...mensagensPromocionais, ...mensagensPromocionais].map((mensagem, index) => (
-              <span key={`${mensagem}-${index}`} className="mx-4 inline-flex items-center gap-4">
-                <span>{mensagem}</span>
-                <span className="text-viva-roxo/50">✨</span>
-              </span>
-            ))}
-          </div>
+        <div className="viva-marquee-wrap flex overflow-hidden rounded-2xl border border-viva-verde/40 bg-viva-verde/20 py-3 text-xs font-black text-viva-roxo">
+          {[0, 1].map(copia => (
+            <div
+              key={copia}
+              aria-hidden={copia === 1}
+              className="viva-marquee flex min-w-max items-center whitespace-nowrap px-4"
+            >
+              {mensagensPromocionais.map((mensagem, index) => (
+                <span key={`${copia}-${mensagem}-${index}`} className="mx-4 inline-flex items-center gap-4">
+                  <span>{mensagem}</span>
+                  <span className="text-viva-roxo/50">✨</span>
+                </span>
+              ))}
+            </div>
+          ))}
         </div>
 
         {carregando ? (

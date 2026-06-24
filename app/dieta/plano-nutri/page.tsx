@@ -37,6 +37,7 @@ interface RefeicaoPlano {
   produto_id?: number | null;
   receita_externa_id?: string | null;
   porcao_fixa_loja?: boolean;
+  porcao_fixa_receita?: boolean;
 }
 
 interface DiaPlano {
@@ -74,12 +75,13 @@ function normalizarDias(plano: any): DiaPlano[] {
       produto_id: item.produto_id ? Number(item.produto_id) : null,
       receita_externa_id: item.receita_externa_id ? String(item.receita_externa_id) : null,
       porcao_fixa_loja: Boolean(item.porcao_fixa_loja),
+      porcao_fixa_receita: Boolean(item.porcao_fixa_receita),
     })),
   }));
 }
 
 function textoRefeicao(item: RefeicaoPlano) {
-  if (/\(\s*\d+\s*g\s*\)/i.test(item.nome)) return item.nome;
+  if (/\(\s*(porcao:\s*)?\d+\s*g\s*\)/i.test(item.nome)) return item.nome;
   return `${item.nome}${item.porcao ? ` (${item.porcao})` : ''}`;
 }
 
@@ -229,7 +231,7 @@ export default function PlanoNutriPage() {
           .gt('estoque', 0),
         supabase
           .from('receitas_externas')
-          .select('id,tipo_refeicao,nome_receita,modo_preparo,kcal_100g,carb_100g,prot_100g,gord_100g')
+          .select('id,tipo_refeicao,nome_receita,modo_preparo,kcal_100g,carb_100g,prot_100g,gord_100g,porcao')
           .eq('tipo_refeicao', tipoReceitaExterna(itemAtual.refeicao)),
       ]);
       if (produtosRes.error) throw produtosRes.error;
@@ -258,17 +260,19 @@ export default function PlanoNutriPage() {
         });
 
       const receitas = (receitasRes.data ?? []).map((receita: any) => {
-        const macros = macrosReceita(receita, gramasBase);
+        const gramas = Number(receita.porcao ?? 0) > 0 ? Math.round(Number(receita.porcao)) : gramasBase;
+        const macros = macrosReceita(receita, gramas);
         return {
           refeicao: itemAtual.refeicao,
-          nome: `${receita.nome_receita} (${gramasBase}g)`,
-          porcao: `${gramasBase}g`,
-          gramas: gramasBase,
+          nome: `${receita.nome_receita} (Porcao: ${gramas}g)`,
+          porcao: `${gramas}g`,
+          gramas,
           descricao: receita.modo_preparo ?? '',
           modo_preparo: receita.modo_preparo ?? '',
           ...macros,
           produto_id: null,
           receita_externa_id: String(receita.id),
+          porcao_fixa_receita: true,
         } as RefeicaoPlano;
       });
 

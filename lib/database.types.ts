@@ -30,6 +30,7 @@ export type Database = {
           carb_100g: number | null;
           prot_100g: number | null;
           gord_100g: number | null;
+          porcao: number | null;
           criado_em: string | null;
         };
         Insert: {
@@ -41,6 +42,7 @@ export type Database = {
           carb_100g?: number | null;
           prot_100g?: number | null;
           gord_100g?: number | null;
+          porcao: number;
           criado_em?: string | null;
         };
         Update: {
@@ -52,6 +54,7 @@ export type Database = {
           carb_100g?: number | null;
           prot_100g?: number | null;
           gord_100g?: number | null;
+          porcao?: number | null;
           criado_em?: string | null;
         };
       };

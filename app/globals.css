@@ -27,18 +27,20 @@ body {
 }
 
 @keyframes viva-marquee {
-  from {
-    transform: translateX(100%);
+  0% {
+    transform: translateX(0);
   }
-  to {
+  100% {
     transform: translateX(-100%);
   }
 }
 
 .viva-marquee {
-  animation: viva-marquee 28s linear infinite;
+  animation: viva-marquee 30s linear infinite;
+  flex-shrink: 0;
 }
 
-.viva-marquee:hover {
+.viva-marquee:hover,
+.viva-marquee-wrap:hover .viva-marquee {
   animation-play-state: paused;
 }
