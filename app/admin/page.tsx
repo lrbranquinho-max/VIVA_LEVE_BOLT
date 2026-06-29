@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../supabase';
 
-type AbaAdmin = 'pedidos' | 'produtos';
+type AbaAdmin = 'pedidos' | 'balcao' | 'produtos';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
 
 interface ItemPedido {
@@ -18,8 +18,8 @@ interface ItemPedido {
 
 interface Pedido {
   id: number | string;
-  cliente_id: string;
-  endereco_entrega: string;
+  cliente_id?: string | null;
+  endereco_entrega?: string | null;
   endereco?: string;
   valor_total: number;
   total?: number;
@@ -27,6 +27,10 @@ interface Pedido {
   itens: ItemPedido[];
   criado_em?: string;
   created_at?: string;
+  tipo_venda?: 'online' | 'balcao';
+  cliente_nome_balcao?: string | null;
+  cliente_telefone_balcao?: string | null;
+  observacoes_balcao?: string | null;
 }
 
 interface PerfilCliente {
@@ -69,6 +73,15 @@ interface ProdutoForm {
   gorduras: string;
 }
 
+interface VendaBalcaoForm {
+  cliente_nome: string;
+  cliente_telefone: string;
+  endereco_entrega: string;
+  taxa_entrega: string;
+  desconto_percentual: string;
+  observacoes: string;
+}
+
 const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Preparo', 'Saiu para Entrega', 'Entregue'];
 const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
 
@@ -84,6 +97,15 @@ const FORM_VAZIO: ProdutoForm = {
   proteinas: '',
   carboidratos: '',
   gorduras: '',
+};
+
+const FORM_BALCAO_VAZIO: VendaBalcaoForm = {
+  cliente_nome: '',
+  cliente_telefone: '',
+  endereco_entrega: '',
+  taxa_entrega: '',
+  desconto_percentual: '',
+  observacoes: '',
 };
 
 let toastId = 0;
@@ -153,7 +175,7 @@ function totalPedido(pedido: Pedido) {
 }
 
 function enderecoPedido(pedido: Pedido) {
-  return pedido.endereco_entrega || pedido.endereco || 'Endereço não informado';
+  return pedido.endereco_entrega || pedido.endereco || 'Retirada no balcão';
 }
 
 function telefoneWhatsApp(telefone?: string) {
@@ -169,6 +191,18 @@ function idPerfil(perfil: PerfilCliente) {
 function nomePerfil(perfil?: PerfilCliente) {
   if (!perfil) return 'Cliente não identificado';
   return String(perfil.nome_completo || perfil.nome || perfil.full_name || perfil.email || 'Cliente não identificado');
+}
+
+function nomeClientePedido(pedido: Pedido, perfil?: PerfilCliente) {
+  if (pedido.tipo_venda === 'balcao') {
+    return pedido.cliente_nome_balcao || 'Venda balcão';
+  }
+  return nomePerfil(perfil);
+}
+
+function telefoneClientePedido(pedido: Pedido, perfil?: PerfilCliente) {
+  if (pedido.tipo_venda === 'balcao') return pedido.cliente_telefone_balcao || '';
+  return perfil?.telefone || '';
 }
 
 function statusClasse(status: string) {
@@ -318,6 +352,9 @@ export default function AdminPage() {
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null);
   const [formProduto, setFormProduto] = useState<ProdutoForm>({ ...FORM_VAZIO });
   const [salvandoProduto, setSalvandoProduto] = useState(false);
+  const [carrinhoBalcao, setCarrinhoBalcao] = useState<Record<number, number>>({});
+  const [formBalcao, setFormBalcao] = useState<VendaBalcaoForm>({ ...FORM_BALCAO_VAZIO });
+  const [salvandoBalcao, setSalvandoBalcao] = useState(false);
 
   const toast = useCallback((texto: string, tipo: ToastTipo = 'info') => {
     const id = ++toastId;
@@ -337,7 +374,7 @@ export default function AdminPage() {
       const lista = (data ?? []) as Pedido[];
       setPedidos(lista);
 
-      const ids = Array.from(new Set(lista.map(pedido => pedido.cliente_id).filter(Boolean)));
+      const ids = Array.from(new Set(lista.map(pedido => pedido.cliente_id).filter(Boolean))) as string[];
       if (ids.length > 0) {
         const [perfisRes, clientesRes] = await Promise.all([
           supabase.from('perfis').select('*').in('id', ids),
@@ -441,6 +478,24 @@ export default function AdminPage() {
     receita: pedidos.filter(p => p.status === 'Entregue').reduce((acc, pedido) => acc + totalPedido(pedido), 0),
   }), [pedidos]);
 
+  const itensBalcao = useMemo(() => Object.entries(carrinhoBalcao)
+    .map(([idTexto, quantidade]) => {
+      const produto = produtos.find(item => item.id === Number(idTexto));
+      if (!produto) return null;
+      return {
+        produto,
+        quantidade,
+        subtotal: Number(produto.preco || 0) * quantidade,
+      };
+    })
+    .filter(Boolean) as Array<{ produto: Produto; quantidade: number; subtotal: number }>, [carrinhoBalcao, produtos]);
+
+  const subtotalBalcao = useMemo(() => itensBalcao.reduce((total, item) => total + item.subtotal, 0), [itensBalcao]);
+  const freteBalcao = Math.max(0, parseNumeroBR(formBalcao.taxa_entrega));
+  const descontoPercentualBalcao = Math.min(100, Math.max(0, parseNumeroBR(formBalcao.desconto_percentual)));
+  const descontoValorBalcao = subtotalBalcao * (descontoPercentualBalcao / 100);
+  const totalBalcao = Math.max(0, subtotalBalcao - descontoValorBalcao + freteBalcao);
+
   const atualizarStatus = async (pedido: Pedido, status: string) => {
     try {
       const { data, error } = await supabase
@@ -456,6 +511,138 @@ export default function AdminPage() {
     } catch (err: any) {
       toast(`Erro ao atualizar status: ${err.message}`, 'erro');
       await carregarPedidos();
+    }
+  };
+
+  const adicionarProdutoBalcao = (produto: Produto) => {
+    if (!produto.ativo || Number(produto.estoque || 0) <= 0) {
+      toast('Produto sem estoque para venda.', 'erro');
+      return;
+    }
+
+    const quantidadeAtual = carrinhoBalcao[produto.id] ?? 0;
+    if (quantidadeAtual >= Number(produto.estoque || 0)) {
+      toast(`Limite de estoque atingido: ${produto.estoque} unidade(s).`, 'erro');
+      return;
+    }
+
+    setCarrinhoBalcao(prev => ({ ...prev, [produto.id]: quantidadeAtual + 1 }));
+  };
+
+  const removerProdutoBalcao = (produtoId: number) => {
+    setCarrinhoBalcao(prev => {
+      const atual = prev[produtoId] ?? 0;
+      const proximo = { ...prev };
+      if (atual <= 1) {
+        delete proximo[produtoId];
+      } else {
+        proximo[produtoId] = atual - 1;
+      }
+      return proximo;
+    });
+  };
+
+  const limparVendaBalcao = () => {
+    setCarrinhoBalcao({});
+    setFormBalcao({ ...FORM_BALCAO_VAZIO });
+  };
+
+  const finalizarVendaBalcao = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (itensBalcao.length === 0) {
+      toast('Adicione pelo menos um produto na venda balcão.', 'erro');
+      return;
+    }
+
+    setSalvandoBalcao(true);
+
+    try {
+      const ids = itensBalcao.map(item => item.produto.id);
+      const { data: produtosAtualizados, error: estoqueError } = await supabase
+        .from('produtos')
+        .select('id,nome,preco,estoque,ativo')
+        .in('id', ids);
+
+      if (estoqueError) throw estoqueError;
+
+      const mapaEstoque = new Map((produtosAtualizados ?? []).map((produto: any) => [Number(produto.id), produto]));
+      for (const item of itensBalcao) {
+        const produtoAtual = mapaEstoque.get(item.produto.id);
+        if (!produtoAtual || !produtoAtual.ativo || Number(produtoAtual.estoque || 0) < item.quantidade) {
+          throw new Error(`Estoque insuficiente para "${item.produto.nome}".`);
+        }
+      }
+
+      const listaItens = itensBalcao.map(item => {
+        const produtoAtual = mapaEstoque.get(item.produto.id);
+        const preco = Number(produtoAtual?.preco ?? item.produto.preco ?? 0);
+        return {
+          id: item.produto.id,
+          nome: item.produto.nome,
+          preco,
+          quantidade: item.quantidade,
+          subtotal: preco * item.quantidade,
+        };
+      });
+
+      const subtotalValidado = listaItens.reduce((total, item) => total + item.subtotal, 0);
+      const descontoPercentual = Math.min(100, Math.max(0, parseNumeroBR(formBalcao.desconto_percentual)));
+      const descontoValor = subtotalValidado * (descontoPercentual / 100);
+      const valorFrete = Math.max(0, parseNumeroBR(formBalcao.taxa_entrega));
+      const valorTotal = Math.max(0, subtotalValidado - descontoValor + valorFrete);
+      const endereco = formBalcao.endereco_entrega.trim();
+      const temEntrega = Boolean(endereco || valorFrete > 0);
+
+      const { data: pedidoCriado, error: pedidoError } = await supabase
+        .from('pedidos')
+        .insert([{
+          cliente_id: null,
+          tipo_venda: 'balcao',
+          cliente_nome_balcao: formBalcao.cliente_nome.trim() || null,
+          cliente_telefone_balcao: formBalcao.cliente_telefone.trim() || null,
+          observacoes_balcao: formBalcao.observacoes.trim() || null,
+          endereco_entrega: endereco || null,
+          endereco: endereco || '',
+          subtotal_produtos: subtotalValidado,
+          valor_frete: valorFrete,
+          desconto_percentual: descontoPercentual,
+          desconto_valor: descontoValor,
+          valor_total: valorTotal,
+          total: valorTotal,
+          itens: listaItens,
+          status: temEntrega ? 'Recebido' : 'Entregue',
+          pagamento_status: 'balcao',
+        }])
+        .select('id')
+        .maybeSingle();
+
+      if (pedidoError) throw pedidoError;
+      const pedidoValidado = exigirLinhaAtualizada(pedidoCriado, 'A venda balcão');
+
+      for (const item of itensBalcao) {
+        const produtoAtual = mapaEstoque.get(item.produto.id);
+        const novoEstoque = Math.max(0, Number(produtoAtual.estoque || 0) - item.quantidade);
+        const { data, error } = await supabase
+          .from('produtos')
+          .update({ estoque: novoEstoque })
+          .eq('id', item.produto.id)
+          .gte('estoque', item.quantidade)
+          .select('id')
+          .maybeSingle();
+
+        if (error) throw error;
+        exigirLinhaAtualizada(data, `Baixa de estoque de ${item.produto.nome}`);
+      }
+
+      toast(`Venda balcão #${pedidoValidado.id} registrada com sucesso.`, 'sucesso');
+      limparVendaBalcao();
+      await Promise.all([carregarPedidos(), carregarProdutos()]);
+    } catch (err: any) {
+      toast(`Erro ao registrar venda balcão: ${err.message}`, 'erro');
+      await carregarProdutos();
+    } finally {
+      setSalvandoBalcao(false);
     }
   };
 
@@ -680,6 +867,7 @@ export default function AdminPage() {
           <nav className="flex gap-2 overflow-x-auto px-4 pb-4 lg:flex-col">
             {[
               { id: 'pedidos' as const, label: 'Gestão de Pedidos', desc: `${pedidos.length} pedidos` },
+              { id: 'balcao' as const, label: 'Venda Balcão', desc: 'Pedido rápido' },
               { id: 'produtos' as const, label: 'Cardápio/Estoque', desc: `${produtos.length} produtos` },
             ].map(item => (
               <button
@@ -706,7 +894,9 @@ export default function AdminPage() {
         <main className="flex-1 p-4 md:p-6">
           <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-2xl font-black">{aba === 'pedidos' ? 'Gestão de Pedidos' : 'Cardápio e Estoque'}</h1>
+              <h1 className="text-2xl font-black">
+                {aba === 'pedidos' ? 'Gestão de Pedidos' : aba === 'balcao' ? 'Venda Balcão' : 'Cardápio e Estoque'}
+              </h1>
               <p className="text-sm text-gray-500">Dados ao vivo do Supabase oficial.</p>
             </div>
             <button onClick={() => { carregarPedidos(); carregarProdutos(); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50">
@@ -742,9 +932,10 @@ export default function AdminPage() {
 
               <div className="grid gap-4 xl:grid-cols-2">
                 {pedidosFiltrados.map(pedido => {
-                  const perfil = perfis[pedido.cliente_id];
-                  const nomeCliente = nomePerfil(perfil);
-                  const whatsappCliente = telefoneWhatsApp(perfil?.telefone);
+                  const perfil = pedido.cliente_id ? perfis[pedido.cliente_id] : undefined;
+                  const nomeCliente = nomeClientePedido(pedido, perfil);
+                  const telefoneCliente = telefoneClientePedido(pedido, perfil);
+                  const whatsappCliente = telefoneWhatsApp(telefoneCliente);
 
                   return (
                     <article key={pedido.id} className="rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -753,7 +944,12 @@ export default function AdminPage() {
                           <div>
                             <p className="font-mono text-xs font-bold text-gray-400">#{String(pedido.id).slice(0, 10).toUpperCase()}</p>
                             <h2 className="mt-1 text-lg font-black">{nomeCliente}</h2>
-                            <p className="text-xs text-gray-500">{perfil?.telefone || 'Telefone não informado'}</p>
+                            <p className="text-xs text-gray-500">{telefoneCliente || 'Telefone não informado'}</p>
+                            {pedido.tipo_venda === 'balcao' && (
+                              <span className="mt-2 inline-flex rounded-full bg-gray-900 px-3 py-1 text-[11px] font-black uppercase text-white">
+                                Venda balcão
+                              </span>
+                            )}
                             {whatsappCliente && (
                               <a
                                 href={`https://wa.me/${whatsappCliente}`}
@@ -808,6 +1004,153 @@ export default function AdminPage() {
               {!carregandoPedidos && pedidosFiltrados.length === 0 && (
                 <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-gray-400">Nenhum pedido encontrado.</div>
               )}
+            </section>
+          )}
+
+          {aba === 'balcao' && (
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+              <div className="space-y-4">
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h2 className="text-lg font-black text-gray-900">Produtos disponíveis</h2>
+                      <p className="text-xs text-gray-500">A quantidade é limitada pelo estoque atual.</p>
+                    </div>
+                    {carregandoProdutos && <span className="text-xs font-bold text-gray-400">Carregando...</span>}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                  {produtos.filter(produto => produto.ativo).map(produto => {
+                    const quantidade = carrinhoBalcao[produto.id] ?? 0;
+                    const semEstoque = Number(produto.estoque || 0) <= 0;
+
+                    return (
+                      <article key={produto.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                        <div className="flex min-h-[92px] flex-col justify-between">
+                          <div>
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h3 className="text-sm font-black text-gray-900">{produto.nome}</h3>
+                                <p className="mt-1 text-xs text-gray-500">{produto.categoria}</p>
+                              </div>
+                              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${semEstoque ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                Est. {produto.estoque}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-lg font-black text-gray-900">{formatarMoedaBR(produto.preco)}</p>
+                          </div>
+
+                          <div className="mt-3 flex items-center justify-between gap-2">
+                            {quantidade > 0 ? (
+                              <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => removerProdutoBalcao(produto.id)} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-sm font-black text-gray-700">-</button>
+                                <span className="w-8 text-center text-sm font-black">{quantidade}</span>
+                                <button type="button" onClick={() => adicionarProdutoBalcao(produto)} disabled={quantidade >= Number(produto.estoque || 0)} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-900 text-sm font-black text-white disabled:opacity-40">+</button>
+                              </div>
+                            ) : (
+                              <span className="text-xs font-semibold text-gray-400">Fora do carrinho</span>
+                            )}
+                            <button type="button" onClick={() => adicionarProdutoBalcao(produto)} disabled={semEstoque || quantidade >= Number(produto.estoque || 0)} className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-black text-white hover:bg-gray-800 disabled:opacity-40">
+                              Adicionar
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                {!carregandoProdutos && produtos.filter(produto => produto.ativo).length === 0 && (
+                  <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-gray-400">Nenhum produto ativo para venda.</div>
+                )}
+              </div>
+
+              <form onSubmit={finalizarVendaBalcao} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm xl:sticky xl:top-5 xl:self-start">
+                <div>
+                  <h2 className="text-lg font-black text-gray-900">Fechamento</h2>
+                  <p className="text-xs text-gray-500">Cliente, entrega, frete e desconto são opcionais.</p>
+                </div>
+
+                <div className="space-y-2">
+                  {itensBalcao.length === 0 ? (
+                    <p className="rounded-xl bg-gray-50 p-4 text-center text-sm font-semibold text-gray-400">Nenhum item adicionado.</p>
+                  ) : (
+                    itensBalcao.map(item => (
+                      <div key={item.produto.id} className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2 text-sm">
+                        <div>
+                          <p className="font-black text-gray-800">{item.quantidade}x {item.produto.nome}</p>
+                          <p className="text-xs text-gray-500">{formatarMoedaBR(item.produto.preco)} un.</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-gray-900">{formatarMoedaBR(item.subtotal)}</span>
+                          <button type="button" onClick={() => removerProdutoBalcao(item.produto.id)} className="rounded-lg bg-white px-2 py-1 text-xs font-black text-gray-500 ring-1 ring-gray-200">-</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Nome do cliente</span>
+                    <input value={formBalcao.cliente_nome} onChange={e => setFormBalcao({ ...formBalcao, cliente_nome: e.target.value })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Telefone</span>
+                    <input value={formBalcao.cliente_telefone} onChange={e => setFormBalcao({ ...formBalcao, cliente_telefone: e.target.value })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+
+                  <label className="md:col-span-2 xl:col-span-1">
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Endereço de entrega</span>
+                    <input value={formBalcao.endereco_entrega} onChange={e => setFormBalcao({ ...formBalcao, endereco_entrega: e.target.value })} placeholder="Opcional" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Taxa de entrega</span>
+                    <input type="text" inputMode="decimal" value={formBalcao.taxa_entrega} onChange={e => setFormBalcao({ ...formBalcao, taxa_entrega: e.target.value })} onBlur={e => setFormBalcao({ ...formBalcao, taxa_entrega: valorInputBR(e.target.value, 2) })} placeholder="0,00" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Desconto %</span>
+                    <input type="text" inputMode="decimal" value={formBalcao.desconto_percentual} onChange={e => setFormBalcao({ ...formBalcao, desconto_percentual: e.target.value })} onBlur={e => setFormBalcao({ ...formBalcao, desconto_percentual: valorInputBR(e.target.value, 2) })} placeholder="0,00" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+
+                  <label className="md:col-span-2 xl:col-span-1">
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Observações</span>
+                    <textarea value={formBalcao.observacoes} onChange={e => setFormBalcao({ ...formBalcao, observacoes: e.target.value })} rows={3} className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+                </div>
+
+                <div className="space-y-2 rounded-xl bg-gray-50 p-4 text-sm">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Subtotal</span>
+                    <span>{formatarMoedaBR(subtotalBalcao)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Entrega</span>
+                    <span>{formatarMoedaBR(freteBalcao)}</span>
+                  </div>
+                  <div className="flex justify-between text-green-700">
+                    <span>Desconto ({formatarNumeroBR(descontoPercentualBalcao, 2)}%)</span>
+                    <span>- {formatarMoedaBR(descontoValorBalcao)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-gray-200 pt-2 text-lg font-black text-gray-900">
+                    <span>Total</span>
+                    <span>{formatarMoedaBR(totalBalcao)}</span>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button type="submit" disabled={salvandoBalcao || itensBalcao.length === 0} className="rounded-xl bg-gray-900 px-4 py-3 text-sm font-black text-white shadow-lg hover:bg-gray-800 disabled:opacity-50">
+                    {salvandoBalcao ? 'Registrando...' : 'Registrar venda'}
+                  </button>
+                  <button type="button" onClick={limparVendaBalcao} className="rounded-xl bg-gray-100 px-4 py-3 text-sm font-black text-gray-700 hover:bg-gray-200">
+                    Limpar
+                  </button>
+                </div>
+              </form>
             </section>
           )}
 
