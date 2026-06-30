@@ -42,6 +42,11 @@ interface RefeicaoPlano {
 
 interface DiaPlano {
   dia: string;
+  meta_kcal?: number;
+  kcal_planejadas?: number;
+  calorias_livres?: number;
+  nota_salada?: string;
+  nota_rodape?: string;
   refeicoes: RefeicaoPlano[];
 }
 
@@ -61,6 +66,11 @@ function normalizarDias(plano: any): DiaPlano[] {
   const bruto = Array.isArray(plano) ? plano : Array.isArray(plano?.dias) ? plano.dias : Array.isArray(plano?.plano_semanal) ? plano.plano_semanal : [];
   return bruto.map((dia: any, idx: number) => ({
     dia: String(dia.dia ?? dia.nome ?? `Dia ${idx + 1}`),
+    meta_kcal: Number(dia.meta_kcal ?? 0),
+    kcal_planejadas: Number(dia.kcal_planejadas ?? 0),
+    calorias_livres: Number(dia.calorias_livres ?? 0),
+    nota_salada: String(dia.nota_salada ?? ''),
+    nota_rodape: String(dia.nota_rodape ?? ''),
     refeicoes: (Array.isArray(dia.refeicoes) ? dia.refeicoes : []).map((item: any) => ({
       refeicao: String(item.refeicao ?? item.tipo_refeicao ?? 'Refeicao'),
       nome: String(item.nome ?? item.nome_alimento ?? item.prato ?? 'Item do plano'),
@@ -412,6 +422,14 @@ export default function PlanoNutriPage() {
                           {item.produto_id && <p className="mt-1 text-[11px] font-black text-green-600">Item Viva Leve #{item.produto_id}</p>}
                         </button>
                       ))}
+                      <div className="rounded-xl border border-viva-verde/40 bg-viva-verde/10 p-4 text-xs font-bold leading-relaxed text-gray-700">
+                        <p className="font-black text-viva-roxo">
+                          Planejado: {Math.round(Number(dia.kcal_planejadas ?? 0)).toLocaleString('pt-BR')} kcal de {Math.round(Number(dia.meta_kcal ?? plano.kcal_diaria_meta)).toLocaleString('pt-BR')} kcal
+                          {Number.isFinite(dia.calorias_livres) ? ` | Kcal livres: ${Math.round(Number(dia.calorias_livres)).toLocaleString('pt-BR')}` : ''}
+                        </p>
+                        {dia.nota_salada && <p className="mt-2">{dia.nota_salada}</p>}
+                        {dia.nota_rodape && <p className="mt-2">{dia.nota_rodape}</p>}
+                      </div>
                     </div>
                   )}
                 </article>

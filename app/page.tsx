@@ -850,7 +850,7 @@ export default function LojaCliente() {
           rel="noreferrer"
           aria-label="Instagram Viva Leve"
           title="Instagram Viva Leve"
-          className="fixed bottom-24 left-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400 text-white shadow-xl ring-4 ring-white transition active:scale-95"
+          className="fixed bottom-24 left-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400 text-white shadow-xl ring-4 ring-white transition active:scale-95 md:left-[calc(50%-13rem)]"
         >
           <CanalIcone nome={instagram.nome_rede} />
         </a>
@@ -863,7 +863,7 @@ export default function LojaCliente() {
           rel="noreferrer"
           aria-label="WhatsApp Viva Leve"
           title="WhatsApp Viva Leve"
-          className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-4 ring-white transition hover:scale-110 active:scale-95"
+          className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-4 ring-white transition hover:scale-110 active:scale-95 md:right-[calc(50%-13rem)]"
         >
           <CanalIcone nome={whatsapp.nome_rede} />
         </a>

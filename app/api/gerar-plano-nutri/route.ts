@@ -14,7 +14,9 @@ const ORDEM_REFEICOES = ['Cafe da Manha', 'Lanche da Manha', 'Almoco', 'Lanche d
 
 const RefeicaoSchema = z.object({
   nome_refeicao: z.enum(['Cafe da Manha', 'Lanche da Manha', 'Almoco', 'Lanche da Tarde', 'Jantar', 'Ceia']),
+  titulo_resumo: z.string().min(3),
   descricao_completa: z.string().min(8),
+  modo_preparo: z.string().min(3),
   kcal_total: z.number().nonnegative().max(950),
   carb_total: z.number().nonnegative(),
   prot_total: z.number().nonnegative(),
@@ -45,6 +47,98 @@ const PlanoNutriSchema = z.object({
 });
 
 type PlanoNutri = z.infer<typeof PlanoNutriSchema>;
+
+type ComplementoNutri = {
+  nome: string;
+  refeicoes: string[];
+  kcal: number;
+  proteinas: number;
+  carboidratos: number;
+  gorduras: number;
+  porcao: string;
+  detalhe: string;
+  foco: 'proteina' | 'carboidrato' | 'gordura' | 'kcal';
+};
+
+const COMPLEMENTOS_NUTRI: ComplementoNutri[] = [
+  {
+    nome: 'Shake de whey com leite',
+    refeicoes: ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde', 'Ceia'],
+    kcal: 330,
+    proteinas: 32,
+    carboidratos: 28,
+    gorduras: 8,
+    porcao: '300ml',
+    detalhe: 'Misturar whey protein com leite. Opcao pratica para elevar proteinas sem aumentar muito o volume.',
+    foco: 'proteina',
+  },
+  {
+    nome: 'Vitamina de banana com aveia e pasta de amendoim',
+    refeicoes: ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde'],
+    kcal: 620,
+    proteinas: 22,
+    carboidratos: 82,
+    gorduras: 22,
+    porcao: '350ml',
+    detalhe: 'Bater banana, aveia, leite e pasta de amendoim. Indicada para dias de maior meta calorica.',
+    foco: 'kcal',
+  },
+  {
+    nome: 'Iogurte com aveia e mel',
+    refeicoes: ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde', 'Ceia'],
+    kcal: 360,
+    proteinas: 16,
+    carboidratos: 55,
+    gorduras: 8,
+    porcao: '250g',
+    detalhe: 'Combinar iogurte, aveia e pequena porcao de mel.',
+    foco: 'carboidrato',
+  },
+  {
+    nome: 'Mix de castanhas',
+    refeicoes: ['Lanche da Manha', 'Lanche da Tarde', 'Ceia'],
+    kcal: 190,
+    proteinas: 5,
+    carboidratos: 7,
+    gorduras: 16,
+    porcao: '30g',
+    detalhe: 'Consumir porcao medida de castanhas para completar gorduras boas.',
+    foco: 'gordura',
+  },
+  {
+    nome: 'Suco de laranja natural',
+    refeicoes: ['Almoco', 'Jantar', 'Lanche da Manha', 'Lanche da Tarde'],
+    kcal: 140,
+    proteinas: 2,
+    carboidratos: 32,
+    gorduras: 0,
+    porcao: '300ml',
+    detalhe: 'Suco natural sem acucar. Bom complemento para refeicoes principais em metas altas.',
+    foco: 'carboidrato',
+  },
+  {
+    nome: 'Tapioca extra com queijo branco',
+    refeicoes: ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde'],
+    kcal: 420,
+    proteinas: 18,
+    carboidratos: 56,
+    gorduras: 12,
+    porcao: '180g',
+    detalhe: 'Preparar tapioca com queijo branco. Complemento solido e de facil aceitacao.',
+    foco: 'kcal',
+  },
+  {
+    nome: 'Sobremesa fit Viva Leve ou fruta planejada',
+    refeicoes: ['Almoco', 'Jantar'],
+    kcal: 220,
+    proteinas: 8,
+    carboidratos: 32,
+    gorduras: 6,
+    porcao: '1 unidade',
+    detalhe: 'Usar sobremesa fit disponivel ou fruta planejada como complemento, sem misturar no prato principal.',
+    foco: 'kcal',
+  },
+];
 
 function parseNumero(valor: unknown) {
   const numero = Number(String(valor ?? '').replace(/\./g, '').replace(',', '.'));
@@ -194,6 +288,104 @@ function somarRefeicao(refeicao: any) {
   };
 }
 
+function arredondarMacro(valor: number) {
+  return Number(Number(valor).toFixed(1));
+}
+
+function somarDia(refeicoes: any[]) {
+  return refeicoes.reduce((total, refeicao) => ({
+    kcal: total.kcal + Number(refeicao.kcal ?? refeicao.kcal_total ?? 0),
+    proteinas: total.proteinas + Number(refeicao.proteinas ?? refeicao.prot_total ?? 0),
+    carboidratos: total.carboidratos + Number(refeicao.carboidratos ?? refeicao.carb_total ?? 0),
+    gorduras: total.gorduras + Number(refeicao.gorduras ?? refeicao.gord_total ?? 0),
+  }), { kcal: 0, proteinas: 0, carboidratos: 0, gorduras: 0 });
+}
+
+function escolherComplemento(refeicao: any, metas: ReturnType<typeof metasMacros>, totalDia: ReturnType<typeof somarDia>, metaKcal: number, tentativa: number) {
+  const disponiveis = COMPLEMENTOS_NUTRI
+    .filter(complemento => complemento.refeicoes.includes(refeicao.refeicao))
+    .filter(complemento => Number(refeicao.kcal ?? 0) + complemento.kcal <= 950);
+
+  if (disponiveis.length === 0) return null;
+
+  const proteinaBaixa = totalDia.proteinas < metas.proteinas * 0.95;
+  const gorduraBaixa = totalDia.gorduras < metas.gorduras * 0.95;
+  const carboBaixo = totalDia.carboidratos < metas.carboidratos * 0.95;
+  const kcalMuitoBaixa = totalDia.kcal < metaKcal * 0.9;
+
+  const foco = proteinaBaixa ? 'proteina' : gorduraBaixa ? 'gordura' : carboBaixo ? 'carboidrato' : kcalMuitoBaixa ? 'kcal' : 'kcal';
+  const preferidos = disponiveis.filter(complemento => complemento.foco === foco);
+  const lista = preferidos.length > 0 ? preferidos : disponiveis;
+
+  return lista[tentativa % lista.length];
+}
+
+function aplicarComplemento(refeicao: any, complemento: ComplementoNutri) {
+  const nomeBase = String(refeicao.nome ?? refeicao.titulo_resumo ?? refeicao.descricao_completa ?? refeicao.refeicao);
+  const detalheBase = String(refeicao.modo_preparo || refeicao.descricao || refeicao.descricao_completa || '');
+  const detalheComplemento = `${complemento.nome} (${complemento.porcao}): ${complemento.detalhe}`;
+
+  return {
+    ...refeicao,
+    nome: `${nomeBase} + ${complemento.nome} (${complemento.porcao})`,
+    descricao: [String(refeicao.descricao || refeicao.descricao_completa || ''), detalheComplemento].filter(Boolean).join('\n\nComplemento: '),
+    modo_preparo: [detalheBase, detalheComplemento].filter(Boolean).join('\n\nComplemento: '),
+    porcao: '',
+    kcal: Math.round(Number(refeicao.kcal ?? 0) + complemento.kcal),
+    proteinas: arredondarMacro(Number(refeicao.proteinas ?? 0) + complemento.proteinas),
+    carboidratos: arredondarMacro(Number(refeicao.carboidratos ?? 0) + complemento.carboidratos),
+    gorduras: arredondarMacro(Number(refeicao.gorduras ?? 0) + complemento.gorduras),
+    kcal_total: Math.round(Number(refeicao.kcal_total ?? refeicao.kcal ?? 0) + complemento.kcal),
+    prot_total: arredondarMacro(Number(refeicao.prot_total ?? refeicao.proteinas ?? 0) + complemento.proteinas),
+    carb_total: arredondarMacro(Number(refeicao.carb_total ?? refeicao.carboidratos ?? 0) + complemento.carboidratos),
+    gord_total: arredondarMacro(Number(refeicao.gord_total ?? refeicao.gorduras ?? 0) + complemento.gorduras),
+  };
+}
+
+function reforcarPlano(plano: any, metas: ReturnType<typeof metasMacros>) {
+  return {
+    ...plano,
+    dias: (plano.dias ?? []).map((dia: any) => {
+      let refeicoes = [...(dia.refeicoes ?? [])];
+      let tentativa = 0;
+      let total = somarDia(refeicoes);
+
+      while (total.kcal < metas.kcal * 0.95 && tentativa < 36) {
+        const ordenadas = refeicoes
+          .map((refeicao, index) => ({ refeicao, index }))
+          .filter(({ refeicao }) => Number(refeicao.kcal ?? 0) < 930)
+          .sort((a, b) => Number(a.refeicao.kcal ?? 0) - Number(b.refeicao.kcal ?? 0));
+
+        const alvo = ordenadas.find(({ refeicao }) => Number(refeicao.kcal ?? 0) < Math.min(950, metas.kcal / Math.max(3, refeicoes.length) * 1.25));
+        if (!alvo) break;
+
+        const complemento = escolherComplemento(alvo.refeicao, metas, total, metas.kcal, tentativa);
+        if (!complemento) break;
+
+        refeicoes = refeicoes.map((refeicao, index) => index === alvo.index ? aplicarComplemento(refeicao, complemento) : refeicao);
+        total = somarDia(refeicoes);
+        tentativa += 1;
+      }
+
+      const kcalPlanejadas = Math.round(total.kcal);
+      const caloriasLivres = Math.round(metas.kcal - kcalPlanejadas);
+      const notaRodape = caloriasLivres > 200
+        ? `Saldo acima de 200 kcal: complementar com shakes/vitaminas caseiras pode ajudar. Referencia: ${LINK_SHAKES}`
+        : String(dia.nota_rodape ?? '');
+
+      return {
+        ...dia,
+        meta_kcal: metas.kcal,
+        kcal_planejadas: kcalPlanejadas,
+        calorias_livres: caloriasLivres,
+        nota_salada: NOTA_SALADA,
+        nota_rodape: notaRodape,
+        refeicoes,
+      };
+    }),
+  };
+}
+
 function adaptarParaApp(plano: PlanoNutri, metaKcal: number) {
   return {
     ...plano,
@@ -212,9 +404,9 @@ function adaptarParaApp(plano: PlanoNutri, metaKcal: number) {
             return {
               ...refeicao,
               refeicao: refeicao.nome_refeicao,
-              nome: refeicao.descricao_completa,
+              nome: refeicao.titulo_resumo,
               descricao: refeicao.descricao_completa,
-              modo_preparo: refeicao.descricao_completa,
+              modo_preparo: refeicao.modo_preparo,
               porcao: '',
               gramas: 0,
               kcal: macros.kcal,
@@ -250,7 +442,7 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
   const refeicoes = refeicoesSelecionadas(requisicao.padrao_refeicoes);
   const metas = metasMacros(metaKcal, perfilCliente);
 
-  return adaptarParaApp({
+  const planoBase = adaptarParaApp({
     objetivo_estabelecido: objetivo,
     kcal_diaria_meta: metaKcal,
     metas_macros_diarias: metas,
@@ -269,7 +461,9 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
           const item = itemProdutoParaContexto(produto);
           return {
             nome_refeicao: nome as any,
+            titulo_resumo: `${item.nome} (${item.porcao_g}g)`,
             descricao_completa: `${item.nome} (${item.porcao_g}g) - ${item.descricao ?? ''}`.trim(),
+            modo_preparo: item.descricao || 'Produto Viva Leve pronto para consumo conforme orientacao da embalagem.',
             kcal_total: item.kcal_por_porcao,
             carb_total: item.carb_por_porcao,
             prot_total: item.prot_por_porcao,
@@ -282,7 +476,9 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
           const item = itemReceitaParaContexto(receita);
           return {
             nome_refeicao: nome as any,
+            titulo_resumo: `${item.nome_receita} (Porcao: ${item.porcao}g)`,
             descricao_completa: `${item.nome_receita} (Porcao: ${item.porcao}g) - ${item.modo_preparo ?? ''}`.trim(),
+            modo_preparo: item.modo_preparo || 'Preparo simples conforme receita externa cadastrada.',
             kcal_total: item.kcal_por_porcao,
             carb_total: item.carb_por_porcao,
             prot_total: item.prot_por_porcao,
@@ -294,7 +490,9 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
         const kcal = Math.round(metaKcal / refeicoes.length);
         return {
           nome_refeicao: nome as any,
+          titulo_resumo: `${nome}: refeicao equilibrada`,
           descricao_completa: `${nome}: refeicao externa equilibrada conforme preferencias do usuario.`,
+          modo_preparo: 'Montar a refeicao com alimentos preferidos do usuario, respeitando porcoes humanas e equilibrio de macros.',
           kcal_total: kcal,
           carb_total: Math.round((kcal * 0.5) / 4),
           prot_total: Math.round((kcal * 0.25) / 4),
@@ -304,6 +502,8 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
       }),
     })),
   }, metaKcal);
+
+  return reforcarPlano(planoBase, metas);
 }
 
 async function salvarPlanoGerado(supabase: any, requisicao: any, plano: any) {
@@ -347,7 +547,10 @@ REGRAS ESTRITAS:
 15. Para ganho de massa, priorize alta densidade calorica. Para perda de peso, priorize alto volume e baixa densidade calorica.
 16. Se calorias_livres > 200, use nota_rodape recomendando complemento com shakes/vitaminas caseiras e inclua este link: ${LINK_SHAKES}
 17. nota_salada deve ser exatamente: "${NOTA_SALADA}".
-18. produtos_loja_ids deve conter todos os IDs dos produtos da loja usados naquela refeicao; vazio para refeicao totalmente externa.`;
+18. produtos_loja_ids deve conter todos os IDs dos produtos da loja usados naquela refeicao; vazio para refeicao totalmente externa.
+19. titulo_resumo deve conter somente o nome curto da refeicao/receita e porcao principal. Nao coloque modo de preparo neste campo.
+20. descricao_completa deve detalhar itens, marcas, porcoes e componentes usados.
+21. modo_preparo deve conter apenas preparo, orientacao de consumo ou descricao detalhada para abrir no modal.`;
 }
 
 function montarPromptUsuario(contexto: any) {
@@ -491,7 +694,7 @@ export async function POST(request: NextRequest) {
       maxRetries: 2,
     });
 
-    const plano = adaptarParaApp(object, metaKcal);
+    const plano = reforcarPlano(adaptarParaApp(object, metaKcal), metas);
 
     if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
       await salvarPlanoGerado(supabase, requisicao, plano);

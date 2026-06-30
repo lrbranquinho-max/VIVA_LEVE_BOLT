@@ -1,7 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import AppDownloadPrompt from '../components/AppDownloadPrompt';
+import AppShell from '../components/AppShell';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -50,9 +50,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
-      <body className={inter.className}>
-        {children}
-        <AppDownloadPrompt />
+      <body className={`${inter.className} min-h-screen overflow-hidden bg-[#f1f5f2] text-gray-900`}>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

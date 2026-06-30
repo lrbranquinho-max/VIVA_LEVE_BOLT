@@ -18,12 +18,15 @@
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: #f1f5f2;
+}
+
+@media (min-width: 768px) {
+  body nav.fixed.bottom-0.max-w-md {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
 }
 
 @keyframes viva-marquee {
