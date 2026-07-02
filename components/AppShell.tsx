@@ -17,7 +17,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="mx-auto h-[100dvh] min-h-screen w-full overflow-y-auto bg-white shadow-none md:max-w-md md:shadow-2xl">
+    <div className="mx-auto h-[100dvh] min-h-screen w-full overflow-y-auto bg-white shadow-none md:max-w-6xl md:shadow-2xl">
       {children}
       <AppDownloadPrompt />
     </div>

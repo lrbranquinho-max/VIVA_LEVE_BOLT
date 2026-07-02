@@ -119,7 +119,7 @@ export default function Perfil() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans max-w-md mx-auto shadow-2xl relative pb-24">
+    <div className="min-h-screen bg-gray-50 font-sans max-w-md mx-auto shadow-2xl relative pb-24 md:max-w-6xl">
       <header className="bg-white border-b border-gray-100 p-4 shadow-sm space-y-3">
         <div className="max-w-xs">
           <Logo />
@@ -241,7 +241,7 @@ export default function Perfil() {
         </button>
       </main>
 
-      <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 flex justify-around p-3 pb-5 z-10">
+      <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 flex justify-around p-3 pb-5 z-10 md:max-w-6xl">
         <Link href="/" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo">
           <span className="text-xl">&#127968;</span>
           <span className="text-[10px] font-bold mt-1">Loja</span>

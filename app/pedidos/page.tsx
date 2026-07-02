@@ -288,7 +288,7 @@ export default function MeusPedidos() {
   }
 
   return (
-    <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl">
+    <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl md:max-w-6xl">
       {mensagemPagamento && (
         <div className="fixed left-1/2 top-4 z-50 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-xl bg-red-500 px-4 py-3 text-center text-sm font-bold text-white shadow-xl">
           {mensagemPagamento}
@@ -494,7 +494,7 @@ export default function MeusPedidos() {
         </>
       </main>
 
-      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5">
+      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5 md:max-w-6xl">
         <Link href="/" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo">
           <span className="text-xl">&#127968;</span>
           <span className="mt-1 text-[10px] font-bold">Loja</span>

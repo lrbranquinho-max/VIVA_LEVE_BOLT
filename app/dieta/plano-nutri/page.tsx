@@ -355,11 +355,11 @@ export default function PlanoNutriPage() {
   };
 
   if (loading) {
-    return <div className="mx-auto flex min-h-screen max-w-md items-center justify-center bg-gray-50 text-sm font-bold text-gray-500">Carregando plano...</div>;
+    return <div className="mx-auto flex min-h-screen max-w-md items-center justify-center bg-gray-50 text-sm font-bold text-gray-500 md:max-w-6xl">Carregando plano...</div>;
   }
 
   return (
-    <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl">
+    <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl md:max-w-6xl">
       {toast && (
         <button onClick={() => setToast('')} className="fixed left-1/2 top-4 z-[120] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl bg-viva-roxo p-4 text-center text-sm font-bold text-white shadow-xl">
           {toast}
@@ -428,7 +428,19 @@ export default function PlanoNutriPage() {
                           {Number.isFinite(dia.calorias_livres) ? ` | Kcal livres: ${Math.round(Number(dia.calorias_livres)).toLocaleString('pt-BR')}` : ''}
                         </p>
                         {dia.nota_salada && <p className="mt-2">{dia.nota_salada}</p>}
-                        {dia.nota_rodape && <p className="mt-2">{dia.nota_rodape}</p>}
+                        {Number(dia.calorias_livres ?? 0) > 200 && (
+                          <p className="mt-2">
+                            Saldo acima de 200 kcal: complementar com shakes/vitaminas caseiras pode ajudar. Referencia:{' '}
+                            <a
+                              href="https://www.tuasaude.com/suplemento-caseiro-para-ganhar-massa-muscular/"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-black text-viva-roxo underline underline-offset-2"
+                            >
+                              receitas de vitaminas caseiras
+                            </a>
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -487,7 +499,7 @@ export default function PlanoNutriPage() {
         </div>
       )}
 
-      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5">
+      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5 md:max-w-6xl">
         <Link href="/" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo"><span className="text-xl">&#127968;</span><span className="mt-1 text-[10px] font-bold">Loja</span></Link>
         <Link href="/pedidos" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo"><span className="text-xl">&#128203;</span><span className="mt-1 text-[10px] font-bold">Pedidos</span></Link>
         <Link href="/dieta" className="flex flex-col items-center text-viva-roxo"><span className="text-xl">&#128241;</span><span className="mt-1 text-[10px] font-bold">Dieta</span></Link>

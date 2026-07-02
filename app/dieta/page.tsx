@@ -443,9 +443,9 @@ export default function Dieta() {
 
   const refeicoesPorTipo = useMemo(() => {
     const grupos = [
-      { tipo: 'CafÃ© da ManhÃ£', aliases: ['CafÃ© da ManhÃ£', 'Cafe da Manha'] },
-      { tipo: 'Lanche da ManhÃ£', aliases: ['Lanche da ManhÃ£', 'Lanche da Manha'] },
-      { tipo: 'AlmoÃ§o', aliases: ['AlmoÃ§o', 'Almoco'] },
+      { tipo: 'Café da Manhã', aliases: ['Café da Manhã', 'CafÃ© da ManhÃ£', 'Cafe da Manha'] },
+      { tipo: 'Lanche da Manhã', aliases: ['Lanche da Manhã', 'Lanche da ManhÃ£', 'Lanche da Manha'] },
+      { tipo: 'Almoço', aliases: ['Almoço', 'AlmoÃ§o', 'Almoco'] },
       { tipo: 'Lanche da Tarde', aliases: ['Lanche da Tarde', 'Lanche'] },
       { tipo: 'Jantar', aliases: ['Jantar'] },
       { tipo: 'Ceia', aliases: ['Ceia'] },
@@ -845,7 +845,7 @@ export default function Dieta() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans max-w-md mx-auto shadow-2xl relative pb-24">
+    <div className="min-h-screen bg-gray-50 font-sans max-w-md mx-auto shadow-2xl relative pb-24 md:max-w-6xl">
       <header className="bg-white border-b border-gray-100 p-4 shadow-sm space-y-4">
         <div className="max-w-xs"><Logo /></div>
         <div className="flex items-center justify-between gap-3">
@@ -1365,7 +1365,7 @@ export default function Dieta() {
         </div>
       )}
 
-      <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 flex justify-around p-3 pb-5 z-10">
+      <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 flex justify-around p-3 pb-5 z-10 md:max-w-6xl">
         <Link href="/" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo">
           <span className="text-xl">&#127968;</span>
           <span className="text-[10px] font-bold mt-1">Loja</span>

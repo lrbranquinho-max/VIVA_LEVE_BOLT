@@ -50,6 +50,7 @@ const FRETE_PADRAO = 10;
 const LIMITE_FRETE_GRATIS = 100;
 const LIMITE_DESCONTO_AUTOMATICO = 300;
 const DESCONTO_AUTOMATICO_PERCENTUAL = 10;
+const CARRINHO_STORAGE_KEY = 'viva-leve-carrinho';
 
 let toastId = 0;
 
@@ -112,7 +113,14 @@ export default function LojaCliente() {
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
 
-  const [carrinho, setCarrinho] = useState<{ [key: number]: number }>({});
+  const [carrinho, setCarrinho] = useState<{ [key: number]: number }>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      return JSON.parse(localStorage.getItem(CARRINHO_STORAGE_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  });
   const [verCarrinho, setVerCarrinho] = useState(false);
 
   const [nome, setNome] = useState('');
@@ -121,7 +129,6 @@ export default function LojaCliente() {
   const [enviando, setEnviando] = useState(false);
   const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix'>('checkout');
   const [pixGerado, setPixGerado] = useState<{ qrCode: string; qrCodeBase64?: string; ticketUrl?: string } | null>(null);
-  const [produtoExpandidoId, setProdutoExpandidoId] = useState<number | null>(null);
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('todos');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -130,6 +137,10 @@ export default function LojaCliente() {
     setToasts(prev => [...prev, { id, texto, tipo }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(CARRINHO_STORAGE_KEY, JSON.stringify(carrinho));
+  }, [carrinho]);
 
   const carregarCupons = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -513,7 +524,7 @@ export default function LojaCliente() {
   const whatsapp = canalPorNome('WhatsApp');
 
   return (
-    <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl">
+    <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl md:max-w-6xl">
       <div className="pointer-events-none fixed left-1/2 top-4 z-[100] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 space-y-2">
         {toasts.map(t => (
           <div
@@ -574,7 +585,7 @@ export default function LojaCliente() {
         */}
       </header>
 
-      <main className="space-y-4 p-4">
+      <main className="space-y-4 p-4 md:p-6">
         <Link href="/dieta" className="block rounded-2xl bg-gradient-to-r from-viva-roxo to-gray-900 p-4 text-white shadow-sm">
           <p className="text-xs font-black uppercase tracking-wider text-viva-verde">Novidade</p>
           <p className="mt-1 text-sm font-black">Gere sua dieta personalizada gratuita e descubra exatamente quais marmitas comprar.</p>
@@ -614,13 +625,11 @@ export default function LojaCliente() {
           categoriasVisiveis.map(cat => (
             <div key={cat || 'sem-categoria'}>
               <h3 className="mb-2 mt-3 text-xs font-bold uppercase tracking-widest text-gray-400">{cat || 'Outros'}</h3>
-              <div className="space-y-3">
+              <div className="space-y-3 md:grid md:grid-cols-2 md:gap-4 md:space-y-0 lg:grid-cols-3">
                 {produtos.filter(p => p.categoria === cat).map(item => {
-                  const expandido = produtoExpandidoId === item.id;
-
                   return (
                   <div key={item.id} className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                    <button type="button" onClick={() => setProdutoExpandidoId(expandido ? null : item.id)} className="flex w-full gap-4 p-4 text-left" aria-expanded={expandido}>
+                    <Link href={`/produto/${item.id}`} className="flex w-full gap-4 p-4 text-left transition hover:bg-gray-50">
                     {item.imagem_url ? (
                       <img src={item.imagem_url} alt={item.nome} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" />
                     ) : (
@@ -649,29 +658,13 @@ export default function LojaCliente() {
 
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <p className="text-base font-extrabold text-viva-roxo">{formatarMoedaBR(item.preco)}</p>
-                        <span className="text-xs font-black text-viva-roxo">{expandido ? 'Fechar detalhes' : 'Ver detalhes'}</span>
+                        <span className="text-xs font-black text-viva-roxo">Ver detalhes</span>
                       </div>
                     </div>
-                    </button>
-
-                    {expandido && (
-                      <div className="space-y-3 border-t border-gray-100 bg-gray-50 p-4">
-                        {item.imagem_url ? (
-                          <img src={item.imagem_url} alt={item.nome} className="h-56 w-full rounded-xl object-cover" />
-                        ) : (
-                          <div className="flex h-40 w-full items-center justify-center rounded-xl bg-gradient-to-br from-green-50 to-green-100 text-3xl font-black text-viva-roxo">
-                            VL
-                          </div>
-                        )}
-                        <div>
-                          <h4 className="text-xs font-black uppercase tracking-wider text-gray-400">Descricao e ingredientes</h4>
-                          <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-gray-700">{item.descricao || 'Sem descricao cadastrada.'}</p>
-                        </div>
-                      </div>
-                    )}
+                    </Link>
 
                     <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
-                      <p className="text-xs font-semibold text-gray-400">Toque no card para detalhes</p>
+                      <p className="text-xs font-semibold text-gray-400">Detalhes em tela propria</p>
                       {carrinho[item.id] ? (
                         <div className="flex items-center gap-2">
                           <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
@@ -869,7 +862,7 @@ export default function LojaCliente() {
         </a>
       )}
 
-      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5">
+      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5 md:max-w-6xl">
         <button className="flex flex-col items-center text-viva-roxo">
           <span className="text-xl">&#127968;</span>
           <span className="mt-1 text-[10px] font-bold">Loja</span>

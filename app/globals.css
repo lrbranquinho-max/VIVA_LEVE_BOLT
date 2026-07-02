@@ -22,7 +22,7 @@ body {
 }
 
 @media (min-width: 768px) {
-  body nav.fixed.bottom-0.max-w-md {
+  body nav.fixed.bottom-0 {
     left: 50%;
     right: auto;
     transform: translateX(-50%);
