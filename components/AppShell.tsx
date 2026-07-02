@@ -10,7 +10,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   if (isAdmin) {
     return (
-      <div className="min-h-screen w-full overflow-y-auto bg-gray-100">
+      <div className="h-[100dvh] min-h-screen w-full overflow-y-auto bg-gray-100">
         {children}
       </div>
     );
