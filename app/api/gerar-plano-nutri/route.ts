@@ -301,7 +301,8 @@ function somarDia(refeicoes: any[]) {
 function escolherComplemento(refeicao: any, metas: ReturnType<typeof metasMacros>, totalDia: ReturnType<typeof somarDia>, metaKcal: number, tentativa: number) {
   const disponiveis = COMPLEMENTOS_NUTRI
     .filter(complemento => complemento.refeicoes.includes(refeicao.refeicao))
-    .filter(complemento => Number(refeicao.kcal ?? 0) + complemento.kcal <= 950);
+    .filter(complemento => Number(refeicao.kcal ?? 0) + complemento.kcal <= 950)
+    .filter(complemento => totalDia.kcal + complemento.kcal <= metaKcal + 90);
 
   if (disponiveis.length === 0) return null;
 
@@ -339,11 +340,82 @@ function aplicarComplemento(refeicao: any, complemento: ComplementoNutri) {
   };
 }
 
-function reforcarPlano(plano: any, metas: ReturnType<typeof metasMacros>) {
+function recalcularDia(dia: any, metas: ReturnType<typeof metasMacros>) {
+  const total = somarDia(dia.refeicoes ?? []);
+  const kcalPlanejadas = Math.round(total.kcal);
+  const caloriasLivres = Math.round(metas.kcal - kcalPlanejadas);
+  const notaRodape = caloriasLivres > 200
+    ? `Saldo acima de 200 kcal: complementar com shakes/vitaminas caseiras pode ajudar. Referencia: ${LINK_SHAKES}`
+    : '';
+
+  return {
+    ...dia,
+    meta_kcal: metas.kcal,
+    kcal_planejadas: kcalPlanejadas,
+    calorias_livres: caloriasLivres,
+    nota_salada: NOTA_SALADA,
+    nota_rodape: notaRodape,
+  };
+}
+
+function reduzirExcessoCaloricoDia(dia: any, metas: ReturnType<typeof metasMacros>, receitas: any[]) {
+  let refeicoes = [...(dia.refeicoes ?? [])];
+  let total = somarDia(refeicoes);
+  let tentativas = 0;
+
+  while (total.kcal > metas.kcal + 90 && tentativas < refeicoes.length * 2) {
+    const candidatas = refeicoes
+      .map((refeicao, index) => ({ refeicao, index }))
+      .sort((a, b) => Number(b.refeicao.kcal ?? b.refeicao.kcal_total ?? 0) - Number(a.refeicao.kcal ?? a.refeicao.kcal_total ?? 0));
+
+    const alvo = candidatas[tentativas % Math.max(1, candidatas.length)];
+    if (!alvo) break;
+
+    const nomeRefeicao = String(alvo.refeicao.refeicao ?? alvo.refeicao.nome_refeicao ?? '');
+    const receitasDoTipo = (receitas ?? [])
+      .filter((receita: any) => receita.tipo_refeicao === tipoReceitaExterna(nomeRefeicao))
+      .map((receita: any) => criarRefeicaoReceitaExterna(nomeRefeicao, receita))
+      .filter((receita: any) => Number(receita.kcal ?? 0) < Number(alvo.refeicao.kcal ?? alvo.refeicao.kcal_total ?? 0))
+      .sort((a: any, b: any) => {
+        const totalA = total.kcal - Number(alvo.refeicao.kcal ?? alvo.refeicao.kcal_total ?? 0) + Number(a.kcal ?? 0);
+        const totalB = total.kcal - Number(alvo.refeicao.kcal ?? alvo.refeicao.kcal_total ?? 0) + Number(b.kcal ?? 0);
+        return Math.abs(metas.kcal - totalA) - Math.abs(metas.kcal - totalB);
+      });
+
+    const substituta = receitasDoTipo.find((receita: any) => (
+      total.kcal - Number(alvo.refeicao.kcal ?? alvo.refeicao.kcal_total ?? 0) + Number(receita.kcal ?? 0)
+    ) <= metas.kcal + 90);
+
+    if (!substituta) {
+      const kcalAtual = Number(alvo.refeicao.kcal ?? alvo.refeicao.kcal_total ?? 0);
+      const totalSemAlvo = {
+        kcal: total.kcal - kcalAtual,
+        proteinas: total.proteinas - Number(alvo.refeicao.proteinas ?? alvo.refeicao.prot_total ?? 0),
+        carboidratos: total.carboidratos - Number(alvo.refeicao.carboidratos ?? alvo.refeicao.carb_total ?? 0),
+        gorduras: total.gorduras - Number(alvo.refeicao.gorduras ?? alvo.refeicao.gord_total ?? 0),
+      };
+      const kcalAlvo = Math.max(120, metas.kcal + 90 - totalSemAlvo.kcal);
+      const ajustada = criarRefeicaoAjustada(nomeRefeicao, kcalAlvo, metas, totalSemAlvo);
+      refeicoes = refeicoes.map((refeicao, index) => index === alvo.index ? ajustada : refeicao);
+      total = somarDia(refeicoes);
+      tentativas += 1;
+      continue;
+    }
+
+    refeicoes = refeicoes.map((refeicao, index) => index === alvo.index ? substituta : refeicao);
+    total = somarDia(refeicoes);
+    tentativas += 1;
+  }
+
+  return { ...dia, refeicoes };
+}
+
+function reforcarPlano(plano: any, metas: ReturnType<typeof metasMacros>, receitas: any[] = []) {
   return {
     ...plano,
     dias: (plano.dias ?? []).map((dia: any) => {
-      let refeicoes = [...(dia.refeicoes ?? [])];
+      let diaAjustado = reduzirExcessoCaloricoDia(dia, metas, receitas);
+      let refeicoes = [...(diaAjustado.refeicoes ?? [])];
       let tentativa = 0;
       let total = somarDia(refeicoes);
 
@@ -364,21 +436,8 @@ function reforcarPlano(plano: any, metas: ReturnType<typeof metasMacros>) {
         tentativa += 1;
       }
 
-      const kcalPlanejadas = Math.round(total.kcal);
-      const caloriasLivres = Math.round(metas.kcal - kcalPlanejadas);
-      const notaRodape = caloriasLivres > 200
-        ? `Saldo acima de 200 kcal: complementar com shakes/vitaminas caseiras pode ajudar. Referencia: ${LINK_SHAKES}`
-        : String(dia.nota_rodape ?? '');
-
-      return {
-        ...dia,
-        meta_kcal: metas.kcal,
-        kcal_planejadas: kcalPlanejadas,
-        calorias_livres: caloriasLivres,
-        nota_salada: NOTA_SALADA,
-        nota_rodape: notaRodape,
-        refeicoes,
-      };
+      diaAjustado = reduzirExcessoCaloricoDia({ ...diaAjustado, refeicoes }, metas, receitas);
+      return recalcularDia(diaAjustado, metas);
     }),
   };
 }
@@ -406,6 +465,40 @@ function criarRefeicaoReceitaExterna(nomeRefeicao: string, receita: any) {
     produtos_loja_ids: [],
     produto_id: null,
     receita_externa_id: String(item.id),
+  };
+}
+
+function criarRefeicaoAjustada(nomeRefeicao: string, kcalAlvo: number, metas: ReturnType<typeof metasMacros>, totalAtual: ReturnType<typeof somarDia>) {
+  const kcal = Math.max(120, Math.round(kcalAlvo));
+  const proteinasRestantes = Math.max(0, metas.proteinas - totalAtual.proteinas);
+  const gordurasRestantes = Math.max(0, metas.gorduras - totalAtual.gorduras);
+  const proteinas = arredondarMacro(Math.min(proteinasRestantes || (kcal * 0.28) / 4, (kcal * 0.45) / 4));
+  const gorduras = arredondarMacro(Math.min(gordurasRestantes || (kcal * 0.25) / 9, (kcal * 0.4) / 9));
+  const kcalRestante = Math.max(0, kcal - (proteinas * 4) - (gorduras * 9));
+  const carboidratos = arredondarMacro(kcalRestante / 4);
+  const nome = `${nomeRefeicao}: refeicao externa ajustada (${kcal} kcal)`;
+
+  return {
+    nome_refeicao: nomeRefeicao,
+    refeicao: nomeRefeicao,
+    titulo_resumo: nome,
+    nome,
+    descricao_completa: `${nome}. Refeicao externa calibrada para respeitar o limite diario de kcal e aproximar os macros do usuario.`,
+    descricao: `${nome}. Refeicao externa calibrada para respeitar o limite diario de kcal e aproximar os macros do usuario.`,
+    modo_preparo: 'Montar com alimentos externos coerentes para o horario, priorizando proteinas magras, gorduras boas e carboidratos conforme a meta restante.',
+    porcao: '',
+    gramas: 0,
+    kcal_total: kcal,
+    carb_total: carboidratos,
+    prot_total: proteinas,
+    gord_total: gorduras,
+    kcal,
+    carboidratos,
+    proteinas,
+    gorduras,
+    produtos_loja_ids: [],
+    produto_id: null,
+    receita_externa_id: null,
   };
 }
 
@@ -590,7 +683,7 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
     })),
   }, metaKcal);
 
-  return reforcarPlano(planoBase, metas);
+  return reforcarPlano(planoBase, metas, receitas);
 }
 
 async function salvarPlanoGerado(supabase: any, requisicao: any, plano: any) {
@@ -635,16 +728,20 @@ REGRAS ESTRITAS:
 16. Se uma porcao nao bater a meta, escolha outro item ou empilhe multiplos alimentos logicos. Nunca aumente uma porcao fixa.
 17. Empilhamento logico: refeicao pode conter marmita + acompanhamento simples apenas no Almoco/Jantar. Para lanches, combine alimentos externos leves e coerentes.
 18. Limite 950 kcal por refeicao. Se a meta diaria ainda nao fechar, deixe saldo em calorias_livres.
-19. kcal_total, carb_total, prot_total e gord_total de cada refeicao devem ser a soma exata dos componentes descritos.
-20. kcal_planejadas deve ser a soma exata das refeicoes do dia. calorias_livres = meta_kcal - kcal_planejadas.
-21. Antirrepeticao: nao repita o mesmo prato, marmita ou combinacao em refeicoes ou dias sequenciais.
-22. Para ganho de massa, priorize alta densidade calorica sem criar porcoes absurdas. Para perda de peso, priorize alto volume e baixa densidade calorica.
-23. Se calorias_livres > 200, use nota_rodape recomendando complemento com shakes/vitaminas caseiras e inclua este link: ${LINK_SHAKES}
-24. nota_salada deve ser exatamente: "${NOTA_SALADA}".
-25. produtos_loja_ids deve conter todos os IDs dos produtos da loja usados naquela refeicao; vazio para refeicao totalmente externa.
-26. titulo_resumo deve conter somente o nome curto da refeicao/receita e porcao principal. Nao coloque modo de preparo neste campo.
-27. descricao_completa deve detalhar itens, marcas, porcoes e componentes usados.
-28. modo_preparo deve conter apenas preparo, orientacao de consumo ou descricao detalhada para abrir no modal.`;
+19. O total do dia NUNCA pode ultrapassar meta_kcal + 90 kcal. Exemplo: meta 2334 permite no maximo 2424 kcal planejadas.
+20. Trabalhe para chegar o mais proximo possivel de meta_kcal sem ultrapassar meta_kcal + 90.
+21. Metas de macros obrigatorias: proteinas = 2g por kg do usuario; gorduras = 1g por kg do usuario; carboidratos = calorias restantes da meta diaria dividido por 4.
+22. Ajuste as escolhas para aproximar proteinas, gorduras e carboidratos dessas metas. Nao use calorias acima do limite para tentar fechar macros.
+23. kcal_total, carb_total, prot_total e gord_total de cada refeicao devem ser a soma exata dos componentes descritos.
+24. kcal_planejadas deve ser a soma exata das refeicoes do dia. calorias_livres = meta_kcal - kcal_planejadas.
+25. Antirrepeticao: nao repita o mesmo prato, marmita ou combinacao em refeicoes ou dias sequenciais.
+26. Para ganho de massa, priorize alta densidade calorica sem criar porcoes absurdas. Para perda de peso, priorize alto volume e baixa densidade calorica.
+27. Se calorias_livres > 200, use nota_rodape recomendando complemento com shakes/vitaminas caseiras e inclua este link: ${LINK_SHAKES}
+28. nota_salada deve ser exatamente: "${NOTA_SALADA}".
+29. produtos_loja_ids deve conter todos os IDs dos produtos da loja usados naquela refeicao; vazio para refeicao totalmente externa.
+30. titulo_resumo deve conter somente o nome curto da refeicao/receita e porcao principal. Nao coloque modo de preparo neste campo.
+31. descricao_completa deve detalhar itens, marcas, porcoes e componentes usados.
+32. modo_preparo deve conter apenas preparo, orientacao de consumo ou descricao detalhada para abrir no modal.`;
 }
 
 function montarPromptUsuario(contexto: any) {
@@ -791,6 +888,7 @@ export async function POST(request: NextRequest) {
     const plano = reforcarPlano(
       substituirRefeicoesIncoerentes(adaptarParaApp(object, metaKcal), receitas ?? [], produtos ?? []),
       metas,
+      receitas ?? [],
     );
 
     if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
