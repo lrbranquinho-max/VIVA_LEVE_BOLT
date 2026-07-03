@@ -11,24 +11,44 @@ interface ItemCheckout {
 
 export const runtime = 'nodejs';
 
+const URL_PUBLICA_PADRAO = 'https://vivalevedf.com.br';
+
 function normalizarSiteUrl(url: string) {
   return url.replace(/\/$/, '');
 }
 
-function permiteAutoReturn(url: string) {
+function urlPublicaHttpsValida(url?: string) {
+  if (!url) return false;
   try {
     const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    const hostnamesInvalidos = ['localhost', '127.0.0.1', '0.0.0.0'];
     return parsed.protocol === 'https:' &&
-      !['localhost', '127.0.0.1', '0.0.0.0'].includes(parsed.hostname);
+      !hostnamesInvalidos.includes(hostname) &&
+      !hostname.endsWith('.local') &&
+      !hostname.startsWith('capacitor');
   } catch {
     return false;
   }
 }
 
+function resolverSiteUrlPublica() {
+  const candidatos = [
+    process.env.MERCADOPAGO_SITE_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
+    URL_PUBLICA_PADRAO,
+  ];
+
+  const url = candidatos.find(urlPublicaHttpsValida) || URL_PUBLICA_PADRAO;
+  return normalizarSiteUrl(url);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const siteUrl = resolverSiteUrlPublica();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const authorization = request.headers.get('authorization');
@@ -73,15 +93,15 @@ export async function POST(request: NextRequest) {
     const preference = new Preference(client);
     const baseUrl = normalizarSiteUrl(siteUrl);
     const backUrls = {
-      success: `${baseUrl}/pedidos?pagamento=sucesso`,
-      pending: `${baseUrl}/pedidos?pagamento=pendente`,
-      failure: `${baseUrl}/pedidos?pagamento=falha`,
+      success: `${baseUrl}/pagamento/sucesso`,
+      pending: `${baseUrl}/pagamento/pendente`,
+      failure: `${baseUrl}/pagamento/falha`,
     };
 
     const body = {
       external_reference: pedidoId,
       notification_url: `${baseUrl}/api/mercadopago/webhook`,
-      ...(permiteAutoReturn(baseUrl) ? { auto_return: 'approved' } : {}),
+      auto_return: 'approved',
       back_urls: backUrls,
       payer: {
         name: payer?.nome,
