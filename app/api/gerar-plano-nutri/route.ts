@@ -225,11 +225,8 @@ function refeicoesSelecionadas(padrao: any) {
 function produtoPermitidoNaRefeicao(produto: any, refeicao: string) {
   const categoria = categoriaProduto(produto);
   if (categoria.includes('marmita')) return ['Almoco', 'Jantar'].includes(refeicao);
-  if (categoria.includes('caldo')) return ['Jantar', 'Ceia'].includes(refeicao);
-  if (categoria.includes('lanche') || categoria.includes('suplemento')) {
-    return ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde'].includes(refeicao);
-  }
-  return ['Almoco', 'Jantar', 'Ceia'].includes(refeicao);
+  if (categoria.includes('caldo')) return refeicao === 'Ceia';
+  return false;
 }
 
 function porcaoReceitaExterna(receita: any) {
@@ -386,6 +383,96 @@ function reforcarPlano(plano: any, metas: ReturnType<typeof metasMacros>) {
   };
 }
 
+function criarRefeicaoReceitaExterna(nomeRefeicao: string, receita: any) {
+  const item = itemReceitaParaContexto(receita);
+  return {
+    nome_refeicao: nomeRefeicao,
+    refeicao: nomeRefeicao,
+    titulo_resumo: `${item.nome_receita} (Porcao: ${item.porcao}g)`,
+    nome: `${item.nome_receita} (Porcao: ${item.porcao}g)`,
+    descricao_completa: `${item.nome_receita} (Porcao: ${item.porcao}g) - ${item.modo_preparo ?? ''}`.trim(),
+    descricao: `${item.nome_receita} (Porcao: ${item.porcao}g) - ${item.modo_preparo ?? ''}`.trim(),
+    modo_preparo: item.modo_preparo || 'Preparo simples conforme receita externa cadastrada.',
+    porcao: `${item.porcao}g`,
+    gramas: item.porcao,
+    kcal_total: item.kcal_por_porcao,
+    carb_total: item.carb_por_porcao,
+    prot_total: item.prot_por_porcao,
+    gord_total: item.gord_por_porcao,
+    kcal: item.kcal_por_porcao,
+    carboidratos: item.carb_por_porcao,
+    proteinas: item.prot_por_porcao,
+    gorduras: item.gord_por_porcao,
+    produtos_loja_ids: [],
+    produto_id: null,
+    receita_externa_id: String(item.id),
+  };
+}
+
+function textoRefeicao(refeicao: any) {
+  return [
+    refeicao.nome,
+    refeicao.titulo_resumo,
+    refeicao.descricao,
+    refeicao.descricao_completa,
+    refeicao.modo_preparo,
+  ].filter(Boolean).join(' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function temPorcaoAbsurda(texto: string, refeicao: string) {
+  const limite = ['Cafe da Manha', 'Lanche da Manha', 'Lanche da Tarde', 'Ceia'].includes(refeicao) ? 450 : 750;
+  const gramas = Array.from(texto.matchAll(/(\d{3,4})\s*g\b/g)).map(match => Number(match[1]));
+  return gramas.some(valor => valor > limite);
+}
+
+function refeicaoIncoerente(refeicao: any, produtoPorId: Map<number, any>) {
+  const nomeRefeicao = String(refeicao.refeicao ?? refeicao.nome_refeicao ?? '');
+  const texto = textoRefeicao(refeicao);
+  const produtos = (refeicao.produtos_loja_ids ?? []).map((id: number) => produtoPorId.get(Number(id))).filter(Boolean);
+  const produtoInvalido = produtos.some((produto: any) => !produtoPermitidoNaRefeicao(produto, nomeRefeicao));
+
+  if (produtoInvalido) return true;
+  if (temPorcaoAbsurda(texto, nomeRefeicao)) return true;
+  if (/(pote inteiro|pote de|embalagem inteira|900\s*g|whey protein.*900|900.*whey protein)/i.test(texto)) return true;
+  if (nomeRefeicao === 'Cafe da Manha' && /(marmita|caldo|arroz|feijao|feijao|macarrao|patinho|isca de carne)/i.test(texto)) return true;
+  if ((nomeRefeicao === 'Lanche da Manha' || nomeRefeicao === 'Lanche da Tarde') && /(marmita|caldo|prato completo|arroz|feijao)/i.test(texto)) return true;
+  if (nomeRefeicao === 'Ceia' && /(marmita|prato completo|arroz|feijao|macarrao)/i.test(texto)) return true;
+
+  return false;
+}
+
+function substituirRefeicoesIncoerentes(plano: any, receitas: any[], produtos: any[]) {
+  const produtoPorId = new Map((produtos ?? []).map((produto: any) => [Number(produto.id), produto]));
+
+  return {
+    ...plano,
+    dias: (plano.dias ?? []).map((dia: any, diaIndex: number) => ({
+      ...dia,
+      refeicoes: (dia.refeicoes ?? []).map((refeicao: any, refeicaoIndex: number) => {
+        if (!refeicaoIncoerente(refeicao, produtoPorId)) return refeicao;
+
+        const nomeRefeicao = String(refeicao.refeicao ?? refeicao.nome_refeicao ?? '');
+        const tipo = tipoReceitaExterna(nomeRefeicao);
+        const candidatas = (receitas ?? []).filter((receita: any) => receita.tipo_refeicao === tipo);
+        const substituta = candidatas[(diaIndex + refeicaoIndex) % Math.max(1, candidatas.length)];
+
+        return substituta
+          ? criarRefeicaoReceitaExterna(nomeRefeicao, substituta)
+          : {
+              ...refeicao,
+              nome: `${nomeRefeicao}: refeicao externa equilibrada`,
+              titulo_resumo: `${nomeRefeicao}: refeicao externa equilibrada`,
+              descricao: `${nomeRefeicao}: refeicao externa equilibrada, sem produto da loja inadequado para o horario.`,
+              descricao_completa: `${nomeRefeicao}: refeicao externa equilibrada, sem produto da loja inadequado para o horario.`,
+              modo_preparo: 'Montar com alimento externo adequado ao horario e as preferencias informadas.',
+              produtos_loja_ids: [],
+              produto_id: null,
+            };
+      }),
+    })),
+  };
+}
+
 function adaptarParaApp(plano: PlanoNutri, metaKcal: number) {
   return {
     ...plano,
@@ -535,22 +622,29 @@ REGRAS ESTRITAS:
 3. Use apenas e estritamente as refeicoes selecionadas pelo usuario. Nao force 6 refeicoes. Minimo de 3 refeicoes.
 4. Respeite preferencias e preferencias.outros como prioridade alimentar.
 5. Se houver receita_url, analise a imagem. Restricoes, alergias, metas e orientacoes medicas da imagem tem soberania absoluta.
-6. Marmitas da loja: apenas Almoco/Jantar. Caldos: apenas Jantar/Ceia. Lanches rapidos e suplementos: apenas Cafe da Manha e lanches.
-7. Para produtos da loja, use exatamente nome, descricao, porcao_g e macros por porcao informados no contexto. Nao invente produto, ingrediente, porcao ou macro.
-8. Para receitas_externas, use exatamente a porcao e os macros por porcao calculados no contexto. E proibido alterar gramatura, calorias ou macros estaticos.
-9. Se uma porcao nao bater a meta, escolha outro item ou empilhe multiplos alimentos logicos. Nunca aumente uma porcao fixa.
-10. Empilhamento logico: refeicao pode conter, por exemplo, marmita + suco natural + fruta/sobremesa fit. Para lanches, combine solidos, liquidos e barras de proteina se fizer sentido.
-11. Limite 950 kcal por refeicao. Se a meta diaria ainda nao fechar, deixe saldo em calorias_livres.
-12. kcal_total, carb_total, prot_total e gord_total de cada refeicao devem ser a soma exata dos componentes descritos.
-13. kcal_planejadas deve ser a soma exata das refeicoes do dia. calorias_livres = meta_kcal - kcal_planejadas.
-14. Antirrepeticao: nao repita o mesmo prato, marmita ou combinacao em refeicoes ou dias sequenciais.
-15. Para ganho de massa, priorize alta densidade calorica. Para perda de peso, priorize alto volume e baixa densidade calorica.
-16. Se calorias_livres > 200, use nota_rodape recomendando complemento com shakes/vitaminas caseiras e inclua este link: ${LINK_SHAKES}
-17. nota_salada deve ser exatamente: "${NOTA_SALADA}".
-18. produtos_loja_ids deve conter todos os IDs dos produtos da loja usados naquela refeicao; vazio para refeicao totalmente externa.
-19. titulo_resumo deve conter somente o nome curto da refeicao/receita e porcao principal. Nao coloque modo de preparo neste campo.
-20. descricao_completa deve detalhar itens, marcas, porcoes e componentes usados.
-21. modo_preparo deve conter apenas preparo, orientacao de consumo ou descricao detalhada para abrir no modal.`;
+6. Produtos da loja NAO sao obrigatorios. Use produtos da loja apenas quando forem a melhor opcao nutricional para aquela refeicao.
+7. Produtos da loja permitidos: Marmitas exclusivamente em Almoco ou Jantar; Caldos exclusivamente em Ceia. E proibido usar suplementos, whey, lanches, doces, bebidas, moda fitness ou qualquer outro produto da loja no plano.
+8. Para produtos da loja permitidos, use exatamente nome, descricao, porcao_g e macros por porcao informados no contexto. Nao invente produto, ingrediente, porcao ou macro.
+9. Se nao houver marmita ou caldo adequado, use receitas_externas normalmente.
+10. Cafe da Manha: alimentos matinais coerentes, ricos em proteinas e gorduras saudaveis, com volume humano. Nunca use marmita, caldo, arroz, feijao, macarrao ou pote de suplemento.
+11. Lanches: refeicoes leves, rapidas e faceis de consumir. Nunca use marmita, caldo, prato completo ou grandes quantidades de suplemento.
+12. Almoco e Jantar: refeicoes completas, equilibradas e nutricionalmente adequadas. Marmitas podem entrar aqui se forem a melhor opcao.
+13. Ceia: refeicoes leves, de facil digestao, preferencialmente com mais gorduras boas e menor carga de carboidratos. Caldos podem entrar aqui se forem adequados.
+14. Antes de finalizar cada refeicao, valide se ela e compativel com horario, contexto e volume humano. Se parecer estranho para uma pessoa comer naquele horario, substitua por uma receita externa adequada.
+15. Para receitas_externas, use exatamente a porcao e os macros por porcao calculados no contexto. E proibido alterar gramatura, calorias ou macros estaticos.
+16. Se uma porcao nao bater a meta, escolha outro item ou empilhe multiplos alimentos logicos. Nunca aumente uma porcao fixa.
+17. Empilhamento logico: refeicao pode conter marmita + acompanhamento simples apenas no Almoco/Jantar. Para lanches, combine alimentos externos leves e coerentes.
+18. Limite 950 kcal por refeicao. Se a meta diaria ainda nao fechar, deixe saldo em calorias_livres.
+19. kcal_total, carb_total, prot_total e gord_total de cada refeicao devem ser a soma exata dos componentes descritos.
+20. kcal_planejadas deve ser a soma exata das refeicoes do dia. calorias_livres = meta_kcal - kcal_planejadas.
+21. Antirrepeticao: nao repita o mesmo prato, marmita ou combinacao em refeicoes ou dias sequenciais.
+22. Para ganho de massa, priorize alta densidade calorica sem criar porcoes absurdas. Para perda de peso, priorize alto volume e baixa densidade calorica.
+23. Se calorias_livres > 200, use nota_rodape recomendando complemento com shakes/vitaminas caseiras e inclua este link: ${LINK_SHAKES}
+24. nota_salada deve ser exatamente: "${NOTA_SALADA}".
+25. produtos_loja_ids deve conter todos os IDs dos produtos da loja usados naquela refeicao; vazio para refeicao totalmente externa.
+26. titulo_resumo deve conter somente o nome curto da refeicao/receita e porcao principal. Nao coloque modo de preparo neste campo.
+27. descricao_completa deve detalhar itens, marcas, porcoes e componentes usados.
+28. modo_preparo deve conter apenas preparo, orientacao de consumo ou descricao detalhada para abrir no modal.`;
 }
 
 function montarPromptUsuario(contexto: any) {
@@ -694,7 +788,10 @@ export async function POST(request: NextRequest) {
       maxRetries: 2,
     });
 
-    const plano = reforcarPlano(adaptarParaApp(object, metaKcal), metas);
+    const plano = reforcarPlano(
+      substituirRefeicoesIncoerentes(adaptarParaApp(object, metaKcal), receitas ?? [], produtos ?? []),
+      metas,
+    );
 
     if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
       await salvarPlanoGerado(supabase, requisicao, plano);
