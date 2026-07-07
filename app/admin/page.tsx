@@ -216,6 +216,14 @@ function telefoneWhatsApp(telefone?: string) {
   return digitos.startsWith('55') ? digitos : `55${digitos}`;
 }
 
+function normalizarBusca(valor: string | null | undefined) {
+  return String(valor ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
 function idPerfil(perfil: PerfilCliente) {
   return String(perfil.id ?? perfil.cliente_id ?? perfil.user_id ?? '');
 }
@@ -380,6 +388,8 @@ export default function AdminPage() {
 
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
+  const [filtroProdutoBalcao, setFiltroProdutoBalcao] = useState('');
+  const [filtroProdutoEstoque, setFiltroProdutoEstoque] = useState('');
   const [modalProdutoAberto, setModalProdutoAberto] = useState(false);
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null);
   const [formProduto, setFormProduto] = useState<ProdutoForm>({ ...FORM_VAZIO });
@@ -531,6 +541,18 @@ export default function AdminPage() {
     entrega: pedidos.filter(p => p.status === 'Saiu para Entrega').length,
     receita: pedidos.filter(p => p.status === 'Entregue').reduce((acc, pedido) => acc + totalPedido(pedido), 0),
   }), [pedidos]);
+
+  const produtosBalcaoFiltrados = useMemo(() => {
+    const termo = normalizarBusca(filtroProdutoBalcao);
+    return produtos
+      .filter(produto => produto.ativo)
+      .filter(produto => !termo || normalizarBusca(produto.nome).includes(termo));
+  }, [filtroProdutoBalcao, produtos]);
+
+  const produtosEstoqueFiltrados = useMemo(() => {
+    const termo = normalizarBusca(filtroProdutoEstoque);
+    return produtos.filter(produto => !termo || normalizarBusca(produto.nome).includes(termo));
+  }, [filtroProdutoEstoque, produtos]);
 
   const itensBalcao = useMemo(() => Object.entries(carrinhoBalcao)
     .map(([idTexto, quantidade]) => {
@@ -1128,10 +1150,17 @@ export default function AdminPage() {
                     </div>
                     {carregandoProdutos && <span className="text-xs font-bold text-gray-400">Carregando...</span>}
                   </div>
+                  <input
+                    type="search"
+                    value={filtroProdutoBalcao}
+                    onChange={e => setFiltroProdutoBalcao(e.target.value)}
+                    placeholder="Filtrar por nome do produto"
+                    className="mt-4 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900"
+                  />
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                  {produtos.filter(produto => produto.ativo).map(produto => {
+                  {produtosBalcaoFiltrados.map(produto => {
                     const quantidade = carrinhoBalcao[produto.id] ?? 0;
                     const semEstoque = Number(produto.estoque || 0) <= 0;
 
@@ -1171,8 +1200,10 @@ export default function AdminPage() {
                   })}
                 </div>
 
-                {!carregandoProdutos && produtos.filter(produto => produto.ativo).length === 0 && (
-                  <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-gray-400">Nenhum produto ativo para venda.</div>
+                {!carregandoProdutos && produtosBalcaoFiltrados.length === 0 && (
+                  <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-gray-400">
+                    {filtroProdutoBalcao ? 'Nenhum produto encontrado para esse filtro.' : 'Nenhum produto ativo para venda.'}
+                  </div>
                 )}
               </div>
 
@@ -1348,7 +1379,14 @@ export default function AdminPage() {
 
           {aba === 'produtos' && (
             <section className="space-y-5">
-              <div className="flex justify-end">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <input
+                  type="search"
+                  value={filtroProdutoEstoque}
+                  onChange={e => setFiltroProdutoEstoque(e.target.value)}
+                  placeholder="Filtrar por nome do produto"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-900 shadow-sm outline-none focus:ring-2 focus:ring-gray-900 md:max-w-md"
+                />
                 <button onClick={abrirNovoProduto} className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-black text-white shadow-lg hover:bg-gray-800">
                   Novo produto
                 </button>
@@ -1369,7 +1407,7 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {produtos.map(produto => (
+                      {produtosEstoqueFiltrados.map(produto => (
                         <tr key={produto.id} className={!produto.ativo ? 'bg-gray-50 opacity-70' : ''}>
                           <td className="px-4 py-4">
                             <p className="font-black text-gray-900">{produto.nome}</p>
@@ -1405,7 +1443,11 @@ export default function AdminPage() {
                 </div>
 
                 {carregandoProdutos && <div className="p-8 text-center text-gray-400">Carregando produtos...</div>}
-                {!carregandoProdutos && produtos.length === 0 && <div className="p-8 text-center text-gray-400">Nenhum produto cadastrado.</div>}
+                {!carregandoProdutos && produtosEstoqueFiltrados.length === 0 && (
+                  <div className="p-8 text-center text-gray-400">
+                    {filtroProdutoEstoque ? 'Nenhum produto encontrado para esse filtro.' : 'Nenhum produto cadastrado.'}
+                  </div>
+                )}
               </div>
             </section>
           )}
