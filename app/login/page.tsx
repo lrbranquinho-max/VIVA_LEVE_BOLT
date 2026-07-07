@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../supabase';
 import Logo from '../../components/Logo';
@@ -37,6 +37,8 @@ export default function LoginCliente() {
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false);
   const [isCadastro, setIsCadastro] = useState(false);
+  const [modoEsqueciSenha, setModoEsqueciSenha] = useState(false);
+  const [modoRedefinirSenha, setModoRedefinirSenha] = useState(false);
   const [loading, setLoading] = useState(false);
   const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'sucesso' | 'erro' } | null>(null);
 
@@ -44,6 +46,79 @@ export default function LoginCliente() {
   const [telefone, setTelefone] = useState('');
 
   const router = useRouter();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reset_password') === '1') {
+      setModoRedefinirSenha(true);
+      setIsCadastro(false);
+      setModoEsqueciSenha(false);
+    }
+
+    const { data: listener } = supabase.auth.onAuthStateChange(event => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setModoRedefinirSenha(true);
+        setIsCadastro(false);
+        setModoEsqueciSenha(false);
+        setSenha('');
+        setConfirmarSenha('');
+        setMensagem({ texto: 'Informe a nova senha para concluir a redefinicao.', tipo: 'sucesso' });
+      }
+    });
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleEnviarRecuperacao = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMensagem(null);
+
+    try {
+      const destino = `${process.env.NEXT_PUBLIC_SITE_URL || window.location.origin}/login?reset_password=1`;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: destino,
+      });
+
+      if (error) throw error;
+      setMensagem({ texto: 'Enviamos um link de redefinicao para o seu e-mail.', tipo: 'sucesso' });
+    } catch (error: any) {
+      setMensagem({ texto: error.message || 'Erro ao enviar e-mail de redefinicao.', tipo: 'erro' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAtualizarSenha = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMensagem(null);
+
+    try {
+      if (senha !== confirmarSenha) {
+        setMensagem({ texto: 'As senhas digitadas nao conferem.', tipo: 'erro' });
+        setLoading(false);
+        return;
+      }
+
+      const { error } = await supabase.auth.updateUser({ password: senha });
+      if (error) throw error;
+
+      setMensagem({ texto: 'Senha atualizada com sucesso. Acesse novamente.', tipo: 'sucesso' });
+      setModoRedefinirSenha(false);
+      setModoEsqueciSenha(false);
+      setIsCadastro(false);
+      setSenha('');
+      setConfirmarSenha('');
+      await supabase.auth.signOut();
+    } catch (error: any) {
+      setMensagem({ texto: error.message || 'Erro ao atualizar senha.', tipo: 'erro' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAutenticacao = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,11 +187,31 @@ export default function LoginCliente() {
 
   const alternarModo = () => {
     setIsCadastro(prev => !prev);
+    setModoEsqueciSenha(false);
+    setModoRedefinirSenha(false);
     setMensagem(null);
     setConfirmarSenha('');
     setMostrarSenha(false);
     setMostrarConfirmarSenha(false);
   };
+
+  const voltarParaLogin = () => {
+    setIsCadastro(false);
+    setModoEsqueciSenha(false);
+    setModoRedefinirSenha(false);
+    setMensagem(null);
+    setSenha('');
+    setConfirmarSenha('');
+  };
+
+  const titulo = modoRedefinirSenha ? 'Redefina sua senha' : modoEsqueciSenha ? 'Recupere sua senha' : isCadastro ? 'Crie sua conta' : 'Acesse seu painel';
+  const subtitulo = modoRedefinirSenha
+    ? 'Digite e confirme sua nova senha'
+    : modoEsqueciSenha
+      ? 'Informe seu e-mail para receber o link'
+      : isCadastro
+        ? 'Preencha seus dados para comecar'
+        : 'Bem-vindo de volta a sua rotina saudavel';
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4 font-sans">
@@ -126,10 +221,10 @@ export default function LoginCliente() {
             <Logo />
           </div>
           <h2 className="text-xl font-bold text-viva-roxo">
-            {isCadastro ? 'Crie sua conta' : 'Acesse seu painel'}
+            {titulo}
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            {isCadastro ? 'Preencha seus dados para comecar' : 'Bem-vindo de volta a sua rotina saudavel'}
+            {subtitulo}
           </p>
         </div>
 
@@ -142,8 +237,8 @@ export default function LoginCliente() {
           </div>
         )}
 
-        <form onSubmit={handleAutenticacao} className="space-y-4">
-          {isCadastro && (
+        <form onSubmit={modoRedefinirSenha ? handleAtualizarSenha : modoEsqueciSenha ? handleEnviarRecuperacao : handleAutenticacao} className="space-y-4">
+          {isCadastro && !modoEsqueciSenha && !modoRedefinirSenha && (
             <>
               <div>
                 <label className="mb-1 block text-xs font-bold text-gray-600">Nome completo</label>
@@ -170,7 +265,8 @@ export default function LoginCliente() {
             </>
           )}
 
-          <div>
+          {!modoRedefinirSenha && (
+            <div>
             <label className="mb-1 block text-xs font-bold text-gray-600">E-mail</label>
             <input
               type="email"
@@ -180,9 +276,11 @@ export default function LoginCliente() {
               className="w-full rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-900 transition focus:outline-none focus:ring-2 focus:ring-viva-verde"
               placeholder="seu@email.com"
             />
-          </div>
+            </div>
+          )}
 
-          <div>
+          {!modoEsqueciSenha && (
+            <div>
             <label className="mb-1 block text-xs font-bold text-gray-600">Senha</label>
             <div className="relative">
               <input
@@ -202,9 +300,10 @@ export default function LoginCliente() {
                 <EyeIcon hidden={mostrarSenha} />
               </button>
             </div>
-          </div>
+            </div>
+          )}
 
-          {isCadastro && (
+          {(isCadastro || modoRedefinirSenha) && !modoEsqueciSenha && (
             <div>
               <label className="mb-1 block text-xs font-bold text-gray-600">Confirmar senha</label>
               <div className="relative">
@@ -233,17 +332,41 @@ export default function LoginCliente() {
             disabled={loading}
             className="mt-2 w-full rounded-xl bg-viva-roxo py-3.5 font-bold text-white shadow-lg transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-70"
           >
-            {loading ? 'Processando...' : (isCadastro ? 'Criar Conta' : 'Entrar')}
+            {loading ? 'Processando...' : modoRedefinirSenha ? 'Salvar nova senha' : modoEsqueciSenha ? 'Enviar link de redefinicao' : isCadastro ? 'Criar Conta' : 'Entrar'}
           </button>
         </form>
 
         <div className="mt-6 text-center">
-          <button
-            onClick={alternarModo}
-            className="text-sm font-semibold text-gray-500 transition hover:text-viva-roxo"
-          >
-            {isCadastro ? 'Ja tem uma conta? Faca login aqui.' : 'Nao tem conta? Cadastre-se gratis.'}
-          </button>
+          {modoEsqueciSenha || modoRedefinirSenha ? (
+            <button
+              onClick={voltarParaLogin}
+              className="text-sm font-semibold text-gray-500 transition hover:text-viva-roxo"
+            >
+              Voltar para o login
+            </button>
+          ) : (
+            <div className="space-y-3">
+              {!isCadastro && (
+                <button
+                  onClick={() => {
+                    setModoEsqueciSenha(true);
+                    setMensagem(null);
+                    setSenha('');
+                    setConfirmarSenha('');
+                  }}
+                  className="block w-full text-sm font-semibold text-viva-roxo transition hover:brightness-90"
+                >
+                  Esqueci minha senha
+                </button>
+              )}
+              <button
+                onClick={alternarModo}
+                className="text-sm font-semibold text-gray-500 transition hover:text-viva-roxo"
+              >
+                {isCadastro ? 'Ja tem uma conta? Faca login aqui.' : 'Nao tem conta? Cadastre-se gratis.'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
