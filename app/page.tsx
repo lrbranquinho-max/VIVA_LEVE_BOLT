@@ -46,11 +46,16 @@ interface Toast {
   tipo: 'sucesso' | 'erro' | 'info';
 }
 
-const FRETE_PADRAO = 10;
 const LIMITE_FRETE_GRATIS = 100;
 const LIMITE_DESCONTO_AUTOMATICO = 300;
 const DESCONTO_AUTOMATICO_PERCENTUAL = 10;
 const CARRINHO_STORAGE_KEY = 'viva-leve-carrinho';
+const LOJA_CONFIG_PADRAO = {
+  cupom_boas_vindas_percentual: 30,
+  taxa_entrega_padrao: 10,
+  cupom_dia_d_percentual: 0,
+  cupom_dia_d_ativo: false,
+};
 
 let toastId = 0;
 
@@ -78,6 +83,20 @@ function normalizarTexto(valor: string) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
+}
+
+function normalizarLojaConfig(valor: unknown) {
+  const bruto = (valor && typeof valor === 'object' ? valor : {}) as Record<string, unknown>;
+  const boasVindas = Number(bruto.cupom_boas_vindas_percentual ?? LOJA_CONFIG_PADRAO.cupom_boas_vindas_percentual);
+  const taxa = Number(bruto.taxa_entrega_padrao ?? LOJA_CONFIG_PADRAO.taxa_entrega_padrao);
+  const diaD = Number(bruto.cupom_dia_d_percentual ?? LOJA_CONFIG_PADRAO.cupom_dia_d_percentual);
+
+  return {
+    cupom_boas_vindas_percentual: Math.min(100, Math.max(0, Number.isFinite(boasVindas) ? boasVindas : LOJA_CONFIG_PADRAO.cupom_boas_vindas_percentual)),
+    taxa_entrega_padrao: Math.max(0, Number.isFinite(taxa) ? taxa : LOJA_CONFIG_PADRAO.taxa_entrega_padrao),
+    cupom_dia_d_percentual: Math.min(100, Math.max(0, Number.isFinite(diaD) ? diaD : LOJA_CONFIG_PADRAO.cupom_dia_d_percentual)),
+    cupom_dia_d_ativo: Boolean(bruto.cupom_dia_d_ativo),
+  };
 }
 
 function CanalIcone({ nome }: { nome: string }) {
@@ -131,6 +150,7 @@ export default function LojaCliente() {
   const [pixGerado, setPixGerado] = useState<{ qrCode: string; qrCodeBase64?: string; ticketUrl?: string } | null>(null);
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('todos');
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [lojaConfig, setLojaConfig] = useState(LOJA_CONFIG_PADRAO);
 
   const adicionarToast = useCallback((texto: string, tipo: Toast['tipo'] = 'info') => {
     const id = ++toastId;
@@ -157,13 +177,25 @@ export default function LojaCliente() {
     setCupomSelecionadoId(lista[0]?.id ?? '');
   }, []);
 
+  const carregarLojaConfig = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('app_config')
+      .select('valor')
+      .eq('chave', 'loja_config')
+      .maybeSingle();
+
+    if (!error && data?.valor) {
+      setLojaConfig(normalizarLojaConfig(data.valor));
+    }
+  }, []);
+
   useEffect(() => {
     async function init() {
       setCarregando(true);
       setErroCarga(null);
 
       try {
-        const [produtosRes, canaisRes] = await Promise.all([
+        const [produtosRes, canaisRes, configRes] = await Promise.all([
           supabase
             .from('produtos')
             .select('*')
@@ -175,11 +207,17 @@ export default function LojaCliente() {
             .select('nome_rede,endereco')
             .eq('ativo', true)
             .order('nome_rede', { ascending: true }),
+          supabase
+            .from('app_config')
+            .select('valor')
+            .eq('chave', 'loja_config')
+            .maybeSingle(),
         ]);
 
         if (produtosRes.error) throw new Error(produtosRes.error.message);
         setProdutos(produtosRes.data ?? []);
         if (!canaisRes.error) setCanais((canaisRes.data ?? []) as CanalLoja[]);
+        if (!configRes.error && configRes.data?.valor) setLojaConfig(normalizarLojaConfig(configRes.data.valor));
       } catch (err: any) {
         console.error('[Loja] Erro ao carregar produtos:', err);
         setErroCarga(err.message);
@@ -217,14 +255,14 @@ export default function LojaCliente() {
           ].filter(Boolean).join(', '));
         }
 
-        await carregarCupons(user.id);
+        await Promise.all([carregarCupons(user.id), carregarLojaConfig()]);
       } catch (err) {
         console.error('[Loja] Erro ao carregar perfil:', err);
       }
     }
 
     init();
-  }, [carregarCupons]);
+  }, [carregarCupons, carregarLojaConfig]);
 
   useEffect(() => {
     if (produtos.length === 0) return;
@@ -260,9 +298,10 @@ export default function LojaCliente() {
   const cupomSelecionado = cupons.find(cupom => cupom.id === cupomSelecionadoId);
   const descontoCupomPercentual = Number(cupomSelecionado?.percentual_desconto ?? 0);
   const descontoAutomaticoPercentual = subtotalProdutos >= LIMITE_DESCONTO_AUTOMATICO ? DESCONTO_AUTOMATICO_PERCENTUAL : 0;
-  const descontoPercentual = Math.max(descontoCupomPercentual, descontoAutomaticoPercentual);
+  const descontoDiaDPercentual = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
+  const descontoPercentual = Math.max(descontoCupomPercentual, descontoAutomaticoPercentual, descontoDiaDPercentual);
   const descontoValor = subtotalProdutos * (descontoPercentual / 100);
-  const valorFrete = subtotalProdutos > 0 && subtotalProdutos < LIMITE_FRETE_GRATIS ? FRETE_PADRAO : 0;
+  const valorFrete = subtotalProdutos > 0 && subtotalProdutos < LIMITE_FRETE_GRATIS ? lojaConfig.taxa_entrega_padrao : 0;
   const totalPedidoFinal = Math.max(subtotalProdutos - descontoValor + valorFrete, 0);
   const totalItens = Object.values(carrinho).reduce((a, b) => a + b, 0);
   const mensagensPromocionais = useMemo(() => {
@@ -272,12 +311,16 @@ export default function LojaCliente() {
       `📦 Frete Grátis nas compras acima de ${formatarMoedaBR(LIMITE_FRETE_GRATIS)}.`,
     ];
 
+    if (lojaConfig.cupom_dia_d_ativo && lojaConfig.cupom_dia_d_percentual > 0) {
+      mensagens.push(`Dia D: ${formatarNumeroBR(lojaConfig.cupom_dia_d_percentual, 0)}% de desconto ativo hoje.`);
+    }
+
     cupons.forEach(cupom => {
       mensagens.push(`🎟️ Você tem ${formatarNumeroBR(cupom.percentual_desconto, 0)}% em cupom de desconto. APROVEITE!!!`);
     });
 
     return mensagens;
-  }, [cupons]);
+  }, [cupons, lojaConfig]);
 
   const canalPorNome = (nomeRede: string) => canais.find(canal => canal.nome_rede.toLowerCase() === nomeRede.toLowerCase());
 
@@ -443,10 +486,11 @@ export default function LojaCliente() {
       });
 
       const subtotalValidado = listaItens.reduce((total, item) => total + item.subtotal, 0);
-      const freteValidado = subtotalValidado > 0 && subtotalValidado < LIMITE_FRETE_GRATIS ? FRETE_PADRAO : 0;
+      const freteValidado = subtotalValidado > 0 && subtotalValidado < LIMITE_FRETE_GRATIS ? lojaConfig.taxa_entrega_padrao : 0;
       const descontoAutomaticoValidado = subtotalValidado >= LIMITE_DESCONTO_AUTOMATICO ? DESCONTO_AUTOMATICO_PERCENTUAL : 0;
       const descontoCupomValidado = cupomSelecionado ? Number(cupomSelecionado.percentual_desconto) : 0;
-      const descontoPercentualValidado = Math.max(descontoAutomaticoValidado, descontoCupomValidado);
+      const descontoDiaDValidado = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
+      const descontoPercentualValidado = Math.max(descontoAutomaticoValidado, descontoCupomValidado, descontoDiaDValidado);
       const descontoValorValidado = subtotalValidado * (descontoPercentualValidado / 100);
       const valorTotal = Math.max(subtotalValidado - descontoValorValidado + freteValidado, 0);
 

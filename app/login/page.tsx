@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../../supabase';
 import Logo from '../../components/Logo';
 
+const CUPOM_BOAS_VINDAS_PADRAO = 30;
+
+function percentualBoasVindas(valor: unknown) {
+  const bruto = (valor && typeof valor === 'object' ? valor : {}) as Record<string, unknown>;
+  const percentual = Number(bruto.cupom_boas_vindas_percentual ?? CUPOM_BOAS_VINDAS_PADRAO);
+  return Math.min(100, Math.max(0, Number.isFinite(percentual) ? percentual : CUPOM_BOAS_VINDAS_PADRAO));
+}
+
 function EyeIcon({ hidden }: { hidden: boolean }) {
   if (hidden) {
     return (
@@ -59,19 +67,28 @@ export default function LoginCliente() {
             .insert([{ id: data.user.id, nome, telefone }]);
           if (profileError) throw profileError;
 
-          const validade = new Date();
-          validade.setDate(validade.getDate() + 30);
-          const { error: cupomError } = await supabase
-            .from('cupons_desconto')
-            .insert([{
-              cliente_id: data.user.id,
-              percentual_desconto: 30,
-              data_validade: validade.toISOString(),
-              status: 'aberto',
-            }]);
+          const { data: configCupom } = await supabase
+            .from('app_config')
+            .select('valor')
+            .eq('chave', 'loja_config')
+            .maybeSingle();
+          const percentualCupom = percentualBoasVindas(configCupom?.valor);
 
-          if (cupomError && cupomError.code !== '23505') {
-            console.warn('[Cadastro] Cupom de boas-vindas nao criado:', cupomError.message);
+          if (percentualCupom > 0) {
+            const validade = new Date();
+            validade.setDate(validade.getDate() + 30);
+            const { error: cupomError } = await supabase
+              .from('cupons_desconto')
+              .insert([{
+                cliente_id: data.user.id,
+                percentual_desconto: percentualCupom,
+                data_validade: validade.toISOString(),
+                status: 'aberto',
+              }]);
+
+            if (cupomError && cupomError.code !== '23505') {
+              console.warn('[Cadastro] Cupom de boas-vindas nao criado:', cupomError.message);
+            }
           }
         }
 

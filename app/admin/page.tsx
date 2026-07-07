@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../supabase';
 
-type AbaAdmin = 'pedidos' | 'balcao' | 'produtos';
+type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
 
 interface ItemPedido {
@@ -82,6 +82,13 @@ interface VendaBalcaoForm {
   observacoes: string;
 }
 
+interface LojaConfigForm {
+  cupom_boas_vindas_percentual: string;
+  taxa_entrega_padrao: string;
+  cupom_dia_d_percentual: string;
+  cupom_dia_d_ativo: boolean;
+}
+
 const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Preparo', 'Saiu para Entrega', 'Entregue'];
 const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
 
@@ -106,6 +113,13 @@ const FORM_BALCAO_VAZIO: VendaBalcaoForm = {
   taxa_entrega: '',
   desconto_percentual: '',
   observacoes: '',
+};
+
+const LOJA_CONFIG_FORM_PADRAO: LojaConfigForm = {
+  cupom_boas_vindas_percentual: '30,00',
+  taxa_entrega_padrao: '10,00',
+  cupom_dia_d_percentual: '0,00',
+  cupom_dia_d_ativo: false,
 };
 
 let toastId = 0;
@@ -138,6 +152,24 @@ function formatarMoedaBR(valor: number | string) {
 function valorInputBR(valor: number | string, casas = 2) {
   const numero = parseNumeroBR(valor);
   return numero ? formatarNumeroBR(numero, casas) : '';
+}
+
+function percentualLimitado(valor: string | number) {
+  return Math.min(100, Math.max(0, parseNumeroBR(valor)));
+}
+
+function configParaForm(valor: unknown): LojaConfigForm {
+  const bruto = (valor && typeof valor === 'object' ? valor : {}) as Record<string, unknown>;
+  const boasVindas = Number(bruto.cupom_boas_vindas_percentual ?? 30);
+  const taxaEntrega = Number(bruto.taxa_entrega_padrao ?? 10);
+  const diaD = Number(bruto.cupom_dia_d_percentual ?? 0);
+
+  return {
+    cupom_boas_vindas_percentual: formatarNumeroBR(Math.min(100, Math.max(0, Number.isFinite(boasVindas) ? boasVindas : 30)), 2),
+    taxa_entrega_padrao: formatarNumeroBR(Math.max(0, Number.isFinite(taxaEntrega) ? taxaEntrega : 10), 2),
+    cupom_dia_d_percentual: formatarNumeroBR(Math.min(100, Math.max(0, Number.isFinite(diaD) ? diaD : 0)), 2),
+    cupom_dia_d_ativo: Boolean(bruto.cupom_dia_d_ativo),
+  };
 }
 
 function formatarPorcaoKg(porcaoG?: number | null) {
@@ -355,6 +387,9 @@ export default function AdminPage() {
   const [carrinhoBalcao, setCarrinhoBalcao] = useState<Record<number, number>>({});
   const [formBalcao, setFormBalcao] = useState<VendaBalcaoForm>({ ...FORM_BALCAO_VAZIO });
   const [salvandoBalcao, setSalvandoBalcao] = useState(false);
+  const [formConfig, setFormConfig] = useState<LojaConfigForm>({ ...LOJA_CONFIG_FORM_PADRAO });
+  const [carregandoConfig, setCarregandoConfig] = useState(false);
+  const [salvandoConfig, setSalvandoConfig] = useState(false);
 
   const toast = useCallback((texto: string, tipo: ToastTipo = 'info') => {
     const id = ++toastId;
@@ -427,6 +462,24 @@ export default function AdminPage() {
     }
   }, [toast]);
 
+  const carregarConfig = useCallback(async () => {
+    setCarregandoConfig(true);
+    try {
+      const { data, error } = await supabase
+        .from('app_config')
+        .select('valor')
+        .eq('chave', 'loja_config')
+        .maybeSingle();
+
+      if (error) throw error;
+      setFormConfig(configParaForm(data?.valor ?? {}));
+    } catch (err: any) {
+      toast(`Erro ao carregar configuraÃ§Ãµes: ${err.message}`, 'erro');
+    } finally {
+      setCarregandoConfig(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     async function protegerRota() {
       const { data: { user }, error } = await supabase.auth.getUser();
@@ -449,7 +502,8 @@ export default function AdminPage() {
     if (loading) return;
     carregarPedidos();
     carregarProdutos();
-  }, [loading, carregarPedidos, carregarProdutos]);
+    carregarConfig();
+  }, [loading, carregarPedidos, carregarProdutos, carregarConfig]);
 
   useEffect(() => {
     if (loading) return;
@@ -495,6 +549,35 @@ export default function AdminPage() {
   const descontoPercentualBalcao = Math.min(100, Math.max(0, parseNumeroBR(formBalcao.desconto_percentual)));
   const descontoValorBalcao = subtotalBalcao * (descontoPercentualBalcao / 100);
   const totalBalcao = Math.max(0, subtotalBalcao - descontoValorBalcao + freteBalcao);
+
+  const salvarConfig = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSalvandoConfig(true);
+
+    const payload = {
+      cupom_boas_vindas_percentual: percentualLimitado(formConfig.cupom_boas_vindas_percentual),
+      taxa_entrega_padrao: Math.max(0, parseNumeroBR(formConfig.taxa_entrega_padrao)),
+      cupom_dia_d_percentual: percentualLimitado(formConfig.cupom_dia_d_percentual),
+      cupom_dia_d_ativo: Boolean(formConfig.cupom_dia_d_ativo) && percentualLimitado(formConfig.cupom_dia_d_percentual) > 0,
+    };
+
+    try {
+      const { data, error } = await supabase
+        .from('app_config')
+        .upsert({ chave: 'loja_config', valor: payload }, { onConflict: 'chave' })
+        .select('valor')
+        .maybeSingle();
+
+      if (error) throw error;
+      const configuracao = exigirLinhaAtualizada(data, 'A configuraÃ§Ã£o da loja');
+      setFormConfig(configParaForm(configuracao.valor));
+      toast('ConfiguraÃ§Ãµes da loja salvas com sucesso.', 'sucesso');
+    } catch (err: any) {
+      toast(`Erro ao salvar configuraÃ§Ãµes: ${err.message}`, 'erro');
+    } finally {
+      setSalvandoConfig(false);
+    }
+  };
 
   const atualizarStatus = async (pedido: Pedido, status: string) => {
     try {
@@ -895,6 +978,7 @@ export default function AdminPage() {
               { id: 'pedidos' as const, label: 'Gestão de Pedidos', desc: `${pedidos.length} pedidos` },
               { id: 'balcao' as const, label: 'Venda Balcão', desc: 'Pedido rápido' },
               { id: 'produtos' as const, label: 'Cardápio/Estoque', desc: `${produtos.length} produtos` },
+              { id: 'config' as const, label: 'Configuracoes', desc: 'Cupons e frete' },
             ].map(item => (
               <button
                 key={item.id}
@@ -921,11 +1005,11 @@ export default function AdminPage() {
           <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-black">
-                {aba === 'pedidos' ? 'Gestão de Pedidos' : aba === 'balcao' ? 'Venda Balcão' : 'Cardápio e Estoque'}
+                {aba === 'pedidos' ? 'Gestão de Pedidos' : aba === 'balcao' ? 'Venda Balcão' : aba === 'produtos' ? 'Cardápio e Estoque' : 'Configuracoes'}
               </h1>
               <p className="text-sm text-gray-500">Dados ao vivo do Supabase oficial.</p>
             </div>
-            <button onClick={() => { carregarPedidos(); carregarProdutos(); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50">
+            <button onClick={() => { carregarPedidos(); carregarProdutos(); carregarConfig(); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50">
               Atualizar dados
             </button>
           </header>
@@ -1174,6 +1258,88 @@ export default function AdminPage() {
                   </button>
                   <button type="button" onClick={limparVendaBalcao} className="rounded-xl bg-gray-100 px-4 py-3 text-sm font-black text-gray-700 hover:bg-gray-200">
                     Limpar
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
+
+          {aba === 'config' && (
+            <section className="space-y-5">
+              <form onSubmit={salvarConfig} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h2 className="text-lg font-black text-gray-900">Cupons e entrega</h2>
+                    <p className="text-xs text-gray-500">Valores gravados em app_config e usados pela loja sem alterar codigo.</p>
+                  </div>
+                  {carregandoConfig && <span className="text-xs font-bold text-gray-400">Carregando...</span>}
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Cupom de boas-vindas (%)</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formConfig.cupom_boas_vindas_percentual}
+                      onChange={e => setFormConfig({ ...formConfig, cupom_boas_vindas_percentual: e.target.value })}
+                      onBlur={e => setFormConfig({ ...formConfig, cupom_boas_vindas_percentual: formatarNumeroBR(percentualLimitado(e.target.value), 2) })}
+                      placeholder="30,00"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900"
+                    />
+                    <span className="mt-1 block text-xs text-gray-400">Use 0,00 para desativar o cupom automatico de primeiro cadastro.</span>
+                  </label>
+
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Taxa de entrega padrao</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formConfig.taxa_entrega_padrao}
+                      onChange={e => setFormConfig({ ...formConfig, taxa_entrega_padrao: e.target.value })}
+                      onBlur={e => setFormConfig({ ...formConfig, taxa_entrega_padrao: valorInputBR(e.target.value, 2) || '0,00' })}
+                      placeholder="10,00"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900"
+                    />
+                    <span className="mt-1 block text-xs text-gray-400">Aplicada em compras abaixo do limite de frete gratis.</span>
+                  </label>
+
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Cupom Dia D (%)</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formConfig.cupom_dia_d_percentual}
+                      onChange={e => setFormConfig({ ...formConfig, cupom_dia_d_percentual: e.target.value })}
+                      onBlur={e => setFormConfig({ ...formConfig, cupom_dia_d_percentual: formatarNumeroBR(percentualLimitado(e.target.value), 2) })}
+                      placeholder="0,00"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900"
+                    />
+                    <span className="mt-1 block text-xs text-gray-400">Padrao 0,00. A loja considera este desconto quando ativo.</span>
+                  </label>
+
+                  <label className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <span>
+                      <span className="block text-xs font-bold uppercase text-gray-500">Ativar Dia D</span>
+                      <span className="mt-1 block text-xs text-gray-400">Se desativado ou em 0%, o beneficio nao aparece nem entra no pedido.</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFormConfig({ ...formConfig, cupom_dia_d_ativo: !formConfig.cupom_dia_d_ativo })}
+                      className={`inline-flex h-7 w-12 items-center rounded-full p-1 transition ${formConfig.cupom_dia_d_ativo ? 'bg-green-500' : 'bg-gray-300'}`}
+                      aria-pressed={formConfig.cupom_dia_d_ativo}
+                    >
+                      <span className={`h-5 w-5 rounded-full bg-white shadow transition ${formConfig.cupom_dia_d_ativo ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </label>
+                </div>
+
+                <div className="mt-5 flex gap-3">
+                  <button disabled={salvandoConfig} className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-black text-white shadow-lg hover:bg-gray-800 disabled:opacity-50">
+                    {salvandoConfig ? 'Salvando...' : 'Salvar configuracoes'}
+                  </button>
+                  <button type="button" onClick={carregarConfig} className="rounded-xl bg-gray-100 px-5 py-3 text-sm font-black text-gray-700 hover:bg-gray-200">
+                    Recarregar
                   </button>
                 </div>
               </form>
