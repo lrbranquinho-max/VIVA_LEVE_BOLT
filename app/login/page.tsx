@@ -6,11 +6,24 @@ import { supabase } from '../../supabase';
 import Logo from '../../components/Logo';
 
 const CUPOM_BOAS_VINDAS_PADRAO = 30;
+const SITE_PUBLICO_PADRAO = 'https://vivalevedf.com.br';
 
 function percentualBoasVindas(valor: unknown) {
   const bruto = (valor && typeof valor === 'object' ? valor : {}) as Record<string, unknown>;
   const percentual = Number(bruto.cupom_boas_vindas_percentual ?? CUPOM_BOAS_VINDAS_PADRAO);
   return Math.min(100, Math.max(0, Number.isFinite(percentual) ? percentual : CUPOM_BOAS_VINDAS_PADRAO));
+}
+
+function urlBasePublica() {
+  if (typeof window === 'undefined') return SITE_PUBLICO_PADRAO;
+
+  const origemAtual = window.location.origin;
+  const origemEnv = process.env.NEXT_PUBLIC_SITE_URL;
+  const emLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
+  if (emLocalhost) return origemAtual;
+  if (origemEnv && !origemEnv.includes('localhost') && !origemEnv.includes('127.0.0.1')) return origemEnv.replace(/\/$/, '');
+  return SITE_PUBLICO_PADRAO;
 }
 
 function EyeIcon({ hidden }: { hidden: boolean }) {
@@ -49,6 +62,20 @@ export default function LoginCliente() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const erroHash = hashParams.get('error_description') || hashParams.get('error');
+
+    if (erroHash) {
+      setModoEsqueciSenha(true);
+      setMensagem({
+        texto: erroHash.includes('expired') || erroHash.includes('invalid')
+          ? 'O link de redefinicao expirou ou ja foi utilizado. Solicite um novo link.'
+          : decodeURIComponent(erroHash.replace(/\+/g, ' ')),
+        tipo: 'erro',
+      });
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+
     if (params.get('reset_password') === '1') {
       setModoRedefinirSenha(true);
       setIsCadastro(false);
@@ -77,7 +104,7 @@ export default function LoginCliente() {
     setMensagem(null);
 
     try {
-      const destino = `${process.env.NEXT_PUBLIC_SITE_URL || window.location.origin}/login?reset_password=1`;
+      const destino = `${urlBasePublica()}/login?reset_password=1`;
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: destino,
       });
