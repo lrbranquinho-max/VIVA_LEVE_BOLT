@@ -741,7 +741,16 @@ export default function AdminPage() {
     const gramas = Number(produto.porcao_g || 100);
     const payloadQr = JSON.stringify({ id: produto.id, gramas });
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data=${encodeURIComponent(payloadQr)}`;
-    const janela = window.open('', '_blank', 'width=420,height=520');
+    const dataFabricacao = new Date();
+    const dataValidade = new Date(dataFabricacao);
+    dataValidade.setDate(dataValidade.getDate() + 90);
+    const ano = dataFabricacao.getFullYear();
+    const mes = String(dataFabricacao.getMonth() + 1).padStart(2, '0');
+    const dia = String(dataFabricacao.getDate()).padStart(2, '0');
+    const lote = `${produto.id}${ano}${mes}${dia}`;
+    const fabricacaoBR = dataFabricacao.toLocaleDateString('pt-BR');
+    const validadeBR = dataValidade.toLocaleDateString('pt-BR');
+    const janela = window.open('', '_blank', 'width=520,height=760');
 
     if (!janela) {
       toast('O navegador bloqueou a janela de impressão. Permita pop-ups para imprimir a etiqueta.', 'erro');
@@ -754,52 +763,52 @@ export default function AdminPage() {
   <meta charset="utf-8" />
   <title>Etiqueta ${escaparHtml(produto.nome)}</title>
   <style>
-    @page { size: 7cm 7cm; margin: 0; }
+    @page { size: 100mm 150mm; margin: 0; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      width: 7cm;
-      height: 7cm;
+      width: 100mm;
+      height: 150mm;
       color: #000;
       background: #fff;
       font-family: Arial, Helvetica, sans-serif;
     }
     .label {
-      width: 7cm;
-      height: 7cm;
-      padding: 0.28cm;
+      width: 100mm;
+      height: 150mm;
+      padding: 5mm;
       display: grid;
-      grid-template-columns: 1fr 1.75cm;
-      grid-template-rows: auto auto 1fr auto;
-      gap: 0.1cm 0.18cm;
+      grid-template-columns: 1fr 34mm;
+      grid-template-rows: auto auto 1fr auto auto;
+      gap: 3mm 4mm;
       overflow: hidden;
       border: 1px solid #000;
     }
     .brand {
       grid-column: 1 / -1;
-      font-size: 13px;
+      font-size: 24px;
       line-height: 1;
       font-weight: 900;
       letter-spacing: 0;
       text-align: center;
       border-bottom: 1px solid #000;
-      padding-bottom: 0.08cm;
+      padding-bottom: 3mm;
     }
     .name {
       grid-column: 1 / -1;
-      font-size: 11px;
-      line-height: 1.05;
+      font-size: 19px;
+      line-height: 1.08;
       font-weight: 900;
       text-transform: uppercase;
     }
     .desc {
-      font-size: 7.5px;
-      line-height: 1.12;
+      font-size: 11px;
+      line-height: 1.25;
       overflow: hidden;
     }
     .qr {
-      width: 1.75cm;
-      height: 1.75cm;
+      width: 34mm;
+      height: 34mm;
       object-fit: contain;
       align-self: start;
       justify-self: end;
@@ -807,11 +816,23 @@ export default function AdminPage() {
     .meta {
       grid-column: 1 / -1;
       border-top: 1px solid #000;
-      padding-top: 0.08cm;
-      font-size: 7.6px;
-      line-height: 1.18;
+      padding-top: 3mm;
+      font-size: 11px;
+      line-height: 1.35;
       font-weight: 700;
     }
+    .dates {
+      grid-column: 1 / -1;
+      border-top: 1px solid #000;
+      padding-top: 3mm;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2mm 4mm;
+      font-size: 11px;
+      line-height: 1.3;
+      font-weight: 800;
+    }
+    .dates .full { grid-column: 1 / -1; }
     .small { font-weight: 400; }
   </style>
 </head>
@@ -824,6 +845,11 @@ export default function AdminPage() {
       ${escaparHtml(produto.descricao || '')}
     </div>
     <img class="qr" src="${qrUrl}" alt="QR Code" />
+    <div class="dates">
+      <div class="full">Lote: ${escaparHtml(lote)}</div>
+      <div>Fabricação: ${escaparHtml(fabricacaoBR)}</div>
+      <div>Validade: ${escaparHtml(validadeBR)}</div>
+    </div>
     <div class="meta">
       Porção: ${escaparHtml(formatarGramas(produto.porcao_g))}<br />
       Macros por 100g:
