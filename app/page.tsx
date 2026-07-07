@@ -152,6 +152,16 @@ export default function LojaCliente() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [lojaConfig, setLojaConfig] = useState(LOJA_CONFIG_PADRAO);
 
+  useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const isRecovery = hashParams.get('type') === 'recovery' || Boolean(hashParams.get('access_token') && hashParams.get('refresh_token'));
+    const isRecoveryError = Boolean(hashParams.get('error') || hashParams.get('error_code'));
+
+    if (isRecovery || isRecoveryError) {
+      window.location.replace(`/login${window.location.hash}`);
+    }
+  }, []);
+
   const adicionarToast = useCallback((texto: string, tipo: Toast['tipo'] = 'info') => {
     const id = ++toastId;
     setToasts(prev => [...prev, { id, texto, tipo }]);

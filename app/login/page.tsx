@@ -76,7 +76,7 @@ export default function LoginCliente() {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
-    if (params.get('reset_password') === '1') {
+    if (params.get('reset_password') === '1' || hashParams.get('type') === 'recovery') {
       setModoRedefinirSenha(true);
       setIsCadastro(false);
       setModoEsqueciSenha(false);
@@ -104,7 +104,7 @@ export default function LoginCliente() {
     setMensagem(null);
 
     try {
-      const destino = `${urlBasePublica()}/login?reset_password=1`;
+      const destino = `${urlBasePublica()}/login`;
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: destino,
       });
