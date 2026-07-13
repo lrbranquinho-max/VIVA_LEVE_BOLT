@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import MercadoPagoConfig, { Payment } from 'mercadopago';
+import MercadoPagoConfig, {
+  InvalidWebhookSignatureError,
+  Payment,
+  SignatureFailureReason,
+  WebhookSignatureValidator,
+} from 'mercadopago';
 import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
@@ -13,7 +18,45 @@ function extrairPaymentId(body: any, request: NextRequest) {
   return body?.data?.id ||
     body?.id ||
     request.nextUrl.searchParams.get('data.id') ||
+    request.nextUrl.searchParams.get('data_id') ||
     request.nextUrl.searchParams.get('id');
+}
+
+function ehWebhookAssinado(body: any, request: NextRequest) {
+  return Boolean(
+    body?.type ||
+    body?.data?.id ||
+    request.nextUrl.searchParams.get('type') ||
+    request.nextUrl.searchParams.get('data.id') ||
+    request.nextUrl.searchParams.get('data_id')
+  );
+}
+
+function validarAssinaturaWebhook(body: any, request: NextRequest) {
+  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  const xSignature = request.headers.get('x-signature');
+
+  if (!secret || secret.includes('sua_assinatura')) {
+    return;
+  }
+
+  if (!xSignature) {
+    if (ehWebhookAssinado(body, request)) {
+      throw new InvalidWebhookSignatureError(
+        SignatureFailureReason.MissingSignatureHeader,
+        request.headers.get('x-request-id') || undefined
+      );
+    }
+    return;
+  }
+
+  WebhookSignatureValidator.validate({
+    xSignature,
+    xRequestId: request.headers.get('x-request-id'),
+    dataId: extrairPaymentId(body, request),
+    secret,
+    toleranceSeconds: 600,
+  });
 }
 
 async function processarPagamentoComFallback(
@@ -110,6 +153,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
+    validarAssinaturaWebhook(body, request);
+
     const topic = body?.type || body?.topic || request.nextUrl.searchParams.get('type') || request.nextUrl.searchParams.get('topic');
     const paymentId = extrairPaymentId(body, request);
 
@@ -144,6 +189,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ received: true, pedidoId, status: statusPedido });
   } catch (error: any) {
+    if (error instanceof InvalidWebhookSignatureError) {
+      console.warn('Assinatura invalida no webhook Mercado Pago', {
+        reason: error.reason,
+        requestId: error.requestId,
+        timestamp: error.timestamp,
+      });
+      return NextResponse.json({ error: 'Assinatura invalida.' }, { status: 401 });
+    }
+
     return NextResponse.json({ error: error.message || 'Erro no webhook Mercado Pago.' }, { status: 500 });
   }
 }
