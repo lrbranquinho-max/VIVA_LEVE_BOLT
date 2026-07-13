@@ -24,6 +24,8 @@ interface Pedido {
   valor_total: number;
   total?: number;
   status: string;
+  pagamento_status?: string | null;
+  mercado_pago_status_detail?: string | null;
   itens: ItemPedido[];
   criado_em?: string;
   created_at?: string;
@@ -1099,6 +1101,12 @@ export default function AdminPage() {
                         </div>
                         <p className="mt-3 text-sm text-gray-600">{enderecoPedido(pedido)}</p>
                         <p className="mt-1 text-xs text-gray-400">{dataPedido(pedido) ? new Date(dataPedido(pedido)).toLocaleString('pt-BR') : 'Data não informada'}</p>
+                        {(pedido.pagamento_status || pedido.mercado_pago_status_detail) && (
+                          <div className="mt-3 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-800">
+                            Mercado Pago: {pedido.pagamento_status || 'sem status'}
+                            {pedido.mercado_pago_status_detail ? ` - ${pedido.mercado_pago_status_detail}` : ''}
+                          </div>
+                        )}
                       </div>
 
                       <div className="space-y-2 p-4">

@@ -4,6 +4,35 @@ import MercadoPagoConfig, { Payment } from 'mercadopago';
 
 export const runtime = 'nodejs';
 
+const URL_PUBLICA_PADRAO = 'https://www.vivalevedf.com.br';
+
+function siteUrlPublica() {
+  const candidatos = [
+    process.env.MERCADOPAGO_SITE_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
+    URL_PUBLICA_PADRAO,
+  ];
+
+  for (const candidato of candidatos) {
+    try {
+      if (!candidato) continue;
+      const url = new URL(candidato);
+      if (url.protocol === 'https:' && !['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname)) {
+        if (url.hostname === 'vivalevedf.com.br') {
+          url.hostname = 'www.vivalevedf.com.br';
+        }
+        return url.toString().replace(/\/$/, '');
+      }
+    } catch {
+      // ignora candidato invalido
+    }
+  }
+
+  return URL_PUBLICA_PADRAO;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
@@ -53,6 +82,7 @@ export async function POST(request: NextRequest) {
         transaction_amount: Number(pedido.valor_total),
         description: `Pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
         payment_method_id: 'pix',
+        notification_url: `${siteUrlPublica()}/api/mercadopago/webhook`,
         external_reference: String(pedido.id),
         payer: {
           email: payer.email,

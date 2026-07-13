@@ -11,10 +11,14 @@ interface ItemCheckout {
 
 export const runtime = 'nodejs';
 
-const URL_PUBLICA_PADRAO = 'https://vivalevedf.com.br';
+const URL_PUBLICA_PADRAO = 'https://www.vivalevedf.com.br';
 
 function normalizarSiteUrl(url: string) {
-  return url.replace(/\/$/, '');
+  const parsed = new URL(url);
+  if (parsed.hostname === 'vivalevedf.com.br') {
+    parsed.hostname = 'www.vivalevedf.com.br';
+  }
+  return parsed.toString().replace(/\/$/, '');
 }
 
 function urlPublicaHttpsValida(url?: string) {
@@ -43,6 +47,25 @@ function resolverSiteUrlPublica() {
 
   const url = candidatos.find(urlPublicaHttpsValida) || URL_PUBLICA_PADRAO;
   return normalizarSiteUrl(url);
+}
+
+function dividirNome(nome?: string) {
+  const partes = String(nome ?? '').trim().split(/\s+/).filter(Boolean);
+  if (partes.length <= 1) return { name: partes[0] || undefined, surname: undefined };
+  return {
+    name: partes.slice(0, -1).join(' '),
+    surname: partes[partes.length - 1],
+  };
+}
+
+function telefoneMercadoPago(telefone?: string) {
+  const digitos = String(telefone ?? '').replace(/\D/g, '');
+  if (!digitos) return undefined;
+  const semPais = digitos.startsWith('55') ? digitos.slice(2) : digitos;
+  return {
+    area_code: semPais.slice(0, 2),
+    number: semPais.slice(2),
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -97,6 +120,7 @@ export async function POST(request: NextRequest) {
       pending: `${baseUrl}/pagamento/pendente`,
       failure: `${baseUrl}/pagamento/falha`,
     };
+    const nomePagador = dividirNome(payer?.nome);
 
     const body = {
       external_reference: pedidoId,
@@ -104,9 +128,10 @@ export async function POST(request: NextRequest) {
       auto_return: 'approved',
       back_urls: backUrls,
       payer: {
-        name: payer?.nome,
+        name: nomePagador.name,
+        surname: nomePagador.surname,
         email: payer?.email,
-        phone: payer?.telefone ? { number: payer.telefone.replace(/\D/g, '') } : undefined,
+        phone: telefoneMercadoPago(payer?.telefone),
       },
       payment_methods: {
         excluded_payment_types: [],
@@ -125,6 +150,16 @@ export async function POST(request: NextRequest) {
     };
 
     const resposta = await preference.create({ body });
+
+    if (resposta.id) {
+      await supabase
+        .from('pedidos')
+        .update({
+          mercado_pago_preference_id: String(resposta.id),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', pedidoId);
+    }
 
     return NextResponse.json({
       preferenceId: resposta.id,

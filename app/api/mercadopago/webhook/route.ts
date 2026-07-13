@@ -22,6 +22,7 @@ async function processarPagamentoComFallback(
   paymentId: string,
   statusPagamento: string,
   statusPedido: string,
+  statusDetail?: string | null,
 ) {
   const { error: rpcError } = await supabase.rpc('processar_pagamento_pedido_mp', {
     p_pedido_id: pedidoId,
@@ -30,7 +31,18 @@ async function processarPagamentoComFallback(
     p_status_pedido: statusPedido,
   });
 
-  if (!rpcError) return;
+  if (!rpcError) {
+    const { error: detailError } = await supabase
+      .from('pedidos')
+      .update({
+        mercado_pago_status_detail: statusDetail || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', pedidoId);
+
+    if (detailError) throw detailError;
+    return;
+  }
   if (rpcError.code !== '42883' && !String(rpcError.message || '').includes('processar_pagamento_pedido_mp')) {
     throw rpcError;
   }
@@ -82,6 +94,7 @@ async function processarPagamentoComFallback(
       status: statusPedido,
       mercado_pago_payment_id: paymentId,
       pagamento_status: statusPagamento,
+      mercado_pago_status_detail: statusDetail || null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', pedidoId);
@@ -118,12 +131,13 @@ export async function POST(request: NextRequest) {
 
     const supabase = criarSupabaseAdmin();
     const statusPagamento = pagamento.status ?? 'unknown';
+    const statusDetail = pagamento.status_detail ?? null;
     const statusPedido = statusPagamento === 'approved' ? 'Em Preparo' :
       statusPagamento === 'pending' || statusPagamento === 'in_process' ? 'Aguardando Pagamento' :
       statusPagamento === 'rejected' || statusPagamento === 'cancelled' ? 'Pagamento Recusado' :
       'Aguardando Pagamento';
 
-    await processarPagamentoComFallback(supabase, String(pedidoId), String(paymentId), statusPagamento, statusPedido);
+    await processarPagamentoComFallback(supabase, String(pedidoId), String(paymentId), statusPagamento, statusPedido, statusDetail);
     if (statusPagamento === 'approved') {
       await supabase.rpc('finalizar_cupom_pedido', { p_pedido_id: String(pedidoId) });
     }
