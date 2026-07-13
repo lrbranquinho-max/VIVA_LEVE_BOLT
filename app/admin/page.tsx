@@ -230,6 +230,23 @@ function idPerfil(perfil: PerfilCliente) {
   return String(perfil.id ?? perfil.cliente_id ?? perfil.user_id ?? '');
 }
 
+function valorTexto(valor: unknown) {
+  const texto = String(valor ?? '').trim();
+  return texto || undefined;
+}
+
+function mesclarPerfilCliente(atual: PerfilCliente | undefined, novo: PerfilCliente) {
+  return {
+    ...(atual ?? {}),
+    ...novo,
+    nome: valorTexto(novo.nome) ?? valorTexto(atual?.nome),
+    nome_completo: valorTexto(novo.nome_completo) ?? valorTexto(atual?.nome_completo),
+    full_name: valorTexto(novo.full_name) ?? valorTexto(atual?.full_name),
+    telefone: valorTexto(novo.telefone) ?? valorTexto(atual?.telefone),
+    email: valorTexto(novo.email) ?? valorTexto(atual?.email),
+  };
+}
+
 function nomePerfil(perfil?: PerfilCliente) {
   if (!perfil) return 'Cliente não identificado';
   return String(perfil.nome_completo || perfil.nome || perfil.full_name || perfil.email || 'Cliente não identificado');
@@ -434,7 +451,7 @@ export default function AdminPage() {
         } else {
           (perfisRes.data ?? []).forEach((perfil: PerfilCliente) => {
             const id = idPerfil(perfil);
-            if (id) mapa[id] = { ...mapa[id], ...perfil };
+            if (id) mapa[id] = mesclarPerfilCliente(mapa[id], perfil);
           });
         }
         if (clientesRes.error) {
@@ -442,7 +459,7 @@ export default function AdminPage() {
         } else {
           (clientesRes.data ?? []).forEach((perfil: PerfilCliente) => {
             const id = idPerfil(perfil);
-            if (id) mapa[id] = { ...mapa[id], ...perfil };
+            if (id) mapa[id] = mesclarPerfilCliente(mapa[id], perfil);
           });
         }
         setPerfis(mapa);
