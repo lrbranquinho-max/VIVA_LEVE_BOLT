@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  InvalidWebhookSignatureError,
-  SignatureFailureReason,
   WebhookSignatureValidator,
 } from 'mercadopago';
 import { sincronizarPagamentoMercadoPago } from '../../../../lib/mercadoPagoPedidos';
@@ -36,21 +34,30 @@ function validarAssinaturaWebhook(body: any, request: NextRequest) {
 
   if (!xSignature) {
     if (ehWebhookAssinado(body, request)) {
-      throw new InvalidWebhookSignatureError(
-        SignatureFailureReason.MissingSignatureHeader,
-        request.headers.get('x-request-id') || undefined
-      );
+      console.warn('Webhook Mercado Pago sem x-signature; seguindo com validacao via API.', {
+        paymentId: extrairPaymentId(body, request),
+        requestId: request.headers.get('x-request-id'),
+      });
     }
     return;
   }
 
-  WebhookSignatureValidator.validate({
-    xSignature,
-    xRequestId: request.headers.get('x-request-id'),
-    dataId: extrairPaymentId(body, request),
-    secret,
-    toleranceSeconds: 600,
-  });
+  try {
+    WebhookSignatureValidator.validate({
+      xSignature,
+      xRequestId: request.headers.get('x-request-id'),
+      dataId: extrairPaymentId(body, request),
+      secret,
+      toleranceSeconds: 600,
+    });
+  } catch (error: any) {
+    console.warn('Assinatura invalida no webhook Mercado Pago; seguindo com validacao via API.', {
+      reason: error?.reason,
+      requestId: error?.requestId || request.headers.get('x-request-id'),
+      timestamp: error?.timestamp,
+      paymentId: extrairPaymentId(body, request),
+    });
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -79,15 +86,6 @@ export async function POST(request: NextRequest) {
       status: resultado.statusPedido,
     });
   } catch (error: any) {
-    if (error instanceof InvalidWebhookSignatureError) {
-      console.warn('Assinatura invalida no webhook Mercado Pago', {
-        reason: error.reason,
-        requestId: error.requestId,
-        timestamp: error.timestamp,
-      });
-      return NextResponse.json({ error: 'Assinatura invalida.' }, { status: 401 });
-    }
-
     return NextResponse.json({ error: error.message || 'Erro no webhook Mercado Pago.' }, { status: 500 });
   }
 }
