@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import Logo from '../../../components/Logo';
+import { sincronizarPagamentoMercadoPago } from '../../../lib/mercadoPagoPedidos';
 
 const STATUS_CONFIG: Record<string, {
   titulo: string;
@@ -27,8 +28,35 @@ const STATUS_CONFIG: Record<string, {
   },
 };
 
-export default function PagamentoStatusPage({ params }: { params: { status: string } }) {
+function extrairPaymentId(searchParams?: Record<string, string | string[] | undefined>) {
+  const candidatos = [
+    searchParams?.payment_id,
+    searchParams?.collection_id,
+    searchParams?.id,
+  ];
+  const valor = candidatos.find(Boolean);
+  return Array.isArray(valor) ? valor[0] : valor;
+}
+
+export default async function PagamentoStatusPage({
+  params,
+  searchParams,
+}: {
+  params: { status: string };
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const status = STATUS_CONFIG[params.status] ?? STATUS_CONFIG.pendente;
+  const paymentId = extrairPaymentId(searchParams);
+  let avisoSincronizacao: string | null = null;
+
+  if (paymentId) {
+    try {
+      await sincronizarPagamentoMercadoPago(String(paymentId));
+    } catch (error) {
+      console.error('Erro ao sincronizar retorno Mercado Pago', error);
+      avisoSincronizacao = 'Estamos finalizando a sincronizacao do pagamento. Se o pedido nao atualizar em alguns instantes, toque em Ver meus pedidos para recarregar.';
+    }
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col bg-gray-50 p-5 font-sans shadow-2xl md:max-w-6xl">
@@ -41,6 +69,11 @@ export default function PagamentoStatusPage({ params }: { params: { status: stri
           <p className="text-xs font-black uppercase tracking-widest">Mercado Pago</p>
           <h1 className="mt-2 text-2xl font-black">{status.titulo}</h1>
           <p className="mt-3 text-sm font-semibold leading-relaxed">{status.descricao}</p>
+          {avisoSincronizacao && (
+            <p className="mt-3 rounded-xl bg-white/70 p-3 text-xs font-semibold leading-relaxed">
+              {avisoSincronizacao}
+            </p>
+          )}
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <Link
