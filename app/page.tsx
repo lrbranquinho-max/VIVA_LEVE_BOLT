@@ -615,17 +615,17 @@ export default function LojaCliente() {
         ))}
       </div>
 
-      <header className="border-b border-gray-100 bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="flex-1">
+      <header className="border-b border-gray-100 bg-white p-4 shadow-sm md:sticky md:top-0 md:z-30 md:px-6 md:py-3">
+        <div className="flex items-center gap-3 md:gap-5">
+          <div className="flex-1 md:max-w-[220px]">
             <Logo />
           </div>
-          <Link href="/perfil" className="p-1 text-gray-400 hover:text-viva-roxo" aria-label="Abrir perfil">
+          <Link href="/perfil" className="p-1 text-gray-400 hover:text-viva-roxo md:hidden" aria-label="Abrir perfil">
             <span className="text-xl">&#128100;</span>
           </Link>
         </div>
         {categorias.length > 0 && (
-          <div className="mt-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+          <div className="mt-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 md:mx-0 md:mt-3 md:pb-0">
             <button
               type="button"
               onClick={() => setCategoriaSelecionada('todos')}
@@ -958,7 +958,7 @@ export default function LojaCliente() {
           rel="noreferrer"
           aria-label="Instagram Viva Leve"
           title="Instagram Viva Leve"
-          className="fixed bottom-24 left-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400 text-white shadow-xl ring-4 ring-white transition active:scale-95 md:left-[calc(50%-13rem)]"
+          className="fixed bottom-24 left-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400 text-white shadow-xl ring-4 ring-white transition active:scale-95 md:hidden"
         >
           <CanalIcone nome={instagram.nome_rede} />
         </a>
@@ -971,7 +971,7 @@ export default function LojaCliente() {
           rel="noreferrer"
           aria-label="WhatsApp Viva Leve"
           title="WhatsApp Viva Leve"
-          className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-4 ring-white transition hover:scale-110 active:scale-95 md:right-[calc(50%-13rem)]"
+          className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-4 ring-white transition hover:scale-110 active:scale-95 md:hidden"
         >
           <CanalIcone nome={whatsapp.nome_rede} />
         </a>
