@@ -93,6 +93,13 @@ interface LojaConfigForm {
 
 const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Preparo', 'Saiu para Entrega', 'Entregue'];
 const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
+const PRODUTOS_IMAGE_BUCKETS = [
+  process.env.NEXT_PUBLIC_SUPABASE_PRODUTOS_BUCKET,
+  'produtos',
+  'imagens-produtos',
+  'produto-imagens',
+  'produtos-imagens',
+].filter(Boolean) as string[];
 
 const FORM_VAZIO: ProdutoForm = {
   nome: '',
@@ -218,6 +225,16 @@ function telefoneWhatsApp(telefone?: string) {
   return digitos.startsWith('55') ? digitos : `55${digitos}`;
 }
 
+function slugArquivo(valor: string) {
+  return valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+}
+
 function normalizarBusca(valor: string | null | undefined) {
   return String(valor ?? '')
     .normalize('NFD')
@@ -300,16 +317,20 @@ function ModalProduto({
   form,
   editando,
   salvando,
+  enviandoImagem,
   onClose,
   onSubmit,
   onChange,
+  onUploadImagem,
 }: {
   form: ProdutoForm;
   editando: Produto | null;
   salvando: boolean;
+  enviandoImagem: boolean;
   onClose: () => void;
   onSubmit: (event: React.FormEvent) => void;
   onChange: (form: ProdutoForm) => void;
+  onUploadImagem: (file: File) => void;
 }) {
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
@@ -360,6 +381,35 @@ function ModalProduto({
               <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Imagem URL</span>
               <input type="url" value={form.imagem_url} onChange={e => onChange({ ...form, imagem_url: e.target.value })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
             </label>
+
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 md:col-span-2">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase text-gray-500">Carregar imagem do produto</p>
+                  <p className="mt-1 text-xs text-gray-500">Selecione uma imagem do computador ou celular. O link sera preenchido automaticamente.</p>
+                </div>
+                <label className={`inline-flex cursor-pointer items-center justify-center rounded-xl px-4 py-3 text-sm font-black text-white shadow-sm ${enviandoImagem ? 'bg-gray-400' : 'bg-gray-900 hover:bg-gray-800'}`}>
+                  {enviandoImagem ? 'Enviando...' : 'Escolher imagem'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={enviandoImagem}
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) onUploadImagem(file);
+                      e.currentTarget.value = '';
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {form.imagem_url && (
+                <div className="mt-3 flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-gray-100">
+                  <img src={form.imagem_url} alt="Previa do produto" className="h-16 w-16 rounded-lg object-cover" />
+                  <p className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-500">{form.imagem_url}</p>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
@@ -413,6 +463,7 @@ export default function AdminPage() {
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null);
   const [formProduto, setFormProduto] = useState<ProdutoForm>({ ...FORM_VAZIO });
   const [salvandoProduto, setSalvandoProduto] = useState(false);
+  const [enviandoImagemProduto, setEnviandoImagemProduto] = useState(false);
   const [carrinhoBalcao, setCarrinhoBalcao] = useState<Record<number, number>>({});
   const [formBalcao, setFormBalcao] = useState<VendaBalcaoForm>({ ...FORM_BALCAO_VAZIO });
   const [salvandoBalcao, setSalvandoBalcao] = useState(false);
@@ -792,6 +843,55 @@ export default function AdminPage() {
       gorduras: valorInputBR(produto.gorduras ?? 0, 1),
     });
     setModalProdutoAberto(true);
+  };
+
+  const uploadImagemProduto = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast('Selecione um arquivo de imagem valido.', 'erro');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast('A imagem deve ter no maximo 5 MB.', 'erro');
+      return;
+    }
+
+    setEnviandoImagemProduto(true);
+    try {
+      const extensaoOriginal = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const extensao = ['jpg', 'jpeg', 'png', 'webp'].includes(extensaoOriginal) ? extensaoOriginal : 'png';
+      const baseNome = slugArquivo(formProduto.nome || produtoEditando?.nome || 'produto') || 'produto';
+      const caminho = `produtos/${baseNome}-${Date.now()}.${extensao}`;
+      let ultimoErro: unknown = null;
+
+      for (const bucket of PRODUTOS_IMAGE_BUCKETS) {
+        const { error } = await supabase.storage
+          .from(bucket)
+          .upload(caminho, file, {
+            cacheControl: '3600',
+            contentType: file.type,
+            upsert: false,
+          });
+
+        if (!error) {
+          const { data } = supabase.storage.from(bucket).getPublicUrl(caminho);
+          setFormProduto(prev => ({ ...prev, imagem_url: data.publicUrl }));
+          toast('Imagem enviada e URL preenchida.', 'sucesso');
+          return;
+        }
+
+        ultimoErro = error;
+        const mensagem = String(error.message || '').toLowerCase();
+        if (!mensagem.includes('bucket') && !mensagem.includes('not found')) {
+          break;
+        }
+      }
+
+      throw ultimoErro instanceof Error ? ultimoErro : new Error('Nao foi possivel enviar a imagem para o Supabase Storage.');
+    } catch (err: any) {
+      toast(`Erro ao enviar imagem: ${err.message || 'verifique o bucket/policies do Storage.'}`, 'erro');
+    } finally {
+      setEnviandoImagemProduto(false);
+    }
   };
 
   const salvarProduto = async (event: React.FormEvent) => {
@@ -1484,9 +1584,11 @@ export default function AdminPage() {
           form={formProduto}
           editando={produtoEditando}
           salvando={salvandoProduto}
+          enviandoImagem={enviandoImagemProduto}
           onClose={() => setModalProdutoAberto(false)}
           onSubmit={salvarProduto}
           onChange={setFormProduto}
+          onUploadImagem={uploadImagemProduto}
         />
       )}
     </div>
