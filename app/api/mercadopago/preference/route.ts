@@ -5,8 +5,11 @@ import MercadoPagoConfig, { Preference } from 'mercadopago';
 interface ItemCheckout {
   id: number;
   nome: string;
+  descricao?: string;
+  imagem_url?: string;
   preco: number;
   quantidade: number;
+  subtotal?: number;
 }
 
 export const runtime = 'nodejs';
@@ -58,13 +61,103 @@ function dividirNome(nome?: string) {
   };
 }
 
+function somenteDigitos(valor?: string) {
+  return String(valor ?? '').replace(/\D/g, '');
+}
+
 function telefoneMercadoPago(telefone?: string) {
-  const digitos = String(telefone ?? '').replace(/\D/g, '');
+  const digitos = somenteDigitos(telefone);
   if (!digitos) return undefined;
   const semPais = digitos.startsWith('55') ? digitos.slice(2) : digitos;
   return {
     area_code: semPais.slice(0, 2),
     number: semPais.slice(2),
+  };
+}
+
+function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
+  const subtotalItens = itens.reduce((total, item) => {
+    const subtotal = Number(item.subtotal ?? Number(item.preco || 0) * Number(item.quantidade || 0));
+    return total + subtotal;
+  }, 0);
+  const valorFrete = Number(pedido.valor_frete || 0);
+  const totalPedido = Number(pedido.valor_total || 0);
+  const totalProdutosCobrado = Math.max(totalPedido - valorFrete, 0);
+
+  if (subtotalItens <= 0 || totalPedido <= 0) {
+    return [{
+      id: String(pedido.id),
+      title: `Pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
+      description: itens.map(item => `${item.quantidade}x ${item.nome}`).join(', ').slice(0, 250),
+      quantity: 1,
+      currency_id: 'BRL',
+      unit_price: Number(totalPedido.toFixed(2)),
+      category_id: 'food',
+    }];
+  }
+
+  const alvoProdutosCentavos = Math.round(totalProdutosCobrado * 100);
+  let centavosDistribuidos = 0;
+  const itensPreferencia = itens.map((item, index) => {
+    const subtotal = Number(item.subtotal ?? Number(item.preco || 0) * Number(item.quantidade || 0));
+    const centavosLinha = index === itens.length - 1
+      ? Math.max(alvoProdutosCentavos - centavosDistribuidos, 0)
+      : Math.max(Math.round((subtotal / subtotalItens) * alvoProdutosCentavos), 0);
+    centavosDistribuidos += centavosLinha;
+
+    return {
+      id: `produto_${item.id}`,
+      title: `${item.quantidade}x ${item.nome}`.slice(0, 120),
+      description: String(item.descricao || item.nome || 'Produto Viva Leve').slice(0, 250),
+      picture_url: item.imagem_url || undefined,
+      quantity: 1,
+      currency_id: 'BRL',
+      unit_price: Number((centavosLinha / 100).toFixed(2)),
+      category_id: 'food',
+    };
+  }).filter(item => item.unit_price > 0);
+
+  if (valorFrete > 0) {
+    itensPreferencia.push({
+      id: `frete_${pedido.id}`,
+      title: 'Taxa de entrega Viva Leve',
+      description: String(pedido.endereco_entrega || 'Entrega Viva Leve').slice(0, 250),
+      picture_url: undefined,
+      quantity: 1,
+      currency_id: 'BRL',
+      unit_price: Number(valorFrete.toFixed(2)),
+      category_id: 'shipping',
+    });
+  }
+
+  return itensPreferencia;
+}
+
+function additionalInfoPedido(itens: ItemCheckout[], pedido: any, payer: any) {
+  const resumoItens = itens
+    .map(item => `${item.quantidade}x ${item.nome} (${Number(item.preco || 0).toFixed(2)})`)
+    .join('; ');
+
+  return [
+    `Pedido Viva Leve #${pedido.id}`,
+    `Itens: ${resumoItens}`,
+    `Subtotal: ${Number(pedido.subtotal_produtos || 0).toFixed(2)}`,
+    `Desconto: ${Number(pedido.desconto_valor || 0).toFixed(2)}`,
+    `Frete: ${Number(pedido.valor_frete || 0).toFixed(2)}`,
+    `Entrega: ${payer?.endereco || pedido.endereco_entrega || ''}`,
+  ].join(' | ').slice(0, 600);
+}
+
+function enderecoMercadoPago(endereco?: string) {
+  const partes = String(endereco ?? '').split(',').map(parte => parte.trim()).filter(Boolean);
+  if (partes.length === 0) return undefined;
+
+  return {
+    street_name: partes[0],
+    street_number: partes[1],
+    city_name: partes[3],
+    state_name: 'DF/GO',
+    country_name: 'Brasil',
   };
 }
 
@@ -89,7 +182,7 @@ export async function POST(request: NextRequest) {
     const { pedidoId, itens, payer } = await request.json() as {
       pedidoId?: string;
       itens?: ItemCheckout[];
-      payer?: { nome?: string; email?: string; telefone?: string };
+      payer?: { nome?: string; email?: string; telefone?: string; cpf?: string; endereco?: string; regiao?: string };
     };
 
     if (!pedidoId || !Array.isArray(itens) || itens.length === 0) {
@@ -103,7 +196,7 @@ export async function POST(request: NextRequest) {
 
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
-      .select('id, valor_total, status')
+      .select('id, valor_total, status, subtotal_produtos, valor_frete, desconto_valor, endereco_entrega')
       .eq('id', pedidoId)
       .maybeSingle();
 
@@ -121,31 +214,45 @@ export async function POST(request: NextRequest) {
       failure: `${baseUrl}/pagamento/falha`,
     };
     const nomePagador = dividirNome(payer?.nome);
+    const cpfPagador = somenteDigitos(payer?.cpf);
+    const telefonePagador = telefoneMercadoPago(payer?.telefone);
+    const enderecoPagador = enderecoMercadoPago(payer?.endereco || pedido.endereco_entrega);
+    const itensPreferencia = montarItensMercadoPago(itens, pedido);
 
     const body = {
       external_reference: pedidoId,
       notification_url: `${baseUrl}/api/mercadopago/webhook`,
-      auto_return: 'approved',
+      auto_return: 'all',
       back_urls: backUrls,
+      additional_info: additionalInfoPedido(itens, pedido, payer),
       payer: {
         name: nomePagador.name,
         surname: nomePagador.surname,
         email: payer?.email,
-        phone: telefoneMercadoPago(payer?.telefone),
+        phone: telefonePagador,
+        identification: cpfPagador.length === 11 ? {
+          type: 'CPF',
+          number: cpfPagador,
+        } : undefined,
+        address: enderecoPagador ? {
+          street_name: enderecoPagador.street_name,
+          street_number: enderecoPagador.street_number,
+        } : undefined,
       },
       payment_methods: {
         excluded_payment_types: [],
       },
-      items: [{
-        id: String(pedido.id),
-        title: `Pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
-        description: itens.map(item => `${item.quantidade}x ${item.nome}`).join(', ').slice(0, 250),
-        quantity: 1,
-        currency_id: 'BRL',
-        unit_price: Number(pedido.valor_total),
-      }],
+      items: itensPreferencia,
+      shipments: enderecoPagador ? {
+        mode: 'not_specified',
+        cost: Number(pedido.valor_frete || 0),
+        free_shipping: Number(pedido.valor_frete || 0) === 0,
+        receiver_address: enderecoPagador,
+      } : undefined,
+      statement_descriptor: 'VIVA LEVE',
       metadata: {
         pedido_id: pedidoId,
+        cliente_regiao: payer?.regiao,
       },
     };
 

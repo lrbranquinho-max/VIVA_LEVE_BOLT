@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     const { pedidoId, payer } = await request.json() as {
       pedidoId?: string;
-      payer?: { nome?: string; email?: string; telefone?: string };
+      payer?: { nome?: string; email?: string; telefone?: string; cpf?: string };
     };
 
     if (!pedidoId || !payer?.email) {
@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
 
     const client = new MercadoPagoConfig({ accessToken });
     const payment = new Payment(client);
+    const cpfPagador = String(payer.cpf ?? '').replace(/\D/g, '');
     const resposta: any = await payment.create({
       body: {
         transaction_amount: Number(pedido.valor_total),
@@ -88,6 +89,10 @@ export async function POST(request: NextRequest) {
           email: payer.email,
           first_name: payer.nome,
           phone: payer.telefone ? { number: payer.telefone.replace(/\D/g, '') } : undefined,
+          identification: cpfPagador.length === 11 ? {
+            type: 'CPF',
+            number: cpfPagador,
+          } : undefined,
         },
         metadata: {
           pedido_id: pedido.id,

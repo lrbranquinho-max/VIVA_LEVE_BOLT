@@ -145,6 +145,10 @@ export default function LojaCliente() {
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
   const [endereco, setEndereco] = useState('');
+  const [usarDadosCadastroPagador, setUsarDadosCadastroPagador] = useState(true);
+  const [nomePagador, setNomePagador] = useState('');
+  const [telefonePagador, setTelefonePagador] = useState('');
+  const [cpfPagador, setCpfPagador] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix'>('checkout');
   const [pixGerado, setPixGerado] = useState<{ qrCode: string; qrCodeBase64?: string; ticketUrl?: string } | null>(null);
@@ -383,6 +387,8 @@ export default function LojaCliente() {
     setNome(nomePerfil);
     setTelefone(telefonePerfil);
     setEndereco(enderecoPerfil);
+    if (!nomePagador) setNomePagador(nomePerfil);
+    if (!telefonePagador) setTelefonePagador(telefonePerfil);
 
     return {
       nome: nomePerfil,
@@ -481,6 +487,16 @@ export default function LojaCliente() {
       }
 
       const cadastroPedido = await validarCadastroPedido(user.id);
+      const cpfPagadorDigitos = somenteDigitos(cpfPagador);
+      if (metodoPagamento === 'checkout' && cpfPagadorDigitos.length !== 11) {
+        adicionarToast('Informe o CPF do pagador com 11 digitos para pagamento com cartao.', 'erro');
+        throw new Error('CPF do pagador invalido.');
+      }
+
+      const dadosPagador = {
+        nome: usarDadosCadastroPagador ? cadastroPedido.nome : (nomePagador || cadastroPedido.nome),
+        telefone: usarDadosCadastroPagador ? cadastroPedido.telefone : (telefonePagador || cadastroPedido.telefone),
+      };
       const estoqueAtualizado = await revalidarEstoqueCarrinho();
       const produtosParaPedido = estoqueAtualizado.length > 0 ? estoqueAtualizado : produtos;
 
@@ -489,6 +505,8 @@ export default function LojaCliente() {
         return {
           id: Number(id),
           nome: produto?.nome ?? 'Produto',
+          descricao: produto?.descricao ?? '',
+          imagem_url: produto?.imagem_url ?? '',
           preco: produto?.preco ?? 0,
           quantidade: qtd,
           subtotal: (produto?.preco ?? 0) * qtd,
@@ -533,9 +551,12 @@ export default function LojaCliente() {
           pedidoId: pedidoCriado?.id,
           itens: listaItens,
           payer: {
-            nome: cadastroPedido.nome,
-            telefone: cadastroPedido.telefone,
+            nome: dadosPagador.nome,
+            telefone: dadosPagador.telefone,
             email: user.email,
+            cpf: cpfPagadorDigitos || undefined,
+            endereco: cadastroPedido.endereco,
+            regiao: cadastroPedido.regiao,
           },
         }),
       });
@@ -835,6 +856,46 @@ export default function LojaCliente() {
                       </button>
                     </div>
                   </div>
+
+                  {metodoPagamento === 'checkout' && (
+                    <div className="rounded-2xl border border-purple-100 bg-purple-50 p-3">
+                      <label className="flex items-center gap-2 text-xs font-bold text-viva-roxo">
+                        <input
+                          type="checkbox"
+                          checked={usarDadosCadastroPagador}
+                          onChange={e => setUsarDadosCadastroPagador(e.target.checked)}
+                          className="h-4 w-4 rounded border-purple-200 text-viva-roxo"
+                        />
+                        Usar dados do cadastro para o pagador
+                      </label>
+
+                      {!usarDadosCadastroPagador && (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-xs font-bold text-gray-600">Nome do pagador</label>
+                            <input type="text" value={nomePagador} onChange={e => setNomePagador(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-white p-2.5 text-sm text-gray-900" />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-bold text-gray-600">WhatsApp do pagador</label>
+                            <input type="tel" value={telefonePagador} onChange={e => setTelefonePagador(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-white p-2.5 text-sm text-gray-900" />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-3">
+                        <label className="mb-1 block text-xs font-bold text-gray-600">CPF do pagador *</label>
+                        <input
+                          required={metodoPagamento === 'checkout'}
+                          inputMode="numeric"
+                          maxLength={14}
+                          value={cpfPagador}
+                          onChange={e => setCpfPagador(e.target.value)}
+                          placeholder="Somente numeros"
+                          className="w-full rounded-xl border border-gray-200 bg-white p-2.5 text-sm text-gray-900"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <button type="submit" disabled={enviando} className="w-full rounded-xl bg-viva-roxo py-3.5 text-center font-bold text-white shadow-lg transition-all active:scale-[0.99] disabled:opacity-60">
                     {enviando ? 'Processando...' : 'Confirmar Pedido'}
