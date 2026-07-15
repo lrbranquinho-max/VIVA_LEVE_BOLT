@@ -95,6 +95,7 @@ const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Prepar
 const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
 const PRODUTOS_IMAGE_BUCKETS = [
   process.env.NEXT_PUBLIC_SUPABASE_PRODUTOS_BUCKET,
+  'produtos-viva-leve',
   'produtos',
   'imagens-produtos',
   'produto-imagens',
