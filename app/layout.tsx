@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import AppShell from '../components/AppShell';
 
 const inter = Inter({ subsets: ['latin'] });
+const iconVersion = '20260715-2';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://www.vivalevedf.com.br'),
@@ -18,14 +19,14 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+      { url: `/favicon.ico?v=${iconVersion}`, sizes: 'any' },
+      { url: `/icon-192x192.png?v=${iconVersion}`, sizes: '192x192', type: 'image/png' },
+      { url: `/icon-512x512.png?v=${iconVersion}`, sizes: '512x512', type: 'image/png' },
     ],
-    shortcut: ['/favicon.ico'],
+    shortcut: [`/favicon.ico?v=${iconVersion}`],
     apple: [
-      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
-      { url: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: `/apple-touch-icon.png?v=${iconVersion}`, sizes: '180x180', type: 'image/png' },
+      { url: `/icon-192x192.png?v=${iconVersion}`, sizes: '192x192', type: 'image/png' },
     ],
   },
   openGraph: {
@@ -33,7 +34,7 @@ export const metadata: Metadata = {
     description: 'Comida saudavel e rastreamento de dieta.',
     images: [
       {
-        url: '/icon-512x512.png',
+        url: `/icon-512x512.png?v=${iconVersion}`,
       },
     ],
   },
@@ -43,7 +44,7 @@ export const metadata: Metadata = {
     description: 'Comida saudavel e rastreamento de dieta.',
     images: [
       {
-        url: '/icon-512x512.png',
+        url: `/icon-512x512.png?v=${iconVersion}`,
       },
     ],
   },
