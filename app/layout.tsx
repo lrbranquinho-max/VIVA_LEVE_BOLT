@@ -12,6 +12,9 @@ export const metadata: Metadata = {
   description: 'Comida saudavel e rastreamento de dieta.',
   manifest: '/manifest.webmanifest',
   themeColor: '#6B21A8',
+  verification: {
+    google: 'bybpclfenbOY0RJ2fypIiJObOjMNBNXEor4fMbFgKSk',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',

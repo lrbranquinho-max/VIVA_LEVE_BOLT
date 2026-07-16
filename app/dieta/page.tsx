@@ -161,6 +161,39 @@ function calcularMacros(item: SugestaoAlimento, gramas: number) {
   };
 }
 
+function normalizarBuscaAlimento(valor: string) {
+  return String(valor ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function tokensBuscaAlimento(valor: string) {
+  return normalizarBuscaAlimento(valor)
+    .split(' ')
+    .filter(token => token.length >= 2);
+}
+
+function termoIlikeSeguro(valor: string) {
+  return valor.replace(/[%_\\]/g, '');
+}
+
+function correspondeBuscaAlimento(nome: string, tokens: string[]) {
+  const normalizado = normalizarBuscaAlimento(nome);
+  return tokens.every(token => normalizado.includes(token));
+}
+
+function ordenarSugestoesAlimento(a: SugestaoAlimento, b: SugestaoAlimento, termoNormalizado: string) {
+  const nomeA = normalizarBuscaAlimento(a.nome);
+  const nomeB = normalizarBuscaAlimento(b.nome);
+  const scoreA = (nomeA === termoNormalizado ? 0 : nomeA.startsWith(termoNormalizado) ? 1 : 2) + (a.fonte === 'produto' ? 0 : 0.1);
+  const scoreB = (nomeB === termoNormalizado ? 0 : nomeB.startsWith(termoNormalizado) ? 1 : 2) + (b.fonte === 'produto' ? 0 : 0.1);
+  return scoreA - scoreB || nomeA.localeCompare(nomeB, 'pt-BR');
+}
+
 function percentual(valor: number, meta: number) {
   if (!meta) return 0;
   return Math.min((valor / meta) * 100, 100);
@@ -458,7 +491,8 @@ export default function Dieta() {
 
   const buscarAlimentos = useCallback(async (termo: string) => {
     const busca = termo.trim();
-    if (busca.length < 2) {
+    const tokens = tokensBuscaAlimento(busca);
+    if (tokens.length === 0) {
       setSugestoes([]);
       setMostrarSugestoes(false);
       return;
@@ -468,42 +502,52 @@ export default function Dieta() {
     setMostrarSugestoes(true);
 
     try {
+      const termoNormalizado = normalizarBuscaAlimento(busca);
+      const preFiltro = termoIlikeSeguro(tokens[0].slice(0, 2));
       const [produtosRes, tacoRes] = await Promise.all([
         supabase
           .from('produtos')
           .select('id, nome, kcal, proteinas, carboidratos, gorduras')
           .eq('ativo', true)
-          .ilike('nome', `%${busca}%`)
-          .limit(6),
+          .ilike('nome', `%${preFiltro}%`)
+          .limit(60),
         supabase
           .from('tabela_taco')
           .select('id, nome_alimento, kcal_100g, carboidratos_100g, proteinas_100g, gorduras_100g')
-          .ilike('nome_alimento', `%${busca}%`)
-          .limit(8),
+          .ilike('nome_alimento', `%${preFiltro}%`)
+          .limit(100),
       ]);
 
       if (produtosRes.error) throw produtosRes.error;
       if (tacoRes.error) throw tacoRes.error;
 
-      const produtos: SugestaoAlimento[] = (produtosRes.data ?? []).map((produto: any) => ({
-        id: Number(produto.id),
-        nome: produto.nome,
-        fonte: 'produto',
-        kcal100g: Number(produto.kcal ?? 0),
-        proteinas100g: Number(produto.proteinas ?? 0),
-        carboidratos100g: Number(produto.carboidratos ?? 0),
-        gorduras100g: Number(produto.gorduras ?? 0),
-      }));
+      const produtos: SugestaoAlimento[] = (produtosRes.data ?? [])
+        .filter((produto: any) => correspondeBuscaAlimento(produto.nome, tokens))
+        .map((produto: any) => ({
+          id: Number(produto.id),
+          nome: produto.nome,
+          fonte: 'produto' as const,
+          kcal100g: Number(produto.kcal ?? 0),
+          proteinas100g: Number(produto.proteinas ?? 0),
+          carboidratos100g: Number(produto.carboidratos ?? 0),
+          gorduras100g: Number(produto.gorduras ?? 0),
+        }))
+        .sort((a, b) => ordenarSugestoesAlimento(a, b, termoNormalizado))
+        .slice(0, 6);
 
-      const taco: SugestaoAlimento[] = (tacoRes.data ?? []).map((alimento: any) => ({
-        id: Number(alimento.id),
-        nome: alimento.nome_alimento,
-        fonte: 'taco',
-        kcal100g: Number(alimento.kcal_100g ?? 0),
-        proteinas100g: Number(alimento.proteinas_100g ?? 0),
-        carboidratos100g: Number(alimento.carboidratos_100g ?? 0),
-        gorduras100g: Number(alimento.gorduras_100g ?? 0),
-      }));
+      const taco: SugestaoAlimento[] = (tacoRes.data ?? [])
+        .filter((alimento: any) => correspondeBuscaAlimento(alimento.nome_alimento, tokens))
+        .map((alimento: any) => ({
+          id: Number(alimento.id),
+          nome: alimento.nome_alimento,
+          fonte: 'taco' as const,
+          kcal100g: Number(alimento.kcal_100g ?? 0),
+          proteinas100g: Number(alimento.proteinas_100g ?? 0),
+          carboidratos100g: Number(alimento.carboidratos_100g ?? 0),
+          gorduras100g: Number(alimento.gorduras_100g ?? 0),
+        }))
+        .sort((a, b) => ordenarSugestoesAlimento(a, b, termoNormalizado))
+        .slice(0, 8);
 
       setSugestoes([...produtos, ...taco]);
     } catch (err: any) {
