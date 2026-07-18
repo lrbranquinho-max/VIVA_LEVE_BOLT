@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../supabase';
 
-type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'config';
+type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
 
 interface ItemPedido {
@@ -89,6 +89,19 @@ interface LojaConfigForm {
   taxa_entrega_padrao: string;
   cupom_dia_d_percentual: string;
   cupom_dia_d_ativo: boolean;
+}
+
+interface ExercicioCatalogo {
+  id: number;
+  name: string;
+  primary_muscle_group: string;
+  environment: string;
+  equipment: string | null;
+  movement_pattern: string | null;
+  technical_level: string | null;
+  video_url: string | null;
+  video_thumbnail_url: string | null;
+  is_active: boolean;
 }
 
 const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Preparo', 'Saiu para Entrega', 'Entregue'];
@@ -314,6 +327,54 @@ function ToastStack({ toasts }: { toasts: Array<{ id: number; texto: string; tip
   );
 }
 
+function LinhaExercicioAdmin({
+  exercicio,
+  onSalvarVideo,
+  onToggleAtivo,
+}: {
+  exercicio: ExercicioCatalogo;
+  onSalvarVideo: (exercicio: ExercicioCatalogo, videoUrl: string, thumbnailUrl: string) => void;
+  onToggleAtivo: (exercicio: ExercicioCatalogo) => void;
+}) {
+  const [videoUrl, setVideoUrl] = useState(exercicio.video_url ?? '');
+  const [thumbnailUrl, setThumbnailUrl] = useState(exercicio.video_thumbnail_url ?? '');
+
+  useEffect(() => {
+    setVideoUrl(exercicio.video_url ?? '');
+    setThumbnailUrl(exercicio.video_thumbnail_url ?? '');
+  }, [exercicio.id, exercicio.video_url, exercicio.video_thumbnail_url]);
+
+  return (
+    <tr className={!exercicio.is_active ? 'bg-gray-50 opacity-70' : ''}>
+      <td className="px-4 py-4 align-top">
+        <p className="font-black text-gray-900">{exercicio.name}</p>
+        <p className="mt-1 text-xs font-semibold text-gray-500">{exercicio.movement_pattern || '-'} - {exercicio.equipment || '-'}</p>
+      </td>
+      <td className="px-4 py-4 align-top">
+        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">{exercicio.primary_muscle_group}</span>
+      </td>
+      <td className="px-4 py-4 align-top text-xs font-bold text-gray-600">{exercicio.environment}</td>
+      <td className="px-4 py-4 align-top text-xs font-bold text-gray-600">{exercicio.technical_level || '-'}</td>
+      <td className="min-w-[340px] px-4 py-4 align-top">
+        <div className="grid gap-2">
+          <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="URL do video demonstrativo" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-gray-900" />
+          <input value={thumbnailUrl} onChange={e => setThumbnailUrl(e.target.value)} placeholder="URL da thumbnail" className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-gray-900" />
+        </div>
+      </td>
+      <td className="px-4 py-4 text-center align-top">
+        <button onClick={() => onToggleAtivo(exercicio)} className={`inline-flex h-6 w-11 items-center rounded-full p-1 transition ${exercicio.is_active ? 'bg-green-500' : 'bg-gray-300'}`} aria-label={exercicio.is_active ? 'Inativar exercicio' : 'Ativar exercicio'}>
+          <span className={`h-4 w-4 rounded-full bg-white shadow transition ${exercicio.is_active ? 'translate-x-5' : 'translate-x-0'}`} />
+        </button>
+      </td>
+      <td className="px-4 py-4 text-right align-top">
+        <button onClick={() => onSalvarVideo(exercicio, videoUrl, thumbnailUrl)} className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-black text-white hover:bg-gray-800">
+          Salvar
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 function ModalProduto({
   form,
   editando,
@@ -471,6 +532,9 @@ export default function AdminPage() {
   const [formConfig, setFormConfig] = useState<LojaConfigForm>({ ...LOJA_CONFIG_FORM_PADRAO });
   const [carregandoConfig, setCarregandoConfig] = useState(false);
   const [salvandoConfig, setSalvandoConfig] = useState(false);
+  const [exercicios, setExercicios] = useState<ExercicioCatalogo[]>([]);
+  const [carregandoExercicios, setCarregandoExercicios] = useState(false);
+  const [filtroExercicio, setFiltroExercicio] = useState('');
 
   const toast = useCallback((texto: string, tipo: ToastTipo = 'info') => {
     const id = ++toastId;
@@ -561,6 +625,24 @@ export default function AdminPage() {
     }
   }, [toast]);
 
+  const carregarExercicios = useCallback(async () => {
+    setCarregandoExercicios(true);
+    try {
+      const { data, error } = await supabase
+        .from('exercise_catalog')
+        .select('id,name,primary_muscle_group,environment,equipment,movement_pattern,technical_level,video_url,video_thumbnail_url,is_active')
+        .order('primary_muscle_group', { ascending: true })
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setExercicios((data ?? []) as ExercicioCatalogo[]);
+    } catch (err: any) {
+      toast(`Erro ao carregar exercicios: ${err.message}`, 'erro');
+    } finally {
+      setCarregandoExercicios(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     async function protegerRota() {
       const { data: { user }, error } = await supabase.auth.getUser();
@@ -584,7 +666,8 @@ export default function AdminPage() {
     carregarPedidos();
     carregarProdutos();
     carregarConfig();
-  }, [loading, carregarPedidos, carregarProdutos, carregarConfig]);
+    carregarExercicios();
+  }, [loading, carregarPedidos, carregarProdutos, carregarConfig, carregarExercicios]);
 
   useEffect(() => {
     if (loading) return;
@@ -624,6 +707,15 @@ export default function AdminPage() {
     const termo = normalizarBusca(filtroProdutoEstoque);
     return produtos.filter(produto => !termo || normalizarBusca(produto.nome).includes(termo));
   }, [filtroProdutoEstoque, produtos]);
+
+  const exerciciosFiltrados = useMemo(() => {
+    const termo = normalizarBusca(filtroExercicio);
+    return exercicios.filter(exercicio => {
+      if (!termo) return true;
+      return [exercicio.name, exercicio.primary_muscle_group, exercicio.environment, exercicio.equipment, exercicio.movement_pattern, exercicio.technical_level]
+        .some(valor => normalizarBusca(valor).includes(termo));
+    });
+  }, [exercicios, filtroExercicio]);
 
   const itensBalcao = useMemo(() => Object.entries(carrinhoBalcao)
     .map(([idTexto, quantidade]) => {
@@ -962,6 +1054,44 @@ export default function AdminPage() {
     }
   };
 
+  const salvarVideoExercicio = async (exercicio: ExercicioCatalogo, videoUrl: string, thumbnailUrl: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('exercise_catalog')
+        .update({
+          video_url: videoUrl.trim() || null,
+          video_thumbnail_url: thumbnailUrl.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', exercicio.id)
+        .select('id,name,primary_muscle_group,environment,equipment,movement_pattern,technical_level,video_url,video_thumbnail_url,is_active')
+        .maybeSingle();
+      if (error) throw error;
+      const atualizado = exigirLinhaAtualizada(data, 'A alteracao do video do exercicio') as ExercicioCatalogo;
+      setExercicios(prev => prev.map(item => item.id === exercicio.id ? atualizado : item));
+      toast('Video do exercicio atualizado.', 'sucesso');
+    } catch (err: any) {
+      toast(`Erro ao salvar video: ${err.message}`, 'erro');
+    }
+  };
+
+  const alternarExercicioAtivo = async (exercicio: ExercicioCatalogo) => {
+    try {
+      const { data, error } = await supabase
+        .from('exercise_catalog')
+        .update({ is_active: !exercicio.is_active, updated_at: new Date().toISOString() })
+        .eq('id', exercicio.id)
+        .select('id,name,primary_muscle_group,environment,equipment,movement_pattern,technical_level,video_url,video_thumbnail_url,is_active')
+        .maybeSingle();
+      if (error) throw error;
+      const atualizado = exigirLinhaAtualizada(data, 'A alteracao do exercicio') as ExercicioCatalogo;
+      setExercicios(prev => prev.map(item => item.id === exercicio.id ? atualizado : item));
+      toast('Status do exercicio atualizado.', 'sucesso');
+    } catch (err: any) {
+      toast(`Erro ao alterar exercicio: ${err.message}`, 'erro');
+    }
+  };
+
   const imprimirEtiqueta = (produto: Produto) => {
     const gramas = Number(produto.porcao_g || 100);
     const payloadQr = JSON.stringify({ id: produto.id, gramas });
@@ -1120,6 +1250,7 @@ export default function AdminPage() {
               { id: 'pedidos' as const, label: 'Gestão de Pedidos', desc: `${pedidos.length} pedidos` },
               { id: 'balcao' as const, label: 'Venda Balcão', desc: 'Pedido rápido' },
               { id: 'produtos' as const, label: 'Cardápio/Estoque', desc: `${produtos.length} produtos` },
+              { id: 'treinos' as const, label: 'Exercicios/Treino', desc: `${exercicios.length} exercicios` },
               { id: 'config' as const, label: 'Configuracoes', desc: 'Cupons e frete' },
             ].map(item => (
               <button
@@ -1147,11 +1278,11 @@ export default function AdminPage() {
           <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-2xl font-black">
-                {aba === 'pedidos' ? 'Gestão de Pedidos' : aba === 'balcao' ? 'Venda Balcão' : aba === 'produtos' ? 'Cardápio e Estoque' : 'Configuracoes'}
+                {aba === 'pedidos' ? 'Gestao de Pedidos' : aba === 'balcao' ? 'Venda Balcao' : aba === 'produtos' ? 'Cardapio e Estoque' : aba === 'treinos' ? 'Exercicios e Treinos' : 'Configuracoes'}
               </h1>
               <p className="text-sm text-gray-500">Dados ao vivo do Supabase oficial.</p>
             </div>
-            <button onClick={() => { carregarPedidos(); carregarProdutos(); carregarConfig(); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50">
+            <button onClick={() => { carregarPedidos(); carregarProdutos(); carregarConfig(); carregarExercicios(); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50">
               Atualizar dados
             </button>
           </header>
@@ -1500,6 +1631,64 @@ export default function AdminPage() {
                   </button>
                 </div>
               </form>
+            </section>
+          )}
+
+          {aba === 'treinos' && (
+            <section className="space-y-5">
+              <div className="rounded-xl border border-viva-verde/30 bg-viva-verde/10 p-4">
+                <p className="text-sm font-black text-viva-roxo">Catalogo de exercicios</p>
+                <p className="mt-1 text-xs font-semibold text-gray-500">
+                  A base foi importada da planilha de musculacao. Cadastre aqui os videos demonstrativos curtos e inative exercicios que nao devem ser usados pela geracao do plano.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <input
+                  type="search"
+                  value={filtroExercicio}
+                  onChange={e => setFiltroExercicio(e.target.value)}
+                  placeholder="Filtrar por exercicio, grupo, ambiente ou equipamento"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-900 shadow-sm outline-none focus:ring-2 focus:ring-gray-900 md:max-w-lg"
+                />
+                <button onClick={carregarExercicios} className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-black text-white shadow-lg hover:bg-gray-800">
+                  Atualizar catalogo
+                </button>
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-black">Exercicio</th>
+                        <th className="px-4 py-3 text-left font-black">Grupo</th>
+                        <th className="px-4 py-3 text-left font-black">Ambiente</th>
+                        <th className="px-4 py-3 text-left font-black">Nivel</th>
+                        <th className="px-4 py-3 text-left font-black">Video/Thumbnail</th>
+                        <th className="px-4 py-3 text-center font-black">Ativo</th>
+                        <th className="px-4 py-3 text-right font-black">Acao</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {exerciciosFiltrados.map(exercicio => (
+                        <LinhaExercicioAdmin
+                          key={exercicio.id}
+                          exercicio={exercicio}
+                          onSalvarVideo={salvarVideoExercicio}
+                          onToggleAtivo={alternarExercicioAtivo}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {carregandoExercicios && <div className="p-8 text-center text-gray-400">Carregando exercicios...</div>}
+                {!carregandoExercicios && exerciciosFiltrados.length === 0 && (
+                  <div className="p-8 text-center text-gray-400">
+                    {filtroExercicio ? 'Nenhum exercicio encontrado para esse filtro.' : 'Nenhum exercicio cadastrado.'}
+                  </div>
+                )}
+              </div>
             </section>
           )}
 

@@ -16,6 +16,7 @@ const MENU_LINKS = [
   { href: '/', label: 'Loja', icon: 'M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5M9 21v-6h6v6' },
   { href: '/pedidos', label: 'Pedidos', icon: 'M7 4h10l2 4v13H5V8l2-4ZM5 8h14M9 12h6M9 16h6' },
   { href: '/dieta', label: 'Dieta', icon: 'M8 3v18M16 3v18M4 8h16M4 16h16' },
+  { href: '/meu-treino', label: 'Treino', icon: 'M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12' },
   { href: '/perfil', label: 'Perfil', icon: 'M20 21a8 8 0 0 0-16 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z' },
 ];
 
