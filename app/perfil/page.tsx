@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../supabase';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import Logo from '../../components/Logo';
+import BottomNav from '../../components/BottomNav';
 
 const REGIOES_DF = [
   'Asa Norte', 'Asa Sul', 'Águas Claras', 'Ceilândia', 'Gama', 'Guará',
@@ -241,24 +241,7 @@ export default function Perfil() {
         </button>
       </main>
 
-      <nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 flex justify-around p-3 pb-5 z-10 md:max-w-6xl">
-        <Link href="/" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo">
-          <span className="text-xl">&#127968;</span>
-          <span className="text-[10px] font-bold mt-1">Loja</span>
-        </Link>
-        <Link href="/pedidos" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo">
-          <span className="text-xl">&#128203;</span>
-          <span className="text-[10px] font-bold mt-1">Pedidos</span>
-        </Link>
-        <Link href="/dieta" className="flex flex-col items-center text-gray-400 hover:text-viva-roxo">
-          <span className="text-xl">&#128241;</span>
-          <span className="text-[10px] font-bold mt-1">Dieta</span>
-        </Link>
-        <Link href="/perfil" className="flex flex-col items-center text-viva-roxo">
-          <span className="text-xl">&#128100;</span>
-          <span className="text-[10px] font-bold mt-1">Perfil</span>
-        </Link>
-      </nav>
+      <BottomNav active="perfil" />
     </div>
   );
 }

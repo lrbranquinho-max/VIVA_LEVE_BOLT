@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../supabase';
 import Logo from '../components/Logo';
+import BottomNav from '../components/BottomNav';
 
 interface Produto {
   id: number;
@@ -977,24 +978,7 @@ export default function LojaCliente() {
         </a>
       )}
 
-      <nav className="fixed bottom-0 z-10 flex w-full max-w-md justify-around border-t border-gray-200 bg-white p-3 pb-5 md:max-w-6xl">
-        <button className="flex flex-col items-center text-viva-roxo">
-          <span className="text-xl">&#127968;</span>
-          <span className="mt-1 text-[10px] font-bold">Loja</span>
-        </button>
-        <Link href="/pedidos" className="flex flex-col items-center text-gray-400 transition hover:text-viva-roxo">
-          <span className="text-xl">&#128203;</span>
-          <span className="mt-1 text-[10px] font-bold">Pedidos</span>
-        </Link>
-        <Link href="/dieta" className="flex flex-col items-center text-gray-400 transition hover:text-viva-roxo">
-          <span className="text-xl">&#128241;</span>
-          <span className="mt-1 text-[10px] font-bold">Dieta</span>
-        </Link>
-        <Link href="/perfil" className="flex flex-col items-center text-gray-400 transition hover:text-viva-roxo">
-          <span className="text-xl">&#128100;</span>
-          <span className="mt-1 text-[10px] font-bold">Perfil</span>
-        </Link>
-      </nav>
+      <BottomNav active="loja" />
     </div>
   );
 }
