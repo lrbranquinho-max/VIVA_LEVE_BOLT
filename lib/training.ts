@@ -269,19 +269,22 @@ function beginnerPlusDays(pool: ExerciseCatalogItem[], level: TrainingLevel): Tr
 function splitDays(pool: ExerciseCatalogItem[], level: TrainingLevel, profile: TrainingProfileInput): TrainingDayPlan[] {
   const used = new Set<number>();
   const fiveDays = weeklyFrequency(level, profile.age) === 5;
+  const priorityGroup = profile.priorityMuscleGroup && includesAny(profile.priorityMuscleGroup, ['Quadriceps', 'Gluteos', 'Posteriores de coxa', 'Panturrilhas', 'Adutores'])
+    ? 'Ombros'
+    : profile.priorityMuscleGroup || 'Ombros';
   const specs = fiveDays
     ? [
         { code: 'A', focus: 'Peitoral, ombros e triceps', groups: ['Peitoral', 'Peitoral', 'Peitoral', 'Ombros', 'Ombros', 'Triceps'] },
-        { code: 'B', focus: 'Costas e biceps', groups: ['Costas', 'Costas', 'Costas', 'Costas', 'Biceps', 'Biceps'] },
-        { code: 'C', focus: 'Quadriceps e gluteos', groups: ['Quadriceps', 'Quadriceps', 'Quadriceps', 'Gluteos', 'Gluteos', 'Panturrilhas'] },
-        { code: 'D', focus: 'Posteriores, gluteos e core', groups: ['Posteriores de coxa', 'Posteriores de coxa', 'Posteriores de coxa', 'Gluteos', 'Core', 'Core'] },
-        { code: 'E', focus: 'Prioridade e complementares', groups: [profile.priorityMuscleGroup || 'Ombros', 'Costas', 'Peitoral', 'Biceps', 'Triceps', 'Panturrilhas'] },
+        { code: 'B', focus: 'Inferiores - quadriceps e gluteos', groups: ['Quadriceps', 'Quadriceps', 'Quadriceps', 'Gluteos', 'Gluteos', 'Panturrilhas'] },
+        { code: 'C', focus: 'Costas e biceps', groups: ['Costas', 'Costas', 'Costas', 'Costas', 'Biceps', 'Biceps'] },
+        { code: 'D', focus: 'Prioridade superior e complementares', groups: [priorityGroup, 'Peitoral', 'Ombros', 'Biceps', 'Triceps', 'Core'] },
+        { code: 'E', focus: 'Inferiores - posteriores, gluteos e core', groups: ['Posteriores de coxa', 'Posteriores de coxa', 'Posteriores de coxa', 'Gluteos', 'Core', 'Core'] },
       ]
     : [
-        { code: 'A', focus: 'Inferiores - quadriceps e gluteos', groups: ['Quadriceps', 'Quadriceps', 'Gluteos', 'Gluteos', 'Panturrilhas'] },
-        { code: 'B', focus: 'Superiores - empurrar', groups: ['Peitoral', 'Peitoral', 'Ombros', 'Ombros', 'Triceps'] },
-        { code: 'C', focus: 'Inferiores - posteriores e core', groups: ['Posteriores de coxa', 'Posteriores de coxa', 'Gluteos', 'Core', 'Core'] },
-        { code: 'D', focus: 'Superiores - puxar', groups: ['Costas', 'Costas', 'Costas', 'Biceps', 'Biceps'] },
+        { code: 'A', focus: 'Superiores - empurrar', groups: ['Peitoral', 'Peitoral', 'Ombros', 'Ombros', 'Triceps'] },
+        { code: 'B', focus: 'Inferiores - quadriceps e gluteos', groups: ['Quadriceps', 'Quadriceps', 'Gluteos', 'Gluteos', 'Panturrilhas'] },
+        { code: 'C', focus: 'Superiores - puxar', groups: ['Costas', 'Costas', 'Costas', 'Biceps', 'Biceps'] },
+        { code: 'D', focus: 'Inferiores - posteriores e core', groups: ['Posteriores de coxa', 'Posteriores de coxa', 'Gluteos', 'Core', 'Core'] },
       ];
 
   return specs.map(spec => ({
@@ -301,10 +304,21 @@ function splitDays(pool: ExerciseCatalogItem[], level: TrainingLevel, profile: T
   }));
 }
 
+function isLowerBodyDay(day: TrainingDayPlan, catalogById: Map<number, ExerciseCatalogItem>) {
+  return includesAny(day.focus, ['inferiores', 'quadriceps', 'posteriores', 'gluteos']) ||
+    day.exercises.filter(exercise => includesAny(catalogById.get(exercise.exerciseId)?.primary_muscle_group, ['Quadriceps', 'Posteriores de coxa', 'Gluteos', 'Panturrilhas', 'Adutores'])).length >= 3;
+}
+
 export function validateTrainingPlan(plan: TrainingPlanDraft, catalog: ExerciseCatalogItem[], profile: TrainingProfileInput) {
   const errors: string[] = [];
   const ids = new Set(catalog.map(item => item.id));
+  const catalogById = new Map(catalog.map(item => [item.id, item]));
   if (plan.days.length !== plan.weeklyFrequency) errors.push('Quantidade de treinos diferente da frequencia semanal.');
+  for (let index = 1; index < plan.days.length; index += 1) {
+    if (isLowerBodyDay(plan.days[index - 1], catalogById) && isLowerBodyDay(plan.days[index], catalogById)) {
+      errors.push(`Treinos inferiores em dias sequenciais: ${plan.days[index - 1].code} e ${plan.days[index].code}.`);
+    }
+  }
   for (const day of plan.days) {
     if (!day.exercises.length) errors.push(`${day.title} sem exercicios.`);
     const seen = new Set<number>();
