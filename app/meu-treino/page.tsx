@@ -33,6 +33,30 @@ interface DayExercise {
   advanced_technique_instructions?: string | null;
   notes?: string | null;
   exercise_catalog: ExerciseCatalog;
+  substitute_exercise?: ExerciseCatalog | null;
+}
+
+interface TrainingSessionExercise {
+  completed: boolean;
+  load_used?: string | null;
+  completed_repetitions?: string | null;
+  training_day_exercises?: {
+    sets: number;
+    exercise_catalog?: { primary_muscle_group: string } | null;
+  } | null;
+}
+
+interface TrainingSession {
+  id: string;
+  training_day_id: string;
+  completed_at: string;
+  status: string;
+  training_session_exercises: TrainingSessionExercise[];
+}
+
+interface TechniqueModal {
+  name: string;
+  instructions: string;
 }
 
 interface TrainingDay {
@@ -83,6 +107,15 @@ const FORM_INICIAL: TrainingProfile = {
 
 const GOALS = ['Manutencao da saude', 'Emagrecimento', 'Ganho de massa muscular'];
 const PRIORIDADES = ['Peitoral', 'Costas', 'Ombros', 'Biceps', 'Triceps', 'Quadriceps', 'Gluteos', 'Posteriores de coxa', 'Panturrilhas', 'Abdomen'];
+const INSTRUCOES_TECNICAS: Record<string, string> = {
+  'drop-set': `O drop set e uma tecnica avancada de musculacao em que voce executa uma serie ate a falha muscular, reduz a carga rapidamente, geralmente entre 20% e 30%, e continua o exercicio sem descanso.
+
+1º Como fazer: escolha um peso desafiador e faca o movimento ate nao conseguir realizar outra repeticao com boa postura, atingindo a falha concentrica.
+
+2º Reducao: imediatamente, reduza a carga em cerca de 20% a 30%, retirando anilhas ou mudando o pino da maquina.
+
+3º Continuacao: faca uma nova serie com a carga mais leve ate atingir novamente a falha. A reducao pode ser repetida de uma a tres vezes na mesma serie.`,
+};
 
 let toastId = 0;
 
@@ -103,6 +136,40 @@ function semanaAtual(plano: TrainingPlan) {
   return Math.min(plano.duration_weeks, Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1);
 }
 
+function inicioDaSemana(data = new Date()) {
+  const inicio = new Date(data);
+  const dia = inicio.getDay();
+  inicio.setDate(inicio.getDate() - (dia === 0 ? 6 : dia - 1));
+  inicio.setHours(0, 0, 0, 0);
+  return inicio;
+}
+
+function fimDaSemana(inicio: Date) {
+  const fim = new Date(inicio);
+  fim.setDate(fim.getDate() + 6);
+  fim.setHours(23, 59, 59, 999);
+  return fim;
+}
+
+function formatarDataCurta(data: Date) {
+  return data.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '');
+}
+
+function numeroRegistrado(valor?: string | null) {
+  const encontrado = String(valor ?? '').replace(',', '.').match(/\d+(?:\.\d+)?/);
+  return encontrado ? Number(encontrado[0]) : 0;
+}
+
+function repeticoesTotais(valor: string | null | undefined, sets: number) {
+  const numeros = String(valor ?? '').match(/\d+(?:[.,]\d+)?/g)?.map(item => Number(item.replace(',', '.'))) ?? [];
+  if (!numeros.length) return 0;
+  return numeros.length === 1 ? numeros[0] * sets : numeros.reduce((total, item) => total + item, 0);
+}
+
+function formatarCompacto(valor: number) {
+  return new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(valor);
+}
+
 function normalizarErro(error: any) {
   if (typeof error === 'string') return error;
   return error?.message || 'Erro inesperado.';
@@ -117,6 +184,9 @@ export default function MeuTreinoPage() {
   const [historico, setHistorico] = useState<TrainingPlan[]>([]);
   const [aba, setAba] = useState('A');
   const [video, setVideo] = useState<ExerciseCatalog | null>(null);
+  const [tecnica, setTecnica] = useState<TechniqueModal | null>(null);
+  const [substituto, setSubstituto] = useState<ExerciseCatalog | null>(null);
+  const [sessoes, setSessoes] = useState<TrainingSession[]>([]);
   const [toasts, setToasts] = useState<Array<{ id: number; texto: string; tipo: ToastTipo }>>([]);
   const [cargas, setCargas] = useState<Record<string, string>>({});
   const [reps, setReps] = useState<Record<string, string>>({});
@@ -162,7 +232,8 @@ export default function MeuTreinoPage() {
             *,
             training_day_exercises (
               *,
-              exercise_catalog (*)
+              exercise_catalog!training_day_exercises_exercise_id_fkey (*),
+              substitute_exercise:exercise_catalog!training_day_exercises_substitute_exercise_id_fkey (*)
             )
           )
         `)
@@ -175,6 +246,27 @@ export default function MeuTreinoPage() {
       setPlano(ativo ? ordenarPlano(ativo) : null);
       setHistorico(planos.filter(item => item.id !== ativo?.id).map(ordenarPlano));
       if (ativo?.training_days?.[0]) setAba(ativo.training_days[0].code);
+
+      const inicioHistorico = inicioDaSemana();
+      inicioHistorico.setDate(inicioHistorico.getDate() - (11 * 7));
+      const { data: sessionsData, error: sessionsError } = await supabase
+        .from('training_sessions')
+        .select(`
+          id, training_day_id, completed_at, status,
+          training_session_exercises (
+            completed, load_used, completed_repetitions,
+            training_day_exercises (
+              sets,
+              exercise_catalog!training_day_exercises_exercise_id_fkey (primary_muscle_group)
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('status', 'completed')
+        .gte('completed_at', inicioHistorico.toISOString())
+        .order('completed_at', { ascending: true });
+      if (sessionsError) throw sessionsError;
+      setSessoes((sessionsData ?? []) as unknown as TrainingSession[]);
     } catch (error: any) {
       toast(`Erro ao carregar treino: ${normalizarErro(error)}`, 'erro');
     } finally {
@@ -190,6 +282,47 @@ export default function MeuTreinoPage() {
   const week = plano ? semanaAtual(plano) : 1;
   const progresso = plano ? Math.min(100, Math.round((week / plano.duration_weeks) * 100)) : 0;
   const precisaPrioridade = form.goals.includes('Ganho de massa muscular');
+  const dashboard = useMemo(() => {
+    const atual = inicioDaSemana();
+    const weeks = Array.from({ length: 12 }, (_, index) => {
+      const start = new Date(atual);
+      start.setDate(start.getDate() - ((11 - index) * 7));
+      return { start, end: fimDaSemana(start), sessions: [] as TrainingSession[] };
+    });
+    for (const session of sessoes) {
+      const data = new Date(session.completed_at);
+      const weekItem = weeks.find(item => data >= item.start && data <= item.end);
+      if (weekItem) weekItem.sessions.push(session);
+    }
+
+    const groups = new Set<string>();
+    const summaries = weeks.map((weekItem, index) => {
+      const series: Record<string, number> = {};
+      const volume: Record<string, number> = {};
+      for (const session of weekItem.sessions) {
+        for (const item of session.training_session_exercises ?? []) {
+          if (!item.completed) continue;
+          const prescription = item.training_day_exercises;
+          const group = prescription?.exercise_catalog?.primary_muscle_group || 'Outros';
+          const sets = Number(prescription?.sets || 0);
+          groups.add(group);
+          series[group] = (series[group] || 0) + sets;
+          volume[group] = (volume[group] || 0) + (numeroRegistrado(item.load_used) * repeticoesTotais(item.completed_repetitions, sets));
+        }
+      }
+      const dias = new Set(weekItem.sessions.map(item => new Date(item.completed_at).toISOString().slice(0, 10))).size;
+      return { ...weekItem, number: index + 1, days: dias, series, volume };
+    });
+    return { weeks: summaries, groups: Array.from(groups).sort(), current: summaries[summaries.length - 1] };
+  }, [sessoes]);
+  const treinosConcluidosNaSemana = useMemo(() => {
+    const inicio = inicioDaSemana();
+    const fim = fimDaSemana(inicio);
+    return new Set(sessoes.filter(item => {
+      const data = new Date(item.completed_at);
+      return data >= inicio && data <= fim;
+    }).map(item => item.training_day_id));
+  }, [sessoes]);
 
   function ordenarPlano(item: TrainingPlan): TrainingPlan {
     return {
@@ -291,6 +424,9 @@ export default function MeuTreinoPage() {
       }
 
       toast(`${day.title} registrado como concluido.`, 'sucesso');
+      const abaAtual = aba;
+      await carregar();
+      setAba(abaAtual);
     } catch (error: any) {
       toast(`Erro ao registrar treino: ${normalizarErro(error)}`, 'erro');
     }
@@ -413,10 +549,11 @@ export default function MeuTreinoPage() {
               <div className="flex gap-2 overflow-x-auto pb-2">
                 {plano.training_days.map(day => (
                   <button key={day.id} onClick={() => setAba(day.code)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-black ${aba === day.code ? 'bg-viva-roxo text-white' : 'bg-gray-100 text-gray-600'}`}>
-                    {day.title}
+                    {treinosConcluidosNaSemana.has(day.id) ? '✓ ' : ''}{day.title}
                   </button>
                 ))}
                 <button onClick={() => setAba('CARDIO')} className={`shrink-0 rounded-full px-4 py-2 text-xs font-black ${aba === 'CARDIO' ? 'bg-viva-roxo text-white' : 'bg-gray-100 text-gray-600'}`}>Cardio</button>
+                <button onClick={() => setAba('DASH')} className={`shrink-0 rounded-full px-4 py-2 text-xs font-black ${aba === 'DASH' ? 'bg-viva-roxo text-white' : 'bg-gray-100 text-gray-600'}`}>Dashboard</button>
                 <button onClick={() => setAba('HIST')} className={`shrink-0 rounded-full px-4 py-2 text-xs font-black ${aba === 'HIST' ? 'bg-viva-roxo text-white' : 'bg-gray-100 text-gray-600'}`}>Historico</button>
               </div>
 
@@ -427,6 +564,59 @@ export default function MeuTreinoPage() {
                   <p className="mt-1">Modalidades: {(plano.cardio_payload?.modalities ?? ['Esteira', 'Eliptico', 'Bicicleta']).join(', ')}.</p>
                   <p className="mt-1">FC estimada: {plano.cardio_payload?.heartRateMin} a {plano.cardio_payload?.heartRateMax} bpm.</p>
                   <p className="mt-2 text-xs text-gray-500">{plano.cardio_payload?.note}</p>
+                </div>
+              ) : aba === 'DASH' ? (
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wider text-viva-roxo">Ultimas 12 semanas</p>
+                    <h2 className="mt-1 text-xl font-black text-gray-900">Evolucao dos treinos</h2>
+                  </div>
+
+                  <div className="rounded-2xl bg-gray-950 p-4 text-white">
+                    <p className="text-xs font-bold text-white/60">
+                      Semana {dashboard.current.number} ({formatarDataCurta(dashboard.current.start)} a {formatarDataCurta(dashboard.current.end)})
+                    </p>
+                    <p className="mt-2 text-3xl font-black text-viva-verde">{dashboard.current.days}</p>
+                    <p className="text-xs font-bold text-white/70">dias de treino concluidos</p>
+                  </div>
+
+                  {dashboard.groups.length === 0 ? (
+                    <p className="rounded-2xl bg-gray-50 p-8 text-center text-sm font-bold text-gray-400">Registre carga e repeticoes para acompanhar sua evolucao.</p>
+                  ) : dashboard.groups.map(group => {
+                    const maxVolume = Math.max(1, ...dashboard.weeks.map(item => item.volume[group] || 0));
+                    return (
+                      <section key={group} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-black text-gray-900">{group}</h3>
+                            <p className="mt-1 text-xs font-bold text-gray-500">
+                              {formatarCompacto(dashboard.current.series[group] || 0)} series na semana
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-black text-viva-roxo">{formatarCompacto(dashboard.current.volume[group] || 0)} kg</p>
+                            <p className="text-[10px] font-bold uppercase text-gray-400">volume</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 flex h-28 items-end gap-1.5" aria-label={`Volume de ${group} nas ultimas 12 semanas`}>
+                          {dashboard.weeks.map(weekItem => {
+                            const value = weekItem.volume[group] || 0;
+                            const height = value ? Math.max(8, Math.round((value / maxVolume) * 100)) : 3;
+                            return (
+                              <div key={weekItem.start.toISOString()} className="group relative flex h-full min-w-0 flex-1 items-end">
+                                <div
+                                  className={`w-full rounded-t bg-viva-roxo transition hover:bg-viva-verde ${value ? '' : 'opacity-15'}`}
+                                  style={{ height: `${height}%` }}
+                                  title={`Semana ${weekItem.number}: ${formatarCompacto(value)} kg`}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-1 flex justify-between text-[9px] font-bold text-gray-400"><span>12 sem.</span><span>Atual</span></div>
+                      </section>
+                    );
+                  })}
                 </div>
               ) : aba === 'HIST' ? (
                 <div className="mt-4 space-y-2">
@@ -450,8 +640,28 @@ export default function MeuTreinoPage() {
                           <h3 className="text-sm font-black text-gray-900">{item.exercise_catalog?.name}</h3>
                           <p className="mt-1 text-xs font-bold text-gray-500">{item.exercise_catalog?.primary_muscle_group} - {item.exercise_catalog?.equipment || 'Equipamento livre'}</p>
                           <p className="mt-2 text-xs font-bold text-gray-700">{item.sets} series de {item.repetition_min}-{item.repetition_max} reps - descanso {item.rest_seconds}s</p>
-                          {item.advanced_technique && <p className="mt-2 rounded-lg bg-purple-50 p-2 text-xs font-bold text-viva-roxo">{item.advanced_technique}: {item.advanced_technique_instructions}</p>}
+                          {item.advanced_technique && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const name = item.advanced_technique || 'Tecnica avancada';
+                                setTecnica({ name, instructions: INSTRUCOES_TECNICAS[name.toLowerCase()] || item.advanced_technique_instructions || '' });
+                              }}
+                              className="mt-2 rounded-lg bg-purple-50 px-3 py-2 text-left text-xs font-black text-viva-roxo hover:bg-purple-100"
+                            >
+                              Como fazer: {item.advanced_technique}
+                            </button>
+                          )}
                           <p className="mt-2 text-xs font-semibold leading-relaxed text-gray-500">{item.notes}</p>
+                          {item.substitute_exercise && (
+                            <button
+                              type="button"
+                              onClick={() => setSubstituto(item.substitute_exercise || null)}
+                              className="mt-2 block text-left text-xs font-black text-green-700 underline decoration-green-300 underline-offset-2"
+                            >
+                              Aparelho ocupado? Ver exercicio substituto
+                            </button>
+                          )}
                           <div className="mt-3 grid grid-cols-2 gap-2">
                             <input value={cargas[item.id] ?? ''} onChange={e => setCargas(prev => ({ ...prev, [item.id]: e.target.value }))} className="rounded-xl border border-gray-200 bg-white p-2 text-xs font-bold" placeholder="Carga usada" />
                             <input value={reps[item.id] ?? ''} onChange={e => setReps(prev => ({ ...prev, [item.id]: e.target.value }))} className="rounded-xl border border-gray-200 bg-white p-2 text-xs font-bold" placeholder="Reps feitas" />
@@ -461,7 +671,13 @@ export default function MeuTreinoPage() {
                       </div>
                     </article>
                   ))}
-                  <button onClick={() => concluirTreino(diaSelecionado)} className="w-full rounded-2xl bg-viva-roxo py-4 text-sm font-black text-white shadow-sm">Registrar treino concluido</button>
+                  <button
+                    onClick={() => concluirTreino(diaSelecionado)}
+                    disabled={treinosConcluidosNaSemana.has(diaSelecionado.id)}
+                    className="w-full rounded-2xl bg-viva-roxo py-4 text-sm font-black text-white shadow-sm disabled:bg-green-600 disabled:opacity-90"
+                  >
+                    {treinosConcluidosNaSemana.has(diaSelecionado.id) ? '✓ Treino concluido nesta semana' : 'Registrar treino concluido'}
+                  </button>
                 </div>
               ) : null}
             </section>
@@ -472,6 +688,48 @@ export default function MeuTreinoPage() {
           </>
         )}
       </main>
+
+      {tecnica && (
+        <div className="fixed inset-0 z-[160] flex items-end bg-black/55 p-0 md:items-center md:justify-center md:p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-tecnica">
+          <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl md:max-w-lg md:rounded-3xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-viva-verde">Tecnica avancada</p>
+                <h2 id="titulo-tecnica" className="mt-1 text-xl font-black text-gray-900">{tecnica.name}</h2>
+              </div>
+              <button type="button" onClick={() => setTecnica(null)} className="h-10 w-10 rounded-full bg-gray-100 text-sm font-black text-gray-600" aria-label="Fechar">x</button>
+            </div>
+            <p className="mt-4 whitespace-pre-line text-sm font-semibold leading-relaxed text-gray-600">{tecnica.instructions}</p>
+            <div className="mt-4 rounded-xl bg-yellow-50 p-3 text-xs font-bold leading-relaxed text-yellow-800">
+              Tecnicas avancadas elevam bastante o esforco. Use apenas quando prescritas e interrompa a serie se perder a postura ou sentir dor.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {substituto && (
+        <div className="fixed inset-0 z-[160] flex items-end bg-black/55 p-0 md:items-center md:justify-center md:p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-substituto">
+          <div className="max-h-[90vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl md:max-w-lg md:rounded-3xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-green-600">Exercicio substituto</p>
+                <h2 id="titulo-substituto" className="mt-1 text-xl font-black text-gray-900">{substituto.name}</h2>
+              </div>
+              <button type="button" onClick={() => setSubstituto(null)} className="h-10 w-10 rounded-full bg-gray-100 text-sm font-black text-gray-600" aria-label="Fechar">x</button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-bold">
+              <div className="rounded-xl bg-gray-50 p-3"><span className="block text-gray-400">Grupo muscular</span><b className="text-gray-900">{substituto.primary_muscle_group}</b></div>
+              <div className="rounded-xl bg-gray-50 p-3"><span className="block text-gray-400">Equipamento</span><b className="text-gray-900">{substituto.equipment || 'Peso corporal'}</b></div>
+            </div>
+            <p className="mt-4 text-sm font-semibold leading-relaxed text-gray-600">
+              {substituto.instructions || 'Mantenha as mesmas series, repeticoes e descanso prescritos para o exercicio original.'}
+            </p>
+            <button type="button" onClick={() => { setSubstituto(null); setVideo(substituto); }} className="mt-5 w-full rounded-2xl bg-viva-verde py-3 text-sm font-black text-viva-roxo">
+              Ver demonstracao
+            </button>
+          </div>
+        </div>
+      )}
 
       {video && (
         <div className="fixed inset-0 z-[150] flex items-end bg-black/50 md:items-center md:justify-center">

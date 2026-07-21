@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const [{ data: catalog, error: catalogError }, { data: history, error: historyError }] = await Promise.all([
       supabase
         .from('exercise_catalog')
-        .select('id,name,primary_muscle_group,secondary_muscle_groups,environment,equipment,movement_pattern,technical_level,unilateral,instructions,precautions,video_url,video_thumbnail_url')
+        .select('id,name,primary_muscle_group,secondary_muscle_groups,environment,equipment,movement_pattern,technical_level,unilateral,instructions,precautions,similarity_group,video_url,video_thumbnail_url')
         .eq('is_active', true),
       supabase
         .from('training_plans')
@@ -158,6 +158,7 @@ export async function POST(request: NextRequest) {
       const exercises = day.exercises.map(exercise => ({
         training_day_id: savedDay.id,
         exercise_id: exercise.exerciseId,
+        substitute_exercise_id: exercise.substituteExerciseId ?? null,
         order_index: exercise.order,
         sets: exercise.sets,
         repetition_min: exercise.repetitionMin,

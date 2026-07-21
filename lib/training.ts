@@ -13,6 +13,7 @@ export interface ExerciseCatalogItem {
   unilateral?: boolean | null;
   instructions?: string | null;
   precautions?: string | null;
+  similarity_group?: string | null;
   video_url?: string | null;
   video_thumbnail_url?: string | null;
 }
@@ -29,6 +30,7 @@ export interface TrainingProfileInput {
 
 export interface ExercisePrescription {
   exerciseId: number;
+  substituteExerciseId?: number | null;
   order: number;
   sets: number;
   repetitionMin: number;
@@ -84,7 +86,7 @@ const NEXT_LEVEL: Record<TrainingLevel, TrainingLevel> = {
 
 export const TRAINING_SETTINGS = {
   minAdherencePercentage: 70,
-  generationVersion: 'treino-v1',
+  generationVersion: 'treino-v2',
 };
 
 function normalize(value: unknown) {
@@ -148,17 +150,25 @@ function pick(
   pool: ExerciseCatalogItem[],
   used: Set<number>,
   group: string,
-  options: { movement?: string[]; fallbackGroups?: string[] } = {},
+  options: { movement?: string[]; fallbackGroups?: string[]; usedSimilarityGroups?: Set<string> } = {},
 ) {
   const groups = [group, ...(options.fallbackGroups ?? [])];
   const byGroup = pool.filter(item => groups.some(g => normalize(item.primary_muscle_group).includes(normalize(g))));
   const byMovement = options.movement?.length
     ? byGroup.filter(item => includesAny(item.movement_pattern, options.movement ?? []))
     : byGroup;
-  const candidates = (byMovement.length ? byMovement : byGroup).filter(item => !used.has(item.id));
-  const selected = candidates[0] ?? byMovement[0] ?? byGroup[0] ?? pool.find(item => !used.has(item.id)) ?? pool[0];
+  const isAvailable = (item: ExerciseCatalogItem) =>
+    !used.has(item.id) &&
+    (!item.similarity_group || !options.usedSimilarityGroups?.has(item.similarity_group));
+  const selected = byMovement.find(isAvailable) ??
+    byGroup.find(isAvailable) ??
+    pool.find(isAvailable) ??
+    byMovement.find(item => !used.has(item.id)) ??
+    byGroup.find(item => !used.has(item.id)) ??
+    pool.find(item => !used.has(item.id));
   if (!selected) return null;
   used.add(selected.id);
+  if (selected.similarity_group) options.usedSimilarityGroups?.add(selected.similarity_group);
   return selected;
 }
 
@@ -185,6 +195,22 @@ function prescribed(exercise: ExerciseCatalogItem | null, order: number, level: 
 
 function compactExercises(items: Array<ExercisePrescription | null>) {
   return items.filter(Boolean).map((item, index) => ({ ...(item as ExercisePrescription), order: index + 1 }));
+}
+
+function finalizeExercises(items: Array<ExercisePrescription | null>, pool: ExerciseCatalogItem[]) {
+  const exercises = compactExercises(items);
+  const selectedIds = new Set(exercises.map(item => item.exerciseId));
+  return exercises.map(item => {
+    const original = pool.find(exercise => exercise.id === item.exerciseId);
+    if (!original?.similarity_group) return item;
+    const substitute = pool.find(exercise =>
+      exercise.id !== original.id &&
+      !selectedIds.has(exercise.id) &&
+      exercise.similarity_group === original.similarity_group &&
+      normalize(exercise.equipment) !== normalize(original.equipment),
+    );
+    return { ...item, substituteExerciseId: substitute?.id ?? null };
+  });
 }
 
 export function classifyTrainingLevel(input: TrainingProfileInput, history: Array<{ level: string; status: string }> = []): TrainingLevel {
@@ -230,11 +256,12 @@ function beginnerDays(pool: ExerciseCatalogItem[], level: TrainingLevel): Traini
     { code: 'D', extra: ['Panturrilhas', 'Ombros', 'Triceps'], back: ['Puxar horizontal'] },
   ];
   return spec.map((day, dayIndex) => {
-    const exercises = compactExercises([
-      prescribed(pick(pool, used, 'Quadriceps', { fallbackGroups: ['Gluteos'] }), 1, level),
-      prescribed(pick(pool, used, 'Costas', { movement: day.back }), 2, level),
-      ...day.extra.map((group, idx) => prescribed(pick(pool, used, group), idx + 3, level)),
-    ]);
+    const usedSimilarityGroups = new Set<string>();
+    const exercises = finalizeExercises([
+      prescribed(pick(pool, used, 'Quadriceps', { fallbackGroups: ['Gluteos'], usedSimilarityGroups }), 1, level),
+      prescribed(pick(pool, used, 'Costas', { movement: day.back, usedSimilarityGroups }), 2, level),
+      ...day.extra.map((group, idx) => prescribed(pick(pool, used, group, { usedSimilarityGroups }), idx + 3, level)),
+    ], pool);
     return {
       code: day.code,
       title: `Treino ${day.code}`,
@@ -253,17 +280,22 @@ function beginnerPlusDays(pool: ExerciseCatalogItem[], level: TrainingLevel): Tr
     { code: 'C', focus: 'Inferiores - posteriores e panturrilhas', groups: ['Posteriores de coxa', 'Posteriores de coxa', 'Posteriores de coxa', 'Panturrilhas', 'Panturrilhas'] },
     { code: 'D', focus: 'Superiores - costas e biceps', groups: ['Costas', 'Costas', 'Costas', 'Costas', 'Biceps'] },
   ];
-  return specs.map(spec => ({
+  return specs.map(spec => {
+    const usedSimilarityGroups = new Set<string>();
+    return {
     code: spec.code,
     title: `Treino ${spec.code}`,
     focus: spec.focus,
     recommendedWeekdays: [],
-    exercises: compactExercises(spec.groups.map((group, index) => prescribed(
-      pick(pool, used, group, group === 'Costas' ? { movement: index % 2 === 0 ? ['Puxar vertical'] : ['Puxar horizontal'] } : {}),
+    exercises: finalizeExercises(spec.groups.map((group, index) => prescribed(
+      pick(pool, used, group, group === 'Costas'
+        ? { movement: index % 2 === 0 ? ['Puxar vertical'] : ['Puxar horizontal'], usedSimilarityGroups }
+        : { usedSimilarityGroups }),
       index + 1,
       level,
-    ))),
-  }));
+    )), pool),
+    };
+  });
 }
 
 function splitDays(pool: ExerciseCatalogItem[], level: TrainingLevel, profile: TrainingProfileInput): TrainingDayPlan[] {
@@ -287,21 +319,30 @@ function splitDays(pool: ExerciseCatalogItem[], level: TrainingLevel, profile: T
         { code: 'D', focus: 'Inferiores - posteriores e core', groups: ['Posteriores de coxa', 'Posteriores de coxa', 'Gluteos', 'Core', 'Core'] },
       ];
 
-  return specs.map(spec => ({
+  return specs.map(spec => {
+    const usedSimilarityGroups = new Set<string>();
+    return {
     code: spec.code,
     title: `Treino ${spec.code}`,
     focus: spec.focus,
     recommendedWeekdays: [],
-    exercises: compactExercises(spec.groups.map((group, index) => {
-      const exercise = prescribed(pick(pool, used, group, group === 'Costas' ? { movement: index % 2 === 0 ? ['Puxar vertical'] : ['Puxar horizontal'] } : {}), index + 1, level, {
+    exercises: finalizeExercises(spec.groups.map((group, index) => {
+      const exercise = prescribed(pick(pool, used, group, group === 'Costas'
+        ? { movement: index % 2 === 0 ? ['Puxar vertical'] : ['Puxar horizontal'], usedSimilarityGroups }
+        : { usedSimilarityGroups }), index + 1, level, {
         sets: level === 'avancado' && profile.priorityMuscleGroup && normalize(group).includes(normalize(profile.priorityMuscleGroup)) ? 4 : 3,
       });
       if (level === 'avancado' && exercise && index === 0 && !includesAny(exercise.notes, ['restricao'])) {
-        return { ...exercise, advancedTechnique: 'Drop-set', advancedTechniqueInstructions: 'Aplicar apenas na ultima serie, em maquina/cabo quando possivel.' };
+        return {
+          ...exercise,
+          advancedTechnique: 'Drop-set',
+          advancedTechniqueInstructions: 'Na ultima serie, execute ate a falha tecnica, reduza a carga em 20% a 30% sem descanso e continue ate uma nova falha. Repita a reducao no maximo de uma a tres vezes, mantendo boa postura.',
+        };
       }
       return exercise;
-    })),
-  }));
+    }), pool),
+    };
+  });
 }
 
 function isLowerBodyDay(day: TrainingDayPlan, catalogById: Map<number, ExerciseCatalogItem>) {
@@ -322,10 +363,16 @@ export function validateTrainingPlan(plan: TrainingPlanDraft, catalog: ExerciseC
   for (const day of plan.days) {
     if (!day.exercises.length) errors.push(`${day.title} sem exercicios.`);
     const seen = new Set<number>();
+    const seenSimilarityGroups = new Set<string>();
     for (const exercise of day.exercises) {
       if (!ids.has(exercise.exerciseId)) errors.push(`Exercicio inexistente no catalogo: ${exercise.exerciseId}.`);
       if (seen.has(exercise.exerciseId)) errors.push(`Exercicio duplicado no ${day.title}: ${exercise.exerciseId}.`);
       seen.add(exercise.exerciseId);
+      const similarityGroup = catalogById.get(exercise.exerciseId)?.similarity_group;
+      if (similarityGroup && seenSimilarityGroups.has(similarityGroup)) {
+        errors.push(`Exercicios similares no ${day.title}: ${similarityGroup}.`);
+      }
+      if (similarityGroup) seenSimilarityGroups.add(similarityGroup);
       if (plan.level !== 'avancado' && exercise.advancedTechnique) errors.push('Tecnica avancada usada fora do nivel avancado.');
       if (profile.age >= 45 && exercise.sets > 4) errors.push('Volume por exercicio acima do recomendado para usuario 45+.');
     }
