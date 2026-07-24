@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../../supabase';
 import Logo from '../../components/Logo';
 import BottomNav from '../../components/BottomNav';
+import { getAdvancedTechniqueInstructions } from '../../lib/trainingTechniques';
 
 type ToastTipo = 'sucesso' | 'erro' | 'info';
 
@@ -107,15 +108,6 @@ const FORM_INICIAL: TrainingProfile = {
 
 const GOALS = ['Manutencao da saude', 'Emagrecimento', 'Ganho de massa muscular'];
 const PRIORIDADES = ['Peitoral', 'Costas', 'Ombros', 'Biceps', 'Triceps', 'Quadriceps', 'Gluteos', 'Posteriores de coxa', 'Panturrilhas', 'Abdomen'];
-const INSTRUCOES_TECNICAS: Record<string, string> = {
-  'drop-set': `O drop set e uma tecnica avancada de musculacao em que voce executa uma serie ate a falha muscular, reduz a carga rapidamente, geralmente entre 20% e 30%, e continua o exercicio sem descanso.
-
-1º Como fazer: escolha um peso desafiador e faca o movimento ate nao conseguir realizar outra repeticao com boa postura, atingindo a falha concentrica.
-
-2º Reducao: imediatamente, reduza a carga em cerca de 20% a 30%, retirando anilhas ou mudando o pino da maquina.
-
-3º Continuacao: faca uma nova serie com a carga mais leve ate atingir novamente a falha. A reducao pode ser repetida de uma a tres vezes na mesma serie.`,
-};
 
 let toastId = 0;
 
@@ -168,6 +160,12 @@ function repeticoesTotais(valor: string | null | undefined, sets: number) {
 
 function formatarCompacto(valor: number) {
   return new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(valor);
+}
+
+function formatarRotuloGrafico(valor: number) {
+  if (valor >= 1_000_000) return `${(valor / 1_000_000).toFixed(valor >= 10_000_000 ? 0 : 1).replace('.', ',')} mi`;
+  if (valor >= 1_000) return `${(valor / 1_000).toFixed(valor >= 10_000 ? 0 : 1).replace('.', ',')} mil`;
+  return Math.round(valor).toLocaleString('pt-BR');
 }
 
 function normalizarErro(error: any) {
@@ -598,20 +596,26 @@ export default function MeuTreinoPage() {
                             <p className="text-[10px] font-bold uppercase text-gray-400">volume</p>
                           </div>
                         </div>
-                        <div className="mt-4 flex h-28 items-end gap-1.5" aria-label={`Volume de ${group} nas ultimas 12 semanas`}>
-                          {dashboard.weeks.map(weekItem => {
-                            const value = weekItem.volume[group] || 0;
-                            const height = value ? Math.max(8, Math.round((value / maxVolume) * 100)) : 3;
-                            return (
-                              <div key={weekItem.start.toISOString()} className="group relative flex h-full min-w-0 flex-1 items-end">
-                                <div
-                                  className={`w-full rounded-t bg-viva-roxo transition hover:bg-viva-verde ${value ? '' : 'opacity-15'}`}
-                                  style={{ height: `${height}%` }}
-                                  title={`Semana ${weekItem.number}: ${formatarCompacto(value)} kg`}
-                                />
-                              </div>
-                            );
-                          })}
+                        <div className="mt-4 overflow-x-auto pb-1">
+                          <div className="flex h-32 min-w-[620px] items-end gap-2 pt-5" aria-label={`Volume de ${group} nas ultimas 12 semanas`}>
+                            {dashboard.weeks.map(weekItem => {
+                              const value = weekItem.volume[group] || 0;
+                              const height = value ? Math.max(8, Math.round((value / maxVolume) * 100)) : 3;
+                              return (
+                                <div key={weekItem.start.toISOString()} className="flex h-full min-w-0 flex-1 items-end">
+                                  <div
+                                    className={`relative w-full rounded-t bg-viva-roxo transition hover:bg-viva-verde ${value ? '' : 'opacity-15'}`}
+                                    style={{ height: `${height}%` }}
+                                    title={`Semana ${weekItem.number}: ${formatarCompacto(value)} kg`}
+                                  >
+                                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-black text-gray-600">
+                                      {formatarRotuloGrafico(value)}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                         <div className="mt-1 flex justify-between text-[9px] font-bold text-gray-400"><span>12 sem.</span><span>Atual</span></div>
                       </section>
@@ -645,7 +649,7 @@ export default function MeuTreinoPage() {
                               type="button"
                               onClick={() => {
                                 const name = item.advanced_technique || 'Tecnica avancada';
-                                setTecnica({ name, instructions: INSTRUCOES_TECNICAS[name.toLowerCase()] || item.advanced_technique_instructions || '' });
+                                setTecnica({ name, instructions: getAdvancedTechniqueInstructions(name) || item.advanced_technique_instructions || '' });
                               }}
                               className="mt-2 rounded-lg bg-purple-50 px-3 py-2 text-left text-xs font-black text-viva-roxo hover:bg-purple-100"
                             >

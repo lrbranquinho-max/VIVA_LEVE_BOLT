@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const [{ data: catalog, error: catalogError }, { data: history, error: historyError }] = await Promise.all([
       supabase
         .from('exercise_catalog')
-        .select('id,name,primary_muscle_group,secondary_muscle_groups,environment,equipment,movement_pattern,technical_level,unilateral,instructions,precautions,similarity_group,video_url,video_thumbnail_url')
+        .select('id,name,primary_muscle_group,secondary_muscle_groups,environment,equipment,movement_pattern,technical_level,unilateral,instructions,precautions,similarity_group,is_compound,exercise_order_priority,audience,advanced_technique_tags,video_url,video_thumbnail_url')
         .eq('is_active', true),
       supabase
         .from('training_plans')
@@ -101,11 +101,12 @@ export async function POST(request: NextRequest) {
 
     if (profileError) throw profileError;
 
-    await supabase
+    const { error: archiveError } = await supabase
       .from('training_plans')
       .update({ status: 'archived', updated_at: new Date().toISOString() })
       .eq('user_id', userId)
       .eq('status', 'active');
+    if (archiveError) throw archiveError;
 
     const inicio = startDate();
     const { data: plan, error: planError } = await supabase
@@ -138,25 +139,26 @@ export async function POST(request: NextRequest) {
 
     if (planError) throw planError;
 
-    for (let dayIndex = 0; dayIndex < draft.days.length; dayIndex += 1) {
-      const day = draft.days[dayIndex];
-      const { data: savedDay, error: dayError } = await supabase
-        .from('training_days')
-        .insert({
+    const { data: savedDays, error: daysError } = await supabase
+      .from('training_days')
+      .insert(draft.days.map((day, dayIndex) => ({
           training_plan_id: plan.id,
           code: day.code,
           title: day.title,
           order_index: dayIndex + 1,
           focus: day.focus,
           recommended_weekdays: day.recommendedWeekdays,
-        })
-        .select('*')
-        .single();
+        })))
+      .select('id,code');
+    if (daysError) throw daysError;
+    if (!savedDays || savedDays.length !== draft.days.length) throw new Error('Falha ao gravar todos os dias do plano.');
 
-      if (dayError) throw dayError;
-
-      const exercises = day.exercises.map(exercise => ({
-        training_day_id: savedDay.id,
+    const dayIdByCode = new Map(savedDays.map(day => [day.code, day.id]));
+    const exercises = draft.days.flatMap(day => {
+      const trainingDayId = dayIdByCode.get(day.code);
+      if (!trainingDayId) throw new Error(`Dia ${day.code} nao retornado apos gravacao.`);
+      return day.exercises.map(exercise => ({
+        training_day_id: trainingDayId,
         exercise_id: exercise.exerciseId,
         substitute_exercise_id: exercise.substituteExerciseId ?? null,
         order_index: exercise.order,
@@ -170,7 +172,8 @@ export async function POST(request: NextRequest) {
         advanced_technique_instructions: exercise.advancedTechniqueInstructions,
         notes: exercise.notes,
       }));
-
+    });
+    if (exercises.length) {
       const { error: exercisesError } = await supabase.from('training_day_exercises').insert(exercises);
       if (exercisesError) throw exercisesError;
     }

@@ -1,3 +1,5 @@
+import { ADVANCED_TECHNIQUES, type AdvancedTechniqueKey } from './trainingTechniques';
+
 export type TrainingLevel = 'iniciante' | 'iniciante_plus' | 'intermediario' | 'avancado';
 export type TrainingLocation = 'academia' | 'casa';
 
@@ -14,6 +16,10 @@ export interface ExerciseCatalogItem {
   instructions?: string | null;
   precautions?: string | null;
   similarity_group?: string | null;
+  is_compound?: boolean | null;
+  exercise_order_priority?: number | null;
+  audience?: 'todos' | 'feminino' | 'masculino' | null;
+  advanced_technique_tags?: string[] | unknown;
   video_url?: string | null;
   video_thumbnail_url?: string | null;
 }
@@ -86,8 +92,9 @@ const NEXT_LEVEL: Record<TrainingLevel, TrainingLevel> = {
 
 export const TRAINING_SETTINGS = {
   minAdherencePercentage: 70,
-  generationVersion: 'treino-v2',
+  generationVersion: 'treino-v3',
 };
+const ADVANCED_TECHNIQUE_SEQUENCE: AdvancedTechniqueKey[] = ['drop-set', 'rest-pause', 'sst'];
 
 function normalize(value: unknown) {
   return String(value ?? '')
@@ -142,6 +149,7 @@ function eligible(catalog: ExerciseCatalogItem[], profile: TrainingProfileInput,
     exercise.id &&
     environmentMatches(exercise, profile.trainingLocation) &&
     levelMatches(exercise, level) &&
+    (!exercise.audience || exercise.audience === 'todos' || exercise.audience === profile.sex) &&
     !restrictionMatches(exercise, profile.restrictionsText),
   );
 }
@@ -198,10 +206,17 @@ function compactExercises(items: Array<ExercisePrescription | null>) {
 }
 
 function finalizeExercises(items: Array<ExercisePrescription | null>, pool: ExerciseCatalogItem[]) {
-  const exercises = compactExercises(items);
+  const catalogById = new Map(pool.map(item => [item.id, item]));
+  const exercises = compactExercises(items)
+    .sort((left, right) => {
+      const leftPriority = Number(catalogById.get(left.exerciseId)?.exercise_order_priority ?? 50);
+      const rightPriority = Number(catalogById.get(right.exerciseId)?.exercise_order_priority ?? 50);
+      return leftPriority - rightPriority || left.order - right.order;
+    })
+    .map((item, index) => ({ ...item, order: index + 1 }));
   const selectedIds = new Set(exercises.map(item => item.exerciseId));
   return exercises.map(item => {
-    const original = pool.find(exercise => exercise.id === item.exerciseId);
+    const original = catalogById.get(item.exerciseId);
     if (!original?.similarity_group) return item;
     const substitute = pool.find(exercise =>
       exercise.id !== original.id &&
@@ -211,6 +226,39 @@ function finalizeExercises(items: Array<ExercisePrescription | null>, pool: Exer
     );
     return { ...item, substituteExerciseId: substitute?.id ?? null };
   });
+}
+
+function techniqueTags(exercise?: ExerciseCatalogItem) {
+  const tags = exercise?.advanced_technique_tags;
+  return Array.isArray(tags)
+    ? tags.map(item => normalize(item))
+    : [];
+}
+
+function applyAdvancedTechnique(
+  exercises: ExercisePrescription[],
+  pool: ExerciseCatalogItem[],
+  techniqueKey: AdvancedTechniqueKey,
+) {
+  const catalogById = new Map(pool.map(item => [item.id, item]));
+  const indexes = exercises
+    .map((item, index) => ({ index, item, catalog: catalogById.get(item.exerciseId) }))
+    .filter(({ catalog }) => techniqueTags(catalog).includes(techniqueKey));
+  if (!indexes.length) return exercises;
+
+  const sstIndexes = techniqueKey === 'sst'
+    ? indexes.filter(({ index, catalog }) => !exercises.slice(index + 1).some(item =>
+        normalize(catalogById.get(item.exerciseId)?.primary_muscle_group) === normalize(catalog?.primary_muscle_group),
+      ))
+    : indexes;
+  const candidates = sstIndexes.length ? sstIndexes : indexes;
+  const selected = techniqueKey === 'rest-pause' ? candidates[0] : candidates[candidates.length - 1];
+  const technique = ADVANCED_TECHNIQUES[techniqueKey];
+  return exercises.map((item, index) => index === selected.index ? {
+    ...item,
+    advancedTechnique: technique.label,
+    advancedTechniqueInstructions: technique.instructions,
+  } : item);
 }
 
 export function classifyTrainingLevel(input: TrainingProfileInput, history: Array<{ level: string; status: string }> = []): TrainingLevel {
@@ -319,28 +367,25 @@ function splitDays(pool: ExerciseCatalogItem[], level: TrainingLevel, profile: T
         { code: 'D', focus: 'Inferiores - posteriores e core', groups: ['Posteriores de coxa', 'Posteriores de coxa', 'Gluteos', 'Core', 'Core'] },
       ];
 
-  return specs.map(spec => {
+  return specs.map((spec, dayIndex) => {
     const usedSimilarityGroups = new Set<string>();
     return {
     code: spec.code,
     title: `Treino ${spec.code}`,
     focus: spec.focus,
     recommendedWeekdays: [],
-    exercises: finalizeExercises(spec.groups.map((group, index) => {
-      const exercise = prescribed(pick(pool, used, group, group === 'Costas'
+    exercises: (() => {
+      const exercises = finalizeExercises(spec.groups.map((group, index) => {
+        return prescribed(pick(pool, used, group, group === 'Costas'
         ? { movement: index % 2 === 0 ? ['Puxar vertical'] : ['Puxar horizontal'], usedSimilarityGroups }
         : { usedSimilarityGroups }), index + 1, level, {
-        sets: level === 'avancado' && profile.priorityMuscleGroup && normalize(group).includes(normalize(profile.priorityMuscleGroup)) ? 4 : 3,
-      });
-      if (level === 'avancado' && exercise && index === 0 && !includesAny(exercise.notes, ['restricao'])) {
-        return {
-          ...exercise,
-          advancedTechnique: 'Drop-set',
-          advancedTechniqueInstructions: 'Na ultima serie, execute ate a falha tecnica, reduza a carga em 20% a 30% sem descanso e continue ate uma nova falha. Repita a reducao no maximo de uma a tres vezes, mantendo boa postura.',
-        };
-      }
-      return exercise;
-    }), pool),
+          sets: level === 'avancado' && profile.priorityMuscleGroup && normalize(group).includes(normalize(profile.priorityMuscleGroup)) ? 4 : 3,
+        });
+      }), pool);
+      return level === 'avancado'
+        ? applyAdvancedTechnique(exercises, pool, ADVANCED_TECHNIQUE_SEQUENCE[dayIndex % ADVANCED_TECHNIQUE_SEQUENCE.length])
+        : exercises;
+    })(),
     };
   });
 }
@@ -364,6 +409,8 @@ export function validateTrainingPlan(plan: TrainingPlanDraft, catalog: ExerciseC
     if (!day.exercises.length) errors.push(`${day.title} sem exercicios.`);
     const seen = new Set<number>();
     const seenSimilarityGroups = new Set<string>();
+    let previousPriority = -Infinity;
+    let advancedTechniqueCount = 0;
     for (const exercise of day.exercises) {
       if (!ids.has(exercise.exerciseId)) errors.push(`Exercicio inexistente no catalogo: ${exercise.exerciseId}.`);
       if (seen.has(exercise.exerciseId)) errors.push(`Exercicio duplicado no ${day.title}: ${exercise.exerciseId}.`);
@@ -373,9 +420,24 @@ export function validateTrainingPlan(plan: TrainingPlanDraft, catalog: ExerciseC
         errors.push(`Exercicios similares no ${day.title}: ${similarityGroup}.`);
       }
       if (similarityGroup) seenSimilarityGroups.add(similarityGroup);
+      const catalogExercise = catalogById.get(exercise.exerciseId);
+      const orderPriority = Number(catalogExercise?.exercise_order_priority ?? 50);
+      if (orderPriority < previousPriority) errors.push(`Ordem de exercicios invalida no ${day.title}.`);
+      previousPriority = orderPriority;
+      if (catalogExercise?.audience && catalogExercise.audience !== 'todos' && catalogExercise.audience !== profile.sex) {
+        errors.push(`Exercicio incompativel com o publico no ${day.title}: ${catalogExercise.name}.`);
+      }
+      if (exercise.advancedTechnique) {
+        advancedTechniqueCount += 1;
+        const technique = Object.entries(ADVANCED_TECHNIQUES).find(([, item]) => item.label === exercise.advancedTechnique);
+        if (!technique || !techniqueTags(catalogExercise).includes(technique[0])) {
+          errors.push(`Tecnica avancada incompativel com ${catalogExercise?.name ?? exercise.exerciseId}.`);
+        }
+      }
       if (plan.level !== 'avancado' && exercise.advancedTechnique) errors.push('Tecnica avancada usada fora do nivel avancado.');
       if (profile.age >= 45 && exercise.sets > 4) errors.push('Volume por exercicio acima do recomendado para usuario 45+.');
     }
+    if (advancedTechniqueCount > 1) errors.push(`Mais de uma tecnica avancada no ${day.title}.`);
   }
   return errors;
 }
