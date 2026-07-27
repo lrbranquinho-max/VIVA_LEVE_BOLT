@@ -96,6 +96,18 @@ interface TrainingProfile {
   priorityMuscleGroup: string;
 }
 
+interface TrainerPlanInvitation {
+  id: string;
+  trainer_name: string;
+  sent_at: string;
+  trainer_plan_templates?: {
+    name: string;
+    level: string;
+    duration_weeks: number;
+    weekly_frequency: number;
+  } | null;
+}
+
 const FORM_INICIAL: TrainingProfile = {
   sex: 'masculino',
   age: '',
@@ -188,6 +200,8 @@ export default function MeuTreinoPage() {
   const [toasts, setToasts] = useState<Array<{ id: number; texto: string; tipo: ToastTipo }>>([]);
   const [cargas, setCargas] = useState<Record<string, string>>({});
   const [reps, setReps] = useState<Record<string, string>>({});
+  const [trainerInvitations, setTrainerInvitations] = useState<TrainerPlanInvitation[]>([]);
+  const [respondingInvitation, setRespondingInvitation] = useState<string | null>(null);
 
   const toast = useCallback((texto: string, tipo: ToastTipo = 'info') => {
     const id = ++toastId;
@@ -221,6 +235,18 @@ export default function MeuTreinoPage() {
           priorityMuscleGroup: profile.priority_muscle_group ?? '',
         });
       }
+
+      const { data: invitationData, error: invitationError } = await supabase
+        .from('trainer_plan_assignments')
+        .select(`
+          id, trainer_name, sent_at,
+          trainer_plan_templates (name, level, duration_weeks, weekly_frequency)
+        `)
+        .eq('student_id', user.id)
+        .eq('status', 'pending')
+        .order('sent_at', { ascending: false });
+      if (invitationError) throw invitationError;
+      setTrainerInvitations((invitationData ?? []) as unknown as TrainerPlanInvitation[]);
 
       const { data, error } = await supabase
         .from('training_plans')
@@ -275,6 +301,28 @@ export default function MeuTreinoPage() {
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  const responderConviteTreinador = async (invitationId: string, response: 'accepted' | 'rejected') => {
+    setRespondingInvitation(invitationId);
+    try {
+      const { error } = await supabase.rpc('respond_trainer_plan_assignment', {
+        target_assignment_id: invitationId,
+        response,
+      });
+      if (error) throw error;
+      toast(
+        response === 'accepted'
+          ? 'Treino aceito e ativado com sucesso.'
+          : 'Treino recusado. Seu plano atual foi mantido.',
+        'sucesso',
+      );
+      await carregar();
+    } catch (error: any) {
+      toast(`Erro ao responder treino: ${normalizarErro(error)}`, 'erro');
+    } finally {
+      setRespondingInvitation(null);
+    }
+  };
 
   const diaSelecionado = useMemo(() => plano?.training_days.find(day => day.code === aba), [plano, aba]);
   const week = plano ? semanaAtual(plano) : 1;
@@ -453,6 +501,44 @@ export default function MeuTreinoPage() {
       </header>
 
       <main className="space-y-4 p-4 md:p-6">
+        {!carregando && trainerInvitations.map(invitation => (
+          <section key={invitation.id} className="overflow-hidden rounded-2xl border-2 border-viva-verde bg-white shadow-sm">
+            <div className="bg-viva-verde p-4 text-viva-roxo">
+              <p className="text-xs font-black uppercase tracking-wider">Novo plano recebido</p>
+              <h2 className="mt-1 text-xl font-black">{invitation.trainer_plan_templates?.name ?? 'Plano personalizado'}</h2>
+            </div>
+            <div className="p-4">
+              <div className="grid gap-2 text-sm sm:grid-cols-2">
+                <p><span className="font-bold text-gray-400">Treinador:</span> <b>{invitation.trainer_name}</b></p>
+                <p><span className="font-bold text-gray-400">Enviado:</span> <b>{new Date(invitation.sent_at).toLocaleDateString('pt-BR')}</b></p>
+                <p><span className="font-bold text-gray-400">Nível:</span> <b>{invitation.trainer_plan_templates?.level ?? 'Personalizado'}</b></p>
+                <p><span className="font-bold text-gray-400">Estrutura:</span> <b>{invitation.trainer_plan_templates?.weekly_frequency ?? '-'}x por semana · {invitation.trainer_plan_templates?.duration_weeks ?? '-'} semanas</b></p>
+              </div>
+              <p className="mt-3 text-xs font-semibold leading-relaxed text-gray-500">
+                Seu treino atual só será substituído se você aceitar este plano.
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  disabled={respondingInvitation === invitation.id}
+                  onClick={() => responderConviteTreinador(invitation.id, 'rejected')}
+                  className="rounded-xl border border-red-200 px-4 py-3 text-sm font-black text-red-600 disabled:opacity-50"
+                >
+                  Rejeitar treino
+                </button>
+                <button
+                  type="button"
+                  disabled={respondingInvitation === invitation.id}
+                  onClick={() => responderConviteTreinador(invitation.id, 'accepted')}
+                  className="rounded-xl bg-viva-roxo px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+                >
+                  {respondingInvitation === invitation.id ? 'Processando...' : 'Aceitar treino'}
+                </button>
+              </div>
+            </div>
+          </section>
+        ))}
+
         {carregando ? (
           <div className="rounded-2xl bg-white p-8 text-center text-sm font-bold text-gray-400 shadow-sm">Carregando treino...</div>
         ) : !plano ? (
@@ -531,6 +617,11 @@ export default function MeuTreinoPage() {
                 <p className="mt-2 text-sm font-bold text-white/75">
                   Semana {week} de {plano.duration_weeks} - {plano.weekly_frequency} treinos por semana
                 </p>
+                {plano.generation_payload?.source === 'trainer' && (
+                  <p className="mt-1 text-xs font-bold text-viva-verde">
+                    Prescrito por {plano.generation_payload?.trainer_name ?? 'seu treinador'}
+                  </p>
+                )}
                 <div className="mt-4 h-3 overflow-hidden rounded-full bg-white/20">
                   <div className="h-full rounded-full bg-viva-verde" style={{ width: `${progresso}%` }} />
                 </div>
@@ -541,6 +632,12 @@ export default function MeuTreinoPage() {
                 <div className="rounded-xl bg-gray-50 p-3"><span className="block text-gray-400">Progressao</span><b className="text-gray-900">{formatarData(plano.expected_end_date)}</b></div>
                 <div className="rounded-xl bg-gray-50 p-3"><span className="block text-gray-400">Status</span><b className="text-gray-900">{plano.status}</b></div>
               </div>
+              {plano.generation_payload?.source === 'trainer' && (plano.generation_payload?.schedule_notes || plano.generation_payload?.general_notes) && (
+                <div className="border-t border-gray-100 p-4 text-sm font-semibold leading-relaxed text-gray-600">
+                  {plano.generation_payload?.schedule_notes && <p><b className="text-gray-900">Treino e descanso:</b> {plano.generation_payload.schedule_notes}</p>}
+                  {plano.generation_payload?.general_notes && <p className="mt-2"><b className="text-gray-900">Orientações:</b> {plano.generation_payload.general_notes}</p>}
+                </div>
+              )}
             </section>
 
             <section className="rounded-2xl bg-white p-4 shadow-sm">
@@ -558,10 +655,16 @@ export default function MeuTreinoPage() {
               {aba === 'CARDIO' ? (
                 <div className="mt-4 rounded-2xl bg-viva-verde/10 p-4 text-sm font-bold text-gray-700">
                   <p className="text-lg font-black text-viva-roxo">Cardio</p>
-                  <p className="mt-2">{plano.cardio_payload?.durationMinutes ?? 30} minutos, {plano.cardio_payload?.sessionsPerWeek ?? 4}x por semana.</p>
-                  <p className="mt-1">Modalidades: {(plano.cardio_payload?.modalities ?? ['Esteira', 'Eliptico', 'Bicicleta']).join(', ')}.</p>
-                  <p className="mt-1">FC estimada: {plano.cardio_payload?.heartRateMin} a {plano.cardio_payload?.heartRateMax} bpm.</p>
-                  <p className="mt-2 text-xs text-gray-500">{plano.cardio_payload?.note}</p>
+                  {plano.cardio_payload?.source === 'trainer' ? (
+                    <p className="mt-2 whitespace-pre-line">{plano.cardio_payload?.recommendations || 'O treinador não prescreveu cardio para este plano.'}</p>
+                  ) : (
+                    <>
+                      <p className="mt-2">{plano.cardio_payload?.durationMinutes ?? 30} minutos, {plano.cardio_payload?.sessionsPerWeek ?? 4}x por semana.</p>
+                      <p className="mt-1">Modalidades: {(plano.cardio_payload?.modalities ?? ['Esteira', 'Eliptico', 'Bicicleta']).join(', ')}.</p>
+                      <p className="mt-1">FC estimada: {plano.cardio_payload?.heartRateMin} a {plano.cardio_payload?.heartRateMax} bpm.</p>
+                      <p className="mt-2 text-xs text-gray-500">{plano.cardio_payload?.note}</p>
+                    </>
+                  )}
                 </div>
               ) : aba === 'DASH' ? (
                 <div className="mt-4 space-y-4">

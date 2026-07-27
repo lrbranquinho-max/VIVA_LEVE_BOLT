@@ -1271,6 +1271,13 @@ export default function AdminPage() {
               <span className="block text-sm font-black">Planos Nutri</span>
               <span className="mt-1 block text-xs font-bold text-viva-roxo/70">IA e revisao humana</span>
             </Link>
+            <Link
+              href="/treinador"
+              className="min-w-48 rounded-xl border border-viva-roxo px-4 py-3 text-left text-viva-roxo transition hover:bg-purple-50 lg:min-w-0"
+            >
+              <span className="block text-sm font-black">Área do Treinador</span>
+              <span className="mt-1 block text-xs font-bold text-viva-roxo/70">Planos manuais e alunos</span>
+            </Link>
           </nav>
         </aside>
 

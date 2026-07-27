@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../../supabase';
 import Logo from '../../components/Logo';
 
+type AccessMode = 'client' | 'admin' | 'trainer';
+
 const CUPOM_BOAS_VINDAS_PADRAO = 30;
 const SITE_PUBLICO_PADRAO = 'https://vivalevedf.com.br';
 
@@ -53,12 +55,39 @@ export default function LoginCliente() {
   const [modoEsqueciSenha, setModoEsqueciSenha] = useState(false);
   const [modoRedefinirSenha, setModoRedefinirSenha] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [accessMode, setAccessMode] = useState<AccessMode>('client');
+  const [accessRoles, setAccessRoles] = useState<string[]>([]);
+  const [checkingAccess, setCheckingAccess] = useState(false);
   const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'sucesso' | 'erro' } | null>(null);
 
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
 
   const router = useRouter();
+
+  useEffect(() => {
+    if (isCadastro || modoEsqueciSenha || modoRedefinirSenha || !email.includes('@')) {
+      setAccessRoles([]);
+      setAccessMode('client');
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      setCheckingAccess(true);
+      const { data, error } = await supabase.rpc('get_access_options', { lookup_email: email.trim() });
+      const roles = !error && Array.isArray(data) ? data : [];
+      setAccessRoles(roles);
+      setAccessMode(current =>
+        current === 'admin' && !roles.includes('admin')
+          ? 'client'
+          : current === 'trainer' && !roles.includes('trainer')
+            ? 'client'
+            : current);
+      setCheckingAccess(false);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [email, isCadastro, modoEsqueciSenha, modoRedefinirSenha]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -201,9 +230,25 @@ export default function LoginCliente() {
         setSenha('');
         setConfirmarSenha('');
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
+        const { data: loginData, error } = await supabase.auth.signInWithPassword({ email, password: senha });
         if (error) throw error;
-        router.push('/dieta');
+        const authenticatedEmail = loginData.user?.email ?? email;
+        const { data: roles, error: rolesError } = await supabase.rpc('get_access_options', {
+          lookup_email: authenticatedEmail,
+        });
+        if (rolesError) throw rolesError;
+        const authenticatedRoles = Array.isArray(roles) ? roles : [];
+
+        if (accessMode === 'admin' && !authenticatedRoles.includes('admin')) {
+          await supabase.auth.signOut();
+          throw new Error('Este usuário não possui acesso de administrador.');
+        }
+        if (accessMode === 'trainer' && !authenticatedRoles.includes('trainer')) {
+          await supabase.auth.signOut();
+          throw new Error('Este usuário não possui acesso de treinador.');
+        }
+
+        router.push(accessMode === 'admin' ? '/admin' : accessMode === 'trainer' ? '/treinador' : '/dieta');
       }
     } catch (error: any) {
       setMensagem({ texto: error.message || 'Erro na autenticacao.', tipo: 'erro' });
@@ -220,6 +265,8 @@ export default function LoginCliente() {
     setConfirmarSenha('');
     setMostrarSenha(false);
     setMostrarConfirmarSenha(false);
+    setAccessMode('client');
+    setAccessRoles([]);
   };
 
   const voltarParaLogin = () => {
@@ -304,6 +351,36 @@ export default function LoginCliente() {
               placeholder="seu@email.com"
             />
             </div>
+          )}
+
+          {!isCadastro && !modoEsqueciSenha && !modoRedefinirSenha && (accessRoles.length > 0 || checkingAccess) && (
+            <fieldset>
+              <legend className="mb-2 text-xs font-bold text-gray-600">Tipo de acesso</legend>
+              {checkingAccess ? (
+                <div className="rounded-xl bg-gray-50 p-3 text-center text-xs font-bold text-gray-400">
+                  Verificando perfil...
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <label className={`cursor-pointer rounded-xl border p-3 text-sm font-bold ${accessMode === 'client' ? 'border-viva-roxo bg-purple-50 text-viva-roxo' : 'border-gray-200 text-gray-600'}`}>
+                    <input type="radio" name="access-mode" value="client" checked={accessMode === 'client'} onChange={() => setAccessMode('client')} className="mr-2" />
+                    Acessar como cliente
+                  </label>
+                  {accessRoles.includes('admin') && (
+                    <label className={`cursor-pointer rounded-xl border p-3 text-sm font-bold ${accessMode === 'admin' ? 'border-viva-roxo bg-purple-50 text-viva-roxo' : 'border-gray-200 text-gray-600'}`}>
+                      <input type="radio" name="access-mode" value="admin" checked={accessMode === 'admin'} onChange={() => setAccessMode('admin')} className="mr-2" />
+                      Acessar como administrador
+                    </label>
+                  )}
+                  {accessRoles.includes('trainer') && (
+                    <label className={`cursor-pointer rounded-xl border p-3 text-sm font-bold ${accessMode === 'trainer' ? 'border-viva-roxo bg-purple-50 text-viva-roxo' : 'border-gray-200 text-gray-600'}`}>
+                      <input type="radio" name="access-mode" value="trainer" checked={accessMode === 'trainer'} onChange={() => setAccessMode('trainer')} className="mr-2" />
+                      Acessar como treinador
+                    </label>
+                  )}
+                </div>
+              )}
+            </fieldset>
           )}
 
           {!modoEsqueciSenha && (
