@@ -510,6 +510,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [usuarioEmail, setUsuarioEmail] = useState('');
   const [aba, setAba] = useState<AbaAdmin>('pedidos');
+  const [menuAberto, setMenuAberto] = useState(false);
   const [toasts, setToasts] = useState<Array<{ id: number; texto: string; tipo: ToastTipo }>>([]);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -1239,60 +1240,96 @@ export default function AdminPage() {
     <div className="min-h-screen bg-gray-100 text-gray-900">
       <ToastStack toasts={toasts} />
 
-      <div className="flex min-h-screen flex-col lg:flex-row">
-        <aside className="border-b border-gray-200 bg-white lg:w-72 lg:border-b-0 lg:border-r">
-          <div className="p-5">
-            <p className="text-2xl font-black tracking-tight">VIVA LEVE</p>
-            <p className="mt-1 text-xs text-gray-500">{usuarioEmail}</p>
-          </div>
-          <nav className="flex gap-2 overflow-x-auto px-4 pb-4 lg:flex-col">
-            {[
-              { id: 'pedidos' as const, label: 'Gestão de Pedidos', desc: `${pedidos.length} pedidos` },
-              { id: 'balcao' as const, label: 'Venda Balcão', desc: 'Pedido rápido' },
-              { id: 'produtos' as const, label: 'Cardápio/Estoque', desc: `${produtos.length} produtos` },
-              { id: 'treinos' as const, label: 'Exercicios/Treino', desc: `${exercicios.length} exercicios` },
-              { id: 'config' as const, label: 'Configuracoes', desc: 'Cupons e frete' },
-            ].map(item => (
-              <button
-                key={item.id}
-                onClick={() => setAba(item.id)}
-                className={`min-w-48 rounded-xl px-4 py-3 text-left transition lg:min-w-0 ${
-                  aba === item.id ? 'bg-gray-900 text-white shadow-lg' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <span className="block text-sm font-black">{item.label}</span>
-                <span className={`mt-1 block text-xs ${aba === item.id ? 'text-gray-300' : 'text-gray-400'}`}>{item.desc}</span>
-              </button>
-            ))}
-            <Link
-              href="/admin/planos-nutri"
-              className="min-w-48 rounded-xl bg-viva-verde px-4 py-3 text-left text-viva-roxo transition hover:brightness-95 lg:min-w-0"
-            >
-              <span className="block text-sm font-black">Planos Nutri</span>
-              <span className="mt-1 block text-xs font-bold text-viva-roxo/70">IA e revisao humana</span>
-            </Link>
-            <Link
-              href="/treinador"
-              className="min-w-48 rounded-xl border border-viva-roxo px-4 py-3 text-left text-viva-roxo transition hover:bg-purple-50 lg:min-w-0"
-            >
-              <span className="block text-sm font-black">Área do Treinador</span>
-              <span className="mt-1 block text-xs font-bold text-viva-roxo/70">Planos manuais e alunos</span>
-            </Link>
-          </nav>
-        </aside>
-
-        <main className="flex-1 p-4 md:p-6">
-          <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="min-h-screen">
+        <main className="mx-auto w-full max-w-screen-2xl p-4 md:p-6">
+          <header className="relative mb-5 flex items-start justify-between gap-3">
             <div>
+              <p className="text-xs font-black uppercase text-viva-roxo">Viva Leve Admin</p>
               <h1 className="text-2xl font-black">
                 {aba === 'pedidos' ? 'Gestao de Pedidos' : aba === 'balcao' ? 'Venda Balcao' : aba === 'produtos' ? 'Cardapio e Estoque' : aba === 'treinos' ? 'Exercicios e Treinos' : 'Configuracoes'}
               </h1>
               <p className="text-sm text-gray-500">Dados ao vivo do Supabase oficial.</p>
             </div>
-            <button onClick={() => { carregarPedidos(); carregarProdutos(); carregarConfig(); carregarExercicios(); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50">
-              Atualizar dados
-            </button>
+
+            <div className="relative z-40 shrink-0">
+              <button
+                type="button"
+                onClick={() => setMenuAberto(aberto => !aberto)}
+                aria-label={menuAberto ? 'Fechar menu administrativo' : 'Abrir menu administrativo'}
+                aria-expanded={menuAberto}
+                className="flex h-12 w-12 flex-col items-center justify-center gap-1 rounded-xl bg-white shadow-sm ring-1 ring-gray-200 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-viva-roxo"
+              >
+                {[0, 1, 2, 3].map(linha => (
+                  <span key={linha} className="block h-0.5 w-6 rounded-full bg-gray-900" />
+                ))}
+              </button>
+
+              {menuAberto && (
+                <nav className="absolute right-0 top-14 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-gray-200 bg-white p-2 shadow-2xl">
+                  <div className="border-b border-gray-100 px-3 py-2">
+                    <p className="text-sm font-black">Menu administrativo</p>
+                    <p className="truncate text-xs text-gray-500">{usuarioEmail}</p>
+                  </div>
+
+                  <div className="mt-2 space-y-1">
+                    {[
+                      { id: 'pedidos' as const, label: 'Gestão de Pedidos', desc: `${pedidos.length} pedidos` },
+                      { id: 'balcao' as const, label: 'Venda Balcão', desc: 'Pedido rápido' },
+                      { id: 'produtos' as const, label: 'Cardápio/Estoque', desc: `${produtos.length} produtos` },
+                      { id: 'treinos' as const, label: 'Exercícios/Treino', desc: `${exercicios.length} exercícios` },
+                      { id: 'config' as const, label: 'Configurações', desc: 'Cupons e frete' },
+                    ].map(item => (
+                      <button
+                        type="button"
+                        key={item.id}
+                        onClick={() => {
+                          setAba(item.id);
+                          setMenuAberto(false);
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition ${
+                          aba === item.id ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span className="text-sm font-black">{item.label}</span>
+                        <span className={`text-xs font-bold ${aba === item.id ? 'text-gray-300' : 'text-gray-400'}`}>{item.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="my-2 border-t border-gray-100" />
+                  <Link href="/admin/planos-nutri" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Planos Nutri
+                  </Link>
+                  <Link href="/treinador" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Área do Treinador
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuAberto(false);
+                      carregarPedidos();
+                      carregarProdutos();
+                      carregarConfig();
+                      carregarExercicios();
+                    }}
+                    className="mt-2 w-full rounded-lg bg-viva-verde px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:brightness-95"
+                  >
+                    Atualizar dados
+                  </button>
+                </nav>
+              )}
+            </div>
           </header>
+
+          {menuAberto && (
+            <button
+              type="button"
+              aria-label="Fechar menu"
+              onClick={() => setMenuAberto(false)}
+              className="fixed inset-0 z-30 cursor-default bg-black/10"
+            />
+          )}
 
           {aba === 'pedidos' && (
             <section className="space-y-5">
