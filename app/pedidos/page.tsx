@@ -24,6 +24,9 @@ interface Pedido {
   status: string;
   pagamento_status?: string | null;
   mercado_pago_status_detail?: string | null;
+  meio_pagamento?: string | null;
+  cielo_return_code?: string | null;
+  cielo_return_message?: string | null;
   itens: ItemPedido[];
   criado_em?: string;
   created_at?: string;
@@ -412,12 +415,16 @@ export default function MeusPedidos() {
                       </div>
                     </div>
 
-                    {(pedido.pagamento_status || pedido.mercado_pago_status_detail) && (
+                    {(pedido.pagamento_status || pedido.mercado_pago_status_detail || pedido.cielo_return_message) && (
                       <div className="rounded-xl border border-orange-100 bg-orange-50 p-3">
-                        <p className="text-xs font-bold uppercase tracking-wider text-orange-600">Mercado Pago</p>
+                        <p className="text-xs font-bold uppercase tracking-wider text-orange-600">
+                          {pedido.meio_pagamento === 'cielo_alelo' ? 'Cielo / Alelo' : 'Mercado Pago'}
+                        </p>
                         <p className="mt-1 text-xs font-semibold text-orange-800">
                           {pedido.pagamento_status || 'sem status'}
-                          {pedido.mercado_pago_status_detail ? ` - ${pedido.mercado_pago_status_detail}` : ''}
+                          {pedido.meio_pagamento === 'cielo_alelo'
+                            ? (pedido.cielo_return_message ? ` - ${pedido.cielo_return_message}` : '')
+                            : (pedido.mercado_pago_status_detail ? ` - ${pedido.mercado_pago_status_detail}` : '')}
                         </p>
                       </div>
                     )}

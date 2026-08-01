@@ -7,6 +7,12 @@ import { supabase } from '../supabase';
 import Logo from '../components/Logo';
 import BottomNav from '../components/BottomNav';
 
+declare global {
+  interface Window {
+    bpSop_silentOrderPost?: (options: Record<string, unknown>) => void;
+  }
+}
+
 interface Produto {
   id: number;
   nome: string;
@@ -151,7 +157,13 @@ export default function LojaCliente() {
   const [telefonePagador, setTelefonePagador] = useState('');
   const [cpfPagador, setCpfPagador] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix'>('checkout');
+  const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix' | 'voucher'>('checkout');
+  const [bandeiraVoucher, setBandeiraVoucher] = useState<'alelo' | 'pluxee'>('alelo');
+  const [numeroVoucher, setNumeroVoucher] = useState('');
+  const [nomeVoucher, setNomeVoucher] = useState('');
+  const [validadeVoucher, setValidadeVoucher] = useState('');
+  const [cvvVoucher, setCvvVoucher] = useState('');
+  const [voucherDisponivel, setVoucherDisponivel] = useState(false);
   const [pixGerado, setPixGerado] = useState<{ qrCode: string; qrCodeBase64?: string; ticketUrl?: string } | null>(null);
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('todos');
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -176,6 +188,13 @@ export default function LojaCliente() {
   useEffect(() => {
     localStorage.setItem(CARRINHO_STORAGE_KEY, JSON.stringify(carrinho));
   }, [carrinho]);
+
+  useEffect(() => {
+    fetch('/api/cielo/sop-token', { cache: 'no-store' })
+      .then(resposta => resposta.ok ? resposta.json() : { enabled: false })
+      .then(config => setVoucherDisponivel(Boolean(config.enabled)))
+      .catch(() => setVoucherDisponivel(false));
+  }, []);
 
   const carregarCupons = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -468,6 +487,65 @@ export default function LojaCliente() {
     return produtosAtualizados;
   };
 
+  const carregarScriptCielo = (ambiente: 'sandbox' | 'production') => new Promise<void>((resolve, reject) => {
+    if (window.bpSop_silentOrderPost) {
+      resolve();
+      return;
+    }
+
+    const id = 'cielo-silent-order-post';
+    const existente = document.getElementById(id) as HTMLScriptElement | null;
+    if (existente) {
+      existente.addEventListener('load', () => resolve(), { once: true });
+      existente.addEventListener('error', () => reject(new Error('Falha ao carregar a proteção Cielo.')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = id;
+    script.async = true;
+    script.src = ambiente === 'production'
+      ? 'https://transactionscus.pagador.com.br/post/Scripts/silentorderpost-1.0.min.js'
+      : 'https://transactionsandbox.pagador.com.br/post/Scripts/silentorderpost-1.0.min.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Falha ao carregar a proteção Cielo.'));
+    document.body.appendChild(script);
+  });
+
+  const tokenizarVoucher = async (accessTokenSupabase: string) => {
+    const respostaToken = await fetch('/api/cielo/sop-token', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessTokenSupabase}` },
+      cache: 'no-store',
+    });
+    const tokenConfig = await respostaToken.json();
+    if (!respostaToken.ok || !tokenConfig.accessToken) {
+      throw new Error(tokenConfig.error || 'Não foi possível iniciar o pagamento protegido.');
+    }
+
+    await carregarScriptCielo(tokenConfig.environment === 'production' ? 'production' : 'sandbox');
+    if (!window.bpSop_silentOrderPost) throw new Error('Proteção de cartão Cielo indisponível.');
+
+    return new Promise<string>((resolve, reject) => {
+      window.bpSop_silentOrderPost?.({
+        accessToken: tokenConfig.accessToken,
+        environment: tokenConfig.environment,
+        language: 'PT',
+        enableBinQuery: false,
+        enableVerifyCard: false,
+        enableTokenize: false,
+        cvvrequired: true,
+        cardType: 'debitCard',
+        onSuccess: (response: { PaymentToken?: string }) => {
+          if (response.PaymentToken) resolve(response.PaymentToken);
+          else reject(new Error('A Cielo não retornou o token seguro do cartão.'));
+        },
+        onError: () => reject(new Error('A Cielo não conseguiu proteger os dados do cartão.')),
+        onInvalid: () => reject(new Error('Confira os dados do cartão de benefício.')),
+      });
+    });
+  };
+
   const finalizarPedido = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -489,9 +567,18 @@ export default function LojaCliente() {
 
       const cadastroPedido = await validarCadastroPedido(user.id);
       const cpfPagadorDigitos = somenteDigitos(cpfPagador);
-      if (metodoPagamento === 'checkout' && cpfPagadorDigitos.length !== 11) {
+      if ((metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && cpfPagadorDigitos.length !== 11) {
         adicionarToast('Informe o CPF do pagador com 11 digitos para pagamento com cartao.', 'erro');
         throw new Error('CPF do pagador invalido.');
+      }
+
+      if (metodoPagamento === 'voucher') {
+        if (bandeiraVoucher === 'pluxee') {
+          throw new Error('A Cielo E-commerce 3.0 ainda não processa Pluxee. Selecione Alelo ou outro meio de pagamento.');
+        }
+        if (somenteDigitos(numeroVoucher).length < 13 || somenteDigitos(cvvVoucher).length < 3 || !nomeVoucher.trim() || somenteDigitos(validadeVoucher).length !== 6) {
+          throw new Error('Preencha corretamente todos os dados do cartão de benefício.');
+        }
       }
 
       const dadosPagador = {
@@ -542,7 +629,16 @@ export default function LojaCliente() {
 
       if (errPedido) throw new Error(errPedido.message);
 
-      const respostaPagamento = await fetch(metodoPagamento === 'pix' ? '/api/mercadopago/pix' : '/api/mercadopago/preference', {
+      const paymentTokenVoucher = metodoPagamento === 'voucher'
+        ? await tokenizarVoucher(session.access_token)
+        : undefined;
+
+      const endpointPagamento = metodoPagamento === 'pix'
+        ? '/api/mercadopago/pix'
+        : metodoPagamento === 'voucher'
+          ? '/api/cielo/voucher'
+          : '/api/mercadopago/preference';
+      const respostaPagamento = await fetch(endpointPagamento, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -559,6 +655,10 @@ export default function LojaCliente() {
             endereco: cadastroPedido.endereco,
             regiao: cadastroPedido.regiao,
           },
+          ...(metodoPagamento === 'voucher' ? {
+            bandeira: bandeiraVoucher,
+            paymentToken: paymentTokenVoucher,
+          } : {}),
         }),
       });
 
@@ -575,6 +675,19 @@ export default function LojaCliente() {
         setVerCarrinho(false);
         setCupomSelecionadoId('');
         adicionarToast('Pix gerado. Copie o codigo para pagar.', 'sucesso');
+        return;
+      }
+
+      if (metodoPagamento === 'voucher') {
+        setCarrinho({});
+        setVerCarrinho(false);
+        setCupomSelecionadoId('');
+        setNumeroVoucher('');
+        setNomeVoucher('');
+        setValidadeVoucher('');
+        setCvvVoucher('');
+        adicionarToast('Pagamento Alelo aprovado. Pedido enviado para preparo!', 'sucesso');
+        router.push('/pedidos?pagamento=sucesso');
         return;
       }
 
@@ -848,17 +961,33 @@ export default function LojaCliente() {
 
                   <div>
                     <label className="mb-2 block text-xs font-bold text-gray-600">Meio de pagamento</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button type="button" onClick={() => setMetodoPagamento('checkout')} className={`rounded-xl border px-3 py-2 text-xs font-black ${metodoPagamento === 'checkout' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
-                        Cartao / Debito
+                    <div className={`grid grid-cols-1 gap-2 ${voucherDisponivel ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+                      <button type="button" onClick={() => setMetodoPagamento('checkout')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'checkout' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
+                        <span className="block">Cartão / Débito</span>
+                        <span className="mt-2 flex justify-center gap-1" aria-label="Visa, Mastercard e Elo">
+                          {['VISA', 'mastercard', 'elo'].map(bandeira => (
+                            <span key={bandeira} className={`rounded px-1.5 py-0.5 text-[8px] font-black ${metodoPagamento === 'checkout' ? 'bg-white/90 text-gray-700' : 'bg-gray-100 text-gray-500'}`}>
+                              {bandeira}
+                            </span>
+                          ))}
+                        </span>
                       </button>
-                      <button type="button" onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border px-3 py-2 text-xs font-black ${metodoPagamento === 'pix' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
+                      <button type="button" onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'pix' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
                         Pix copia e cola
                       </button>
+                      {voucherDisponivel && (
+                        <button type="button" onClick={() => setMetodoPagamento('voucher')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'voucher' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
+                          <span className="block">Vale Refeição / Alimentação</span>
+                          <span className="mt-2 flex justify-center gap-1.5">
+                            <span className="rounded bg-[#00A859] px-2 py-0.5 text-[9px] font-black text-white">alelo</span>
+                            <span className="rounded bg-[#F26B38] px-2 py-0.5 text-[9px] font-black text-white">pluxee</span>
+                          </span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  {metodoPagamento === 'checkout' && (
+                  {(metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && (
                     <div className="rounded-2xl border border-purple-100 bg-purple-50 p-3">
                       <label className="flex items-center gap-2 text-xs font-bold text-viva-roxo">
                         <input
@@ -886,7 +1015,7 @@ export default function LojaCliente() {
                       <div className="mt-3">
                         <label className="mb-1 block text-xs font-bold text-gray-600">CPF do pagador *</label>
                         <input
-                          required={metodoPagamento === 'checkout'}
+                          required={metodoPagamento === 'checkout' || metodoPagamento === 'voucher'}
                           inputMode="numeric"
                           maxLength={14}
                           value={cpfPagador}
@@ -895,6 +1024,101 @@ export default function LojaCliente() {
                           className="w-full rounded-xl border border-gray-200 bg-white p-2.5 text-sm text-gray-900"
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {metodoPagamento === 'voucher' && (
+                    <div className="space-y-3 rounded-2xl border border-green-200 bg-green-50 p-3">
+                      <div>
+                        <p className="text-sm font-black text-green-900">Cartão de benefício</p>
+                        <p className="text-xs text-green-800">Pagamento à vista, sem parcelamento.</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBandeiraVoucher('alelo')}
+                          className={`rounded-xl border px-3 py-2 text-sm font-black ${bandeiraVoucher === 'alelo' ? 'border-[#00A859] bg-[#00A859] text-white' : 'border-green-200 bg-white text-[#008A49]'}`}
+                        >
+                          Alelo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBandeiraVoucher('pluxee');
+                            adicionarToast('Pluxee ainda não é suportado pela API E-commerce Cielo 3.0.', 'info');
+                          }}
+                          className={`rounded-xl border px-3 py-2 text-sm font-black ${bandeiraVoucher === 'pluxee' ? 'border-[#F26B38] bg-[#F26B38] text-white' : 'border-orange-200 bg-white text-[#D85325]'}`}
+                        >
+                          Pluxee <span className="block text-[9px] font-bold">aguardando integração</span>
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-gray-600">Número do cartão *</label>
+                        <input
+                          required
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="cc-number"
+                          maxLength={23}
+                          value={numeroVoucher}
+                          onChange={e => {
+                            const digitos = somenteDigitos(e.target.value).slice(0, 19);
+                            setNumeroVoucher(digitos.replace(/(.{4})/g, '$1 ').trim());
+                          }}
+                          placeholder="0000 0000 0000 0000"
+                          className="bp-sop-cardnumber w-full rounded-xl border border-green-200 bg-white p-2.5 text-sm text-gray-900"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-gray-600">Nome impresso no cartão *</label>
+                        <input
+                          required
+                          type="text"
+                          autoComplete="cc-name"
+                          maxLength={25}
+                          value={nomeVoucher}
+                          onChange={e => setNomeVoucher(e.target.value.toUpperCase())}
+                          className="bp-sop-cardholdername w-full rounded-xl border border-green-200 bg-white p-2.5 text-sm uppercase text-gray-900"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-bold text-gray-600">Validade *</label>
+                          <input
+                            required
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="cc-exp"
+                            maxLength={7}
+                            value={validadeVoucher}
+                            onChange={e => {
+                              const digitos = somenteDigitos(e.target.value).slice(0, 6);
+                              setValidadeVoucher(digitos.length > 2 ? `${digitos.slice(0, 2)}/${digitos.slice(2)}` : digitos);
+                            }}
+                            placeholder="MM/AAAA"
+                            className="bp-sop-cardexpirationdate w-full rounded-xl border border-green-200 bg-white p-2.5 text-sm text-gray-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-bold text-gray-600">CVV *</label>
+                          <input
+                            required
+                            type="password"
+                            inputMode="numeric"
+                            autoComplete="cc-csc"
+                            maxLength={4}
+                            value={cvvVoucher}
+                            onChange={e => setCvvVoucher(somenteDigitos(e.target.value).slice(0, 4))}
+                            className="bp-sop-cardcvvc w-full rounded-xl border border-green-200 bg-white p-2.5 text-sm text-gray-900"
+                          />
+                        </div>
+                      </div>
+                      <input type="hidden" value="debitCard" readOnly className="bp-sop-cardtype" />
+                      <p className="text-[11px] font-semibold text-green-800">A Cielo E-commerce aceita voucher Alelo somente quando a modalidade está habilitada para o estabelecimento.</p>
                     </div>
                   )}
 
