@@ -1168,6 +1168,9 @@ export default function LojaCliente() {
         onClick={() => setVerCarrinho(true)}
         className="fixed bottom-24 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full bg-viva-roxo px-5 py-3 text-sm font-black text-white shadow-xl transition active:scale-95"
       >
+        <span className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-md bg-white">
+          <img src="/nav-icons/sacola.png" alt="" className="h-full w-full object-contain" aria-hidden="true" />
+        </span>
         <span>Sacola</span>
         {totalItens > 0 && (
           <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-viva-verde px-1.5 text-[10px] font-black text-viva-roxo">

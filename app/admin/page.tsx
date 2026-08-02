@@ -1109,6 +1109,7 @@ export default function AdminPage() {
     const lote = `${produto.id}${ano}${mes}${dia}`;
     const fabricacaoBR = dataFabricacao.toLocaleDateString('pt-BR');
     const validadeBR = dataValidade.toLocaleDateString('pt-BR');
+    const logoEtiquetaUrl = `${window.location.origin}/viva-leve-etiqueta-pb.png`;
     const janela = window.open('', '_blank', 'width=520,height=760');
 
     if (!janela) {
@@ -1145,13 +1146,17 @@ export default function AdminPage() {
     }
     .brand {
       grid-column: 1 / -1;
-      font-size: 24px;
-      line-height: 1;
-      font-weight: 900;
-      letter-spacing: 0;
-      text-align: center;
       border-bottom: 1px solid #000;
       padding-bottom: 3mm;
+      text-align: center;
+    }
+    .brand img {
+      display: block;
+      width: auto;
+      max-width: 72mm;
+      height: 14mm;
+      margin: 0 auto;
+      object-fit: contain;
     }
     .name {
       grid-column: 1 / -1;
@@ -1197,7 +1202,7 @@ export default function AdminPage() {
 </head>
 <body>
   <section class="label">
-    <div class="brand">VIVA LEVE</div>
+    <div class="brand"><img src="${logoEtiquetaUrl}" alt="Viva Leve" /></div>
     <div class="name">${escaparHtml(produto.nome)}</div>
     <div class="desc">
       <strong>${escaparHtml(produto.categoria || 'Produto')}</strong><br />
