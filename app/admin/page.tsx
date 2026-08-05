@@ -62,6 +62,21 @@ interface Produto {
   carboidratos: number;
   gorduras: number;
   ativo: boolean;
+  tabela_nutri?: TabelaNutri | null;
+}
+
+interface TabelaNutri {
+  porcao_g: number;
+  valor_energetico_kcal: number;
+  carboidratos_g: number;
+  proteinas_g: number;
+  gorduras_totais_g: number;
+  gorduras_saturadas_g: number;
+  gorduras_trans_g: number;
+  fibra_alimentar_g: number;
+  sodio_mg: number;
+  ingredientes: string;
+  alergicos: string;
 }
 
 interface ProdutoForm {
@@ -76,6 +91,17 @@ interface ProdutoForm {
   proteinas: string;
   carboidratos: string;
   gorduras: string;
+  tabela_poracao_g: string;
+  tabela_valor_energetico_kcal: string;
+  tabela_carboidratos_g: string;
+  tabela_proteinas_g: string;
+  tabela_gorduras_totais_g: string;
+  tabela_gorduras_saturadas_g: string;
+  tabela_gorduras_trans_g: string;
+  tabela_fibra_alimentar_g: string;
+  tabela_sodio_mg: string;
+  tabela_ingredientes: string;
+  tabela_alergicos: string;
 }
 
 interface VendaBalcaoForm {
@@ -108,7 +134,7 @@ interface ExercicioCatalogo {
 }
 
 const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Preparo', 'Saiu para Entrega', 'Entregue'];
-const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
+const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Caldos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
 const PRODUTOS_IMAGE_BUCKETS = [
   process.env.NEXT_PUBLIC_SUPABASE_PRODUTOS_BUCKET,
   'produtos-viva-leve',
@@ -130,6 +156,17 @@ const FORM_VAZIO: ProdutoForm = {
   proteinas: '',
   carboidratos: '',
   gorduras: '',
+  tabela_poracao_g: '',
+  tabela_valor_energetico_kcal: '',
+  tabela_carboidratos_g: '',
+  tabela_proteinas_g: '',
+  tabela_gorduras_totais_g: '',
+  tabela_gorduras_saturadas_g: '',
+  tabela_gorduras_trans_g: '',
+  tabela_fibra_alimentar_g: '',
+  tabela_sodio_mg: '',
+  tabela_ingredientes: '',
+  tabela_alergicos: '',
 };
 
 const FORM_BALCAO_VAZIO: VendaBalcaoForm = {
@@ -491,6 +528,49 @@ function ModalProduto({
                   <input type="text" inputMode="decimal" value={form[key as keyof ProdutoForm] as string} onChange={e => onChange({ ...form, [key]: e.target.value })} onBlur={e => onChange({ ...form, [key]: valorInputBR(e.target.value, key === 'kcal' ? 0 : 1) })} placeholder={key === 'kcal' ? '0' : '0,0'} className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
                 </label>
               ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border-2 border-gray-900 bg-white p-4">
+            <div className="mb-4">
+              <p className="text-sm font-black uppercase text-gray-900">Tabela nutricional da etiqueta</p>
+              <p className="mt-1 text-xs text-gray-500">Informe os valores referentes à porção declarada. Use vírgula como separador decimal.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {[
+                ['tabela_poracao_g', 'Porção (g)', 0],
+                ['tabela_valor_energetico_kcal', 'Valor energético (kcal)', 0],
+                ['tabela_carboidratos_g', 'Carboidratos (g)', 1],
+                ['tabela_proteinas_g', 'Proteínas (g)', 1],
+                ['tabela_gorduras_totais_g', 'Gorduras totais (g)', 1],
+                ['tabela_gorduras_saturadas_g', 'Gorduras saturadas (g)', 1],
+                ['tabela_gorduras_trans_g', 'Gorduras trans (g)', 1],
+                ['tabela_fibra_alimentar_g', 'Fibra alimentar (g)', 1],
+                ['tabela_sodio_mg', 'Sódio (mg)', 0],
+              ].map(([key, label, casas]) => (
+                <label key={String(key)}>
+                  <span className="mb-1 block text-xs font-semibold text-gray-600">{label}</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={form[key as keyof ProdutoForm] as string}
+                    onChange={e => onChange({ ...form, [key]: e.target.value })}
+                    onBlur={e => onChange({ ...form, [key]: valorInputBR(e.target.value, Number(casas)) })}
+                    placeholder={Number(casas) === 0 ? '0' : '0,0'}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-3">
+              <label>
+                <span className="mb-1 block text-xs font-bold uppercase text-gray-600">Ingredientes</span>
+                <textarea value={form.tabela_ingredientes} onChange={e => onChange({ ...form, tabela_ingredientes: e.target.value })} rows={3} placeholder="Liste os ingredientes em ordem decrescente de quantidade." className="w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-bold uppercase text-gray-600">Alérgicos e declaração de glúten</span>
+                <textarea value={form.tabela_alergicos} onChange={e => onChange({ ...form, tabela_alergicos: e.target.value })} rows={2} placeholder="Ex.: ALÉRGICOS: CONTÉM LEITE. NÃO CONTÉM GLÚTEN." className="w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
+              </label>
             </div>
           </div>
 
@@ -925,6 +1005,9 @@ export default function AdminPage() {
   };
 
   const abrirEditarProduto = (produto: Produto) => {
+    const tabela = produto.tabela_nutri ?? null;
+    const porcaoTabela = Number(tabela?.porcao_g ?? produto.porcao_g ?? 0);
+    const fatorLegado = porcaoTabela > 0 ? porcaoTabela / 100 : 1;
     setProdutoEditando(produto);
     setFormProduto({
       nome: produto.nome ?? '',
@@ -938,6 +1021,17 @@ export default function AdminPage() {
       proteinas: valorInputBR(produto.proteinas ?? 0, 1),
       carboidratos: valorInputBR(produto.carboidratos ?? 0, 1),
       gorduras: valorInputBR(produto.gorduras ?? 0, 1),
+      tabela_poracao_g: valorInputBR(porcaoTabela, 0),
+      tabela_valor_energetico_kcal: valorInputBR(tabela?.valor_energetico_kcal ?? Number(produto.kcal ?? 0) * fatorLegado, 0),
+      tabela_carboidratos_g: valorInputBR(tabela?.carboidratos_g ?? Number(produto.carboidratos ?? 0) * fatorLegado, 1),
+      tabela_proteinas_g: valorInputBR(tabela?.proteinas_g ?? Number(produto.proteinas ?? 0) * fatorLegado, 1),
+      tabela_gorduras_totais_g: valorInputBR(tabela?.gorduras_totais_g ?? Number(produto.gorduras ?? 0) * fatorLegado, 1),
+      tabela_gorduras_saturadas_g: valorInputBR(tabela?.gorduras_saturadas_g ?? 0, 1),
+      tabela_gorduras_trans_g: valorInputBR(tabela?.gorduras_trans_g ?? 0, 1),
+      tabela_fibra_alimentar_g: valorInputBR(tabela?.fibra_alimentar_g ?? 0, 1),
+      tabela_sodio_mg: valorInputBR(tabela?.sodio_mg ?? 0, 0),
+      tabela_ingredientes: tabela?.ingredientes ?? '',
+      tabela_alergicos: tabela?.alergicos ?? '',
     });
     setModalProdutoAberto(true);
   };
@@ -995,6 +1089,22 @@ export default function AdminPage() {
     event.preventDefault();
     setSalvandoProduto(true);
 
+    const porcaoProdutoG = parseNumeroBR(formProduto.porcao_kg) > 0 ? parseNumeroBR(formProduto.porcao_kg) * 1000 : null;
+    const porcaoTabelaG = parseNumeroBR(formProduto.tabela_poracao_g) || porcaoProdutoG || 0;
+    const tabelaNutri: TabelaNutri = {
+      porcao_g: porcaoTabelaG,
+      valor_energetico_kcal: parseNumeroBR(formProduto.tabela_valor_energetico_kcal),
+      carboidratos_g: parseNumeroBR(formProduto.tabela_carboidratos_g),
+      proteinas_g: parseNumeroBR(formProduto.tabela_proteinas_g),
+      gorduras_totais_g: parseNumeroBR(formProduto.tabela_gorduras_totais_g),
+      gorduras_saturadas_g: parseNumeroBR(formProduto.tabela_gorduras_saturadas_g),
+      gorduras_trans_g: parseNumeroBR(formProduto.tabela_gorduras_trans_g),
+      fibra_alimentar_g: parseNumeroBR(formProduto.tabela_fibra_alimentar_g),
+      sodio_mg: parseNumeroBR(formProduto.tabela_sodio_mg),
+      ingredientes: formProduto.tabela_ingredientes.trim(),
+      alergicos: formProduto.tabela_alergicos.trim(),
+    };
+
     const payload = {
       nome: formProduto.nome.trim(),
       descricao: formProduto.descricao.trim(),
@@ -1002,11 +1112,12 @@ export default function AdminPage() {
       categoria: formProduto.categoria,
       imagem_url: formProduto.imagem_url.trim() || null,
       estoque: Math.round(parseNumeroBR(formProduto.estoque)),
-      porcao_g: parseNumeroBR(formProduto.porcao_kg) > 0 ? parseNumeroBR(formProduto.porcao_kg) * 1000 : null,
+      porcao_g: porcaoProdutoG,
       kcal: parseNumeroBR(formProduto.kcal),
       proteinas: parseNumeroBR(formProduto.proteinas),
       carboidratos: parseNumeroBR(formProduto.carboidratos),
       gorduras: parseNumeroBR(formProduto.gorduras),
+      tabela_nutri: tabelaNutri,
     };
 
     try {
@@ -1097,9 +1208,44 @@ export default function AdminPage() {
   };
 
   const imprimirEtiqueta = (produto: Produto) => {
-    const gramas = Number(produto.porcao_g || 100);
+    const tabela = produto.tabela_nutri ?? null;
+    const gramas = Number(tabela?.porcao_g || produto.porcao_g || 100);
+    const fatorLegado = gramas / 100;
+    const valorNutri = (valor: number | null | undefined, legado: number) => Number(valor ?? legado * fatorLegado);
+    const dadosNutri = {
+      valor_energetico_kcal: valorNutri(tabela?.valor_energetico_kcal, Number(produto.kcal || 0)),
+      carboidratos_g: valorNutri(tabela?.carboidratos_g, Number(produto.carboidratos || 0)),
+      proteinas_g: valorNutri(tabela?.proteinas_g, Number(produto.proteinas || 0)),
+      gorduras_totais_g: valorNutri(tabela?.gorduras_totais_g, Number(produto.gorduras || 0)),
+      gorduras_saturadas_g: Number(tabela?.gorduras_saturadas_g || 0),
+      gorduras_trans_g: Number(tabela?.gorduras_trans_g || 0),
+      fibra_alimentar_g: Number(tabela?.fibra_alimentar_g || 0),
+      sodio_mg: Number(tabela?.sodio_mg || 0),
+    };
+    const linhaNutri = (rotulo: string, valor: number, unidade: 'g' | 'mg' | 'kcal', vd?: number, casas = 1) => {
+      const por100g = gramas > 0 ? (valor * 100) / gramas : 0;
+      const percentualVd = vd ? Math.round((valor / vd) * 100) : null;
+      return `<tr><td>${escaparHtml(rotulo)}</td><td>${escaparHtml(formatarNumeroBR(por100g, casas))} ${unidade}</td><td>${escaparHtml(formatarNumeroBR(valor, casas))} ${unidade}</td><td>${percentualVd === null ? '**' : escaparHtml(percentualVd)}</td></tr>`;
+    };
+    const linhasNutri = [
+      linhaNutri('Valor energético', dadosNutri.valor_energetico_kcal, 'kcal', 2000, 0),
+      linhaNutri('Carboidratos', dadosNutri.carboidratos_g, 'g', 300),
+      linhaNutri('Proteínas', dadosNutri.proteinas_g, 'g', 75),
+      linhaNutri('Gorduras totais', dadosNutri.gorduras_totais_g, 'g', 55),
+      linhaNutri('Gorduras saturadas', dadosNutri.gorduras_saturadas_g, 'g', 22),
+      linhaNutri('Gorduras trans', dadosNutri.gorduras_trans_g, 'g'),
+      linhaNutri('Fibra alimentar', dadosNutri.fibra_alimentar_g, 'g', 25),
+      linhaNutri('Sódio', dadosNutri.sodio_mg, 'mg', 2000, 0),
+    ].join('');
+    const ingredientes = tabela?.ingredientes?.trim() || 'Não informado.';
+    const alergicos = tabela?.alergicos?.trim() || 'ALÉRGICOS: NÃO INFORMADO.';
+    const ehCaldo = normalizarBusca(produto.categoria).includes('caldo');
+    const alturaEtiqueta = ehCaldo ? 100 : 150;
+    const modoPreparo = ehCaldo
+      ? 'Modo de preparo: Retire a película de proteção (tampa), e aqueça no micro-ondas por 6 a 8 minutos, pausando na metade do tempo para mexer.'
+      : 'Modo de preparo: Faça 4 a 6 furos na película de proteção (tampa), e aqueça no micro-ondas por 5 a 7 minutos (o tempo pode variar conforme a potência do aparelho). Retire totalmente a película de proteção (tampa) e pronto.';
     const payloadQr = JSON.stringify({ id: produto.id, gramas });
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data=${encodeURIComponent(payloadQr)}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${encodeURIComponent(payloadQr)}`;
     const dataFabricacao = new Date();
     const dataValidade = new Date(dataFabricacao);
     dataValidade.setDate(dataValidade.getDate() + 90);
@@ -1110,7 +1256,7 @@ export default function AdminPage() {
     const fabricacaoBR = dataFabricacao.toLocaleDateString('pt-BR');
     const validadeBR = dataValidade.toLocaleDateString('pt-BR');
     const logoEtiquetaUrl = `${window.location.origin}/viva-leve-etiqueta-pb.png`;
-    const janela = window.open('', '_blank', 'width=520,height=760');
+    const janela = window.open('', '_blank', `width=520,height=${ehCaldo ? 620 : 820}`);
 
     if (!janela) {
       toast('O navegador bloqueou a janela de impressão. Permita pop-ups para imprimir a etiqueta.', 'erro');
@@ -1123,106 +1269,118 @@ export default function AdminPage() {
   <meta charset="utf-8" />
   <title>Etiqueta ${escaparHtml(produto.nome)}</title>
   <style>
-    @page { size: 100mm 150mm; margin: 0; }
+    @page { size: 100mm ${alturaEtiqueta}mm; margin: 0; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       width: 100mm;
-      height: 150mm;
+      height: ${alturaEtiqueta}mm;
       color: #000;
       background: #fff;
       font-family: Arial, Helvetica, sans-serif;
     }
     .label {
       width: 100mm;
-      height: 150mm;
-      padding: 5mm;
+      height: ${alturaEtiqueta}mm;
+      padding: ${ehCaldo ? '3mm' : '4mm'};
       display: grid;
-      grid-template-columns: 1fr 34mm;
-      grid-template-rows: auto auto 1fr auto auto;
-      gap: 3mm 4mm;
+      grid-template-rows: auto auto 1fr auto;
+      gap: ${ehCaldo ? '1.2mm' : '2mm'};
       overflow: hidden;
-      border: 1px solid #000;
+      border: 0.4mm solid #000;
     }
-    .brand {
-      grid-column: 1 / -1;
-      border-bottom: 1px solid #000;
-      padding-bottom: 3mm;
-      text-align: center;
+    .header {
+      display: grid;
+      grid-template-columns: 1fr 20mm;
+      align-items: center;
+      gap: 3mm;
+      border-bottom: 0.3mm solid #000;
+      padding-bottom: 1.5mm;
     }
     .brand img {
       display: block;
       width: auto;
-      max-width: 72mm;
-      height: 14mm;
-      margin: 0 auto;
+      max-width: 66mm;
+      height: ${ehCaldo ? '8mm' : '10mm'};
       object-fit: contain;
     }
+    .qr { width: 18mm; height: 18mm; object-fit: contain; justify-self: end; }
     .name {
-      grid-column: 1 / -1;
-      font-size: 19px;
-      line-height: 1.08;
+      font-size: ${ehCaldo ? '10pt' : '13pt'};
+      line-height: 1.05;
       font-weight: 900;
       text-transform: uppercase;
     }
-    .desc {
-      font-size: 11px;
-      line-height: 1.25;
-      overflow: hidden;
+    .weight { margin-top: 0.7mm; font-size: ${ehCaldo ? '7pt' : '8pt'}; font-weight: 900; }
+    .content {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) ${ehCaldo ? '48mm' : '50mm'};
+      gap: ${ehCaldo ? '1.8mm' : '3mm'};
     }
-    .qr {
-      width: 34mm;
-      height: 34mm;
-      object-fit: contain;
-      align-self: start;
-      justify-self: end;
-    }
-    .meta {
-      grid-column: 1 / -1;
-      border-top: 1px solid #000;
-      padding-top: 3mm;
-      font-size: 11px;
-      line-height: 1.35;
-      font-weight: 700;
-    }
-    .dates {
-      grid-column: 1 / -1;
-      border-top: 1px solid #000;
-      padding-top: 3mm;
+    .details { min-width: 0; font-size: ${ehCaldo ? '6pt' : '7pt'}; line-height: 1.15; overflow: hidden; }
+    .details p { margin: 0 0 ${ehCaldo ? '1mm' : '1.7mm'}; }
+    .details strong { font-weight: 900; }
+    .allergens { text-transform: uppercase; font-weight: 900; }
+    .nutrition { align-self: start; border: 0.5mm solid #000; background: #fff; color: #000; }
+    .nutrition h2 { margin: 0; padding: 1mm; border-bottom: 1mm solid #000; font-size: ${ehCaldo ? '8pt' : '10pt'}; line-height: 1; }
+    .nutrition-meta { padding: 0.8mm 1mm; border-bottom: 0.5mm solid #000; font-size: ${ehCaldo ? '6pt' : '6.5pt'}; line-height: 1.1; }
+    .nutrition table { width: 100%; border-collapse: collapse; font-size: ${ehCaldo ? '6pt' : '6.2pt'}; line-height: 1.05; }
+    .nutrition th, .nutrition td { padding: ${ehCaldo ? '0.45mm' : '0.7mm'} 0.6mm; border-bottom: 0.2mm solid #000; text-align: right; vertical-align: middle; }
+    .nutrition th:first-child, .nutrition td:first-child { text-align: left; font-weight: 700; }
+    .nutrition th { font-weight: 800; }
+    .nutrition-note { margin: 0; padding: 0.7mm; font-size: 6pt; line-height: 1.05; }
+    .traceability {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 2mm 4mm;
-      font-size: 11px;
-      line-height: 1.3;
+      gap: 0.5mm 2mm;
+      border-top: 0.3mm solid #000;
+      padding-top: 1mm;
+      font-size: ${ehCaldo ? '5.5pt' : '6.5pt'};
+      line-height: 1.1;
       font-weight: 800;
     }
-    .dates .full { grid-column: 1 / -1; }
-    .small { font-weight: 400; }
+    .traceability .full { grid-column: 1 / -1; }
+    .manufacturer { grid-column: 1 / -1; margin-top: 0.5mm; font-size: ${ehCaldo ? '6pt' : '6.5pt'}; line-height: 1.08; font-weight: 700; }
   </style>
 </head>
 <body>
   <section class="label">
-    <div class="brand"><img src="${logoEtiquetaUrl}" alt="Viva Leve" /></div>
-    <div class="name">${escaparHtml(produto.nome)}</div>
-    <div class="desc">
-      <strong>${escaparHtml(produto.categoria || 'Produto')}</strong><br />
-      ${escaparHtml(produto.descricao || '')}
+    <header class="header">
+      <div class="brand"><img src="${logoEtiquetaUrl}" alt="Viva Leve" /></div>
+      <img class="qr" src="${qrUrl}" alt="QR Code do produto" />
+    </header>
+    <div>
+      <div class="name">${escaparHtml(produto.nome)}</div>
+      <div class="weight">Peso Líquido: ${escaparHtml(formatarGramas(gramas))}</div>
     </div>
-    <img class="qr" src="${qrUrl}" alt="QR Code" />
-    <div class="dates">
+    <div class="content">
+      <div class="details">
+        ${produto.descricao ? `<p><strong>Descrição:</strong> ${escaparHtml(produto.descricao)}</p>` : ''}
+        <p><strong>Ingredientes:</strong> ${escaparHtml(ingredientes)}</p>
+        <p class="allergens">${escaparHtml(alergicos)}</p>
+        <p><strong>${escaparHtml(modoPreparo)}</strong></p>
+        <p><strong>Conservação:</strong> Mantenha congelado a -18°C ou mais frio. Após descongelar, consumir em até 24h e não recongelar.</p>
+      </div>
+      <section class="nutrition" aria-label="Informação nutricional">
+        <h2>INFORMAÇÃO NUTRICIONAL</h2>
+        <div class="nutrition-meta">Porções por embalagem: 1<br />Porção: ${escaparHtml(formatarGramas(gramas))}</div>
+        <table>
+          <thead><tr><th></th><th>100 g</th><th>${escaparHtml(formatarNumeroBR(gramas, 0))} g</th><th>%VD*</th></tr></thead>
+          <tbody>${linhasNutri}</tbody>
+        </table>
+        <p class="nutrition-note">*Percentual de valores diários fornecidos pela porção. **VD não estabelecido.</p>
+      </section>
+    </div>
+    <footer class="traceability">
       <div class="full">Lote: ${escaparHtml(lote)}</div>
       <div>Fabricação: ${escaparHtml(fabricacaoBR)}</div>
       <div>Validade: ${escaparHtml(validadeBR)}</div>
-    </div>
-    <div class="meta">
-      Porção: ${escaparHtml(formatarGramas(produto.porcao_g))}<br />
-      Macros por 100g:
-      ${escaparHtml(formatarNumeroBR(produto.kcal, 0))} kcal |
-      P ${escaparHtml(formatarNumeroBR(produto.proteinas, 1))}g |
-      C ${escaparHtml(formatarNumeroBR(produto.carboidratos, 1))}g |
-      G ${escaparHtml(formatarNumeroBR(produto.gorduras, 1))}g<br />
-      <span class="small">QR dieta: ${escaparHtml(payloadQr)}</span>
-    </div>
+      <div class="manufacturer">
+        Razão Social: 62.496.248 LUIZ RICARDO MENDES BRANQUINHO · CNPJ: 62.496.248/0001-42<br />
+        Endereço: RUA 91, QUADRA 51, LOTE 5, LOJA 2 - JARDIM CEU AZUL - VALPARAISO DE GOIAS - GO · WhatsApp: (61) 9129-9996
+      </div>
+    </footer>
   </section>
   <script>
     window.addEventListener('load', () => {
