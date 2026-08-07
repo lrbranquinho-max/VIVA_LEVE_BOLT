@@ -1072,7 +1072,7 @@ export default function LojaCliente() {
                     <input required type="text" value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Quadra, Bairro..." className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
                   </div>
 
-                  {totalAposCredito > 0 ? <div>
+                  {totalAposCredito > 0 && <div>
                     <label className="mb-2 block text-xs font-bold text-gray-600">Meio de pagamento</label>
                     <div className={`grid grid-cols-1 gap-2 ${voucherDisponivel ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                       <button type="button" onClick={() => setMetodoPagamento('checkout')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'checkout' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
@@ -1098,11 +1098,7 @@ export default function LojaCliente() {
                         </button>
                       )}
                     </div>
-                  </div> : (
-                    <div className="rounded-xl bg-green-100 p-3 text-center text-sm font-black text-green-800">
-                      A chave cobre todo o pedido. Nenhum gateway será aberto.
-                    </div>
-                  )}
+                  </div>}
 
                   {totalAposCredito > 0 && (metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && (
                     <div className="rounded-2xl border border-purple-100 bg-purple-50 p-3">
