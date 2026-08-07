@@ -34,6 +34,42 @@ export type Database = {
           atualizado_em?: string;
         };
       };
+      creditos_pagamento: {
+        Row: {
+          id: number;
+          chave: string;
+          valor_origem: number;
+          valor_disponivel: number;
+          valor_reservado: number;
+          tipo: 'Devolução' | 'Bonificação' | 'Premiação' | 'Venda Externa';
+          email_restricao: string | null;
+          ativo: boolean;
+          criado_em: string;
+          atualizado_em: string;
+        };
+        Insert: {
+          id?: number;
+          chave: string;
+          valor_origem: number;
+          valor_disponivel?: number;
+          valor_reservado?: number;
+          tipo: 'Devolução' | 'Bonificação' | 'Premiação' | 'Venda Externa';
+          email_restricao?: string | null;
+          ativo?: boolean;
+          criado_em?: string;
+          atualizado_em?: string;
+        };
+        Update: {
+          chave?: string;
+          valor_origem?: number;
+          valor_disponivel?: number;
+          valor_reservado?: number;
+          tipo?: 'Devolução' | 'Bonificação' | 'Premiação' | 'Venda Externa';
+          email_restricao?: string | null;
+          ativo?: boolean;
+          atualizado_em?: string;
+        };
+      };
       produtos: {
         Row: {
           id: number;

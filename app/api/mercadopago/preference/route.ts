@@ -84,6 +84,18 @@ function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
   const totalPedido = Number(pedido.valor_total || 0);
   const totalProdutosCobrado = Math.max(totalPedido - valorFrete, 0);
 
+  if (Number(pedido.credito_valor_aplicado || 0) > 0) {
+    return [{
+      id: String(pedido.id),
+      title: `Saldo do pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
+      description: itens.map(item => `${item.quantidade}x ${item.nome}`).join(', ').slice(0, 250),
+      quantity: 1,
+      currency_id: 'BRL',
+      unit_price: Number(totalPedido.toFixed(2)),
+      category_id: 'food',
+    }];
+  }
+
   if (subtotalItens <= 0 || totalPedido <= 0) {
     return [{
       id: String(pedido.id),
@@ -144,6 +156,7 @@ function additionalInfoPedido(itens: ItemCheckout[], pedido: any, payer: any) {
     `Subtotal: ${Number(pedido.subtotal_produtos || 0).toFixed(2)}`,
     `Desconto: ${Number(pedido.desconto_valor || 0).toFixed(2)}`,
     `Frete: ${Number(pedido.valor_frete || 0).toFixed(2)}`,
+    `Credito: ${Number(pedido.credito_valor_aplicado || 0).toFixed(2)}`,
     `Entrega: ${payer?.endereco || pedido.endereco_entrega || ''}`,
   ].join(' | ').slice(0, 600);
 }
@@ -196,7 +209,7 @@ export async function POST(request: NextRequest) {
 
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
-      .select('id, valor_total, status, subtotal_produtos, valor_frete, desconto_valor, endereco_entrega')
+      .select('id, valor_total, status, subtotal_produtos, valor_frete, desconto_valor, endereco_entrega, credito_valor_aplicado')
       .eq('id', pedidoId)
       .maybeSingle();
 
@@ -245,7 +258,7 @@ export async function POST(request: NextRequest) {
       items: itensPreferencia,
       shipments: enderecoPagador ? {
         mode: 'not_specified',
-        cost: Number(pedido.valor_frete || 0),
+        cost: 0,
         free_shipping: Number(pedido.valor_frete || 0) === 0,
         receiver_address: enderecoPagador,
       } : undefined,

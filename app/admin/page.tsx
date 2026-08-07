@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../supabase';
 
-type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'treinos' | 'config';
+type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
 
 interface ItemPedido {
@@ -63,6 +63,26 @@ interface Produto {
   gorduras: number;
   ativo: boolean;
   tabela_nutri?: TabelaNutri | null;
+}
+
+interface CreditoPagamento {
+  id: number;
+  chave: string;
+  valor_origem: number;
+  valor_disponivel: number;
+  valor_reservado: number;
+  tipo: 'Devolução' | 'Bonificação' | 'Premiação' | 'Venda Externa';
+  email_restricao: string | null;
+  ativo: boolean;
+  criado_em: string;
+  atualizado_em: string;
+}
+
+const TIPOS_CREDITO: CreditoPagamento['tipo'][] = ['Devolução', 'Bonificação', 'Premiação', 'Venda Externa'];
+
+function gerarChaveCredito() {
+  const bloco = () => crypto.getRandomValues(new Uint32Array(1))[0].toString(36).toUpperCase().padStart(6, '0').slice(0, 6);
+  return `VL-${bloco()}-${bloco()}`;
 }
 
 interface TabelaNutri {
@@ -616,6 +636,15 @@ export default function AdminPage() {
   const [formConfig, setFormConfig] = useState<LojaConfigForm>({ ...LOJA_CONFIG_FORM_PADRAO });
   const [carregandoConfig, setCarregandoConfig] = useState(false);
   const [salvandoConfig, setSalvandoConfig] = useState(false);
+  const [creditos, setCreditos] = useState<CreditoPagamento[]>([]);
+  const [carregandoCreditos, setCarregandoCreditos] = useState(false);
+  const [salvandoCredito, setSalvandoCredito] = useState(false);
+  const [formCredito, setFormCredito] = useState({
+    chave: '',
+    valor: '',
+    tipo: 'Devolução' as CreditoPagamento['tipo'],
+    email: '',
+  });
   const [exercicios, setExercicios] = useState<ExercicioCatalogo[]>([]);
   const [carregandoExercicios, setCarregandoExercicios] = useState(false);
   const [filtroExercicio, setFiltroExercicio] = useState('');
@@ -727,6 +756,22 @@ export default function AdminPage() {
     }
   }, [toast]);
 
+  const carregarCreditos = useCallback(async () => {
+    setCarregandoCreditos(true);
+    try {
+      const { data, error } = await supabase
+        .from('creditos_pagamento')
+        .select('id,chave,valor_origem,valor_disponivel,valor_reservado,tipo,email_restricao,ativo,criado_em,atualizado_em')
+        .order('criado_em', { ascending: false });
+      if (error) throw error;
+      setCreditos((data ?? []) as CreditoPagamento[]);
+    } catch (err: any) {
+      toast(`Erro ao carregar créditos: ${err.message}`, 'erro');
+    } finally {
+      setCarregandoCreditos(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     async function protegerRota() {
       const { data: { user }, error } = await supabase.auth.getUser();
@@ -750,8 +795,9 @@ export default function AdminPage() {
     carregarPedidos();
     carregarProdutos();
     carregarConfig();
+    carregarCreditos();
     carregarExercicios();
-  }, [loading, carregarPedidos, carregarProdutos, carregarConfig, carregarExercicios]);
+  }, [loading, carregarPedidos, carregarProdutos, carregarConfig, carregarCreditos, carregarExercicios]);
 
   useEffect(() => {
     if (loading) return;
@@ -845,6 +891,62 @@ export default function AdminPage() {
       toast(`Erro ao salvar configuraÃ§Ãµes: ${err.message}`, 'erro');
     } finally {
       setSalvandoConfig(false);
+    }
+  };
+
+  const criarCredito = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const valor = Math.round(parseNumeroBR(formCredito.valor) * 100) / 100;
+    const chave = (formCredito.chave.trim() || gerarChaveCredito()).toUpperCase();
+    if (valor <= 0) {
+      toast('Informe um valor de crédito maior que zero.', 'erro');
+      return;
+    }
+
+    setSalvandoCredito(true);
+    try {
+      const { data, error } = await supabase
+        .from('creditos_pagamento')
+        .insert({
+          chave,
+          valor_origem: valor,
+          valor_disponivel: valor,
+          tipo: formCredito.tipo,
+          email_restricao: formCredito.email.trim().toLowerCase() || null,
+          ativo: true,
+        })
+        .select('id,chave,valor_origem,valor_disponivel,valor_reservado,tipo,email_restricao,ativo,criado_em,atualizado_em')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('O banco não retornou a chave criada.');
+      setCreditos(prev => [data as CreditoPagamento, ...prev]);
+      setFormCredito({ chave: '', valor: '', tipo: 'Devolução', email: '' });
+      toast(`Chave ${data.chave} criada com sucesso.`, 'sucesso');
+    } catch (err: any) {
+      const mensagem = err.code === '23505' ? 'Esta chave já existe.' : err.message;
+      toast(`Erro ao criar crédito: ${mensagem}`, 'erro');
+    } finally {
+      setSalvandoCredito(false);
+    }
+  };
+
+  const alternarCredito = async (credito: CreditoPagamento) => {
+    try {
+      const { data, error } = await supabase
+        .from('creditos_pagamento')
+        .update({ ativo: !credito.ativo })
+        .eq('id', credito.id)
+        .select('id,ativo,atualizado_em')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('A alteração não foi confirmada pelo banco.');
+      setCreditos(prev => prev.map(item => item.id === credito.id
+        ? { ...item, ativo: Boolean(data.ativo), atualizado_em: data.atualizado_em }
+        : item));
+      toast(`Chave ${credito.chave} ${data.ativo ? 'ativada' : 'inativada'}.`, 'sucesso');
+    } catch (err: any) {
+      toast(`Erro ao alterar crédito: ${err.message}`, 'erro');
+      await carregarCreditos();
     }
   };
 
@@ -1412,7 +1514,7 @@ export default function AdminPage() {
             <div>
               <p className="text-xs font-black uppercase text-viva-roxo">Viva Leve Admin</p>
               <h1 className="text-2xl font-black">
-                {aba === 'pedidos' ? 'Gestao de Pedidos' : aba === 'balcao' ? 'Venda Balcao' : aba === 'produtos' ? 'Cardapio e Estoque' : aba === 'treinos' ? 'Exercicios e Treinos' : 'Configuracoes'}
+                {aba === 'pedidos' ? 'Gestão de Pedidos' : aba === 'balcao' ? 'Venda Balcão' : aba === 'produtos' ? 'Cardápio e Estoque' : aba === 'creditos' ? 'Gestão de Créditos' : aba === 'treinos' ? 'Exercícios e Treinos' : 'Configurações'}
               </h1>
               <p className="text-sm text-gray-500">Dados ao vivo do Supabase oficial.</p>
             </div>
@@ -1442,6 +1544,7 @@ export default function AdminPage() {
                       { id: 'pedidos' as const, label: 'Gestão de Pedidos', desc: `${pedidos.length} pedidos` },
                       { id: 'balcao' as const, label: 'Venda Balcão', desc: 'Pedido rápido' },
                       { id: 'produtos' as const, label: 'Cardápio/Estoque', desc: `${produtos.length} produtos` },
+                      { id: 'creditos' as const, label: 'Créditos', desc: `${creditos.length} chaves` },
                       { id: 'treinos' as const, label: 'Exercícios/Treino', desc: `${exercicios.length} exercícios` },
                       { id: 'config' as const, label: 'Configurações', desc: 'Cupons e frete' },
                     ].map(item => (
@@ -1477,6 +1580,7 @@ export default function AdminPage() {
                       carregarPedidos();
                       carregarProdutos();
                       carregarConfig();
+                      carregarCreditos();
                       carregarExercicios();
                     }}
                     className="mt-2 w-full rounded-lg bg-viva-verde px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:brightness-95"
@@ -1761,6 +1865,96 @@ export default function AdminPage() {
                   </button>
                 </div>
               </form>
+            </section>
+          )}
+
+          {aba === 'creditos' && (
+            <section className="space-y-5">
+              <form onSubmit={criarCredito} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="mb-5">
+                  <h2 className="text-lg font-black text-gray-900">Criar chave de crédito</h2>
+                  <p className="text-xs text-gray-500">O saldo inicial e o saldo disponível serão gravados com o mesmo valor.</p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Chave</span>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={formCredito.chave}
+                        onChange={e => setFormCredito({ ...formCredito, chave: e.target.value.toUpperCase() })}
+                        placeholder="Deixe vazio para gerar"
+                        className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm font-bold uppercase text-gray-900 outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                      <button type="button" title="Gerar chave aleatória" onClick={() => setFormCredito({ ...formCredito, chave: gerarChaveCredito() })} className="rounded-xl bg-gray-100 px-3 text-lg font-black text-gray-700 hover:bg-gray-200">
+                        ↻
+                      </button>
+                    </div>
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Valor de origem</span>
+                    <input type="text" inputMode="decimal" value={formCredito.valor} onChange={e => setFormCredito({ ...formCredito, valor: e.target.value })} onBlur={e => setFormCredito({ ...formCredito, valor: valorInputBR(e.target.value, 2) })} placeholder="100,00" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Tipo</span>
+                    <select value={formCredito.tipo} onChange={e => setFormCredito({ ...formCredito, tipo: e.target.value as CreditoPagamento['tipo'] })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-gray-900">
+                      {TIPOS_CREDITO.map(tipo => <option key={tipo} value={tipo}>{tipo}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-xs font-bold uppercase text-gray-500">E-mail restrito (opcional)</span>
+                    <input type="email" value={formCredito.email} onChange={e => setFormCredito({ ...formCredito, email: e.target.value })} placeholder="cliente@email.com" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900" />
+                  </label>
+                </div>
+
+                <button disabled={salvandoCredito} className="mt-5 rounded-xl bg-gray-900 px-5 py-3 text-sm font-black text-white shadow-lg hover:bg-gray-800 disabled:opacity-50">
+                  {salvandoCredito ? 'Criando...' : 'Criar chave'}
+                </button>
+              </form>
+
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="flex items-center justify-between border-b border-gray-100 p-4">
+                  <div>
+                    <h2 className="font-black text-gray-900">Chaves cadastradas</h2>
+                    <p className="text-xs text-gray-500">Saldo utilizável considera reservas de pagamentos ainda pendentes.</p>
+                  </div>
+                  <button type="button" onClick={carregarCreditos} className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-black text-gray-700 hover:bg-gray-200">Atualizar</button>
+                </div>
+                {carregandoCreditos ? (
+                  <p className="p-6 text-center text-sm text-gray-500">Carregando créditos...</p>
+                ) : creditos.length === 0 ? (
+                  <p className="p-6 text-center text-sm text-gray-500">Nenhuma chave cadastrada.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[900px] text-left text-sm">
+                      <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                        <tr><th className="p-3">Chave</th><th className="p-3">Origem</th><th className="p-3">Disponível</th><th className="p-3">Reservado</th><th className="p-3">Tipo</th><th className="p-3">E-mail</th><th className="p-3">Status</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {creditos.map(credito => {
+                          const utilizavel = Math.max(Number(credito.valor_disponivel || 0) - Number(credito.valor_reservado || 0), 0);
+                          return (
+                            <tr key={credito.id} className="align-middle">
+                              <td className="p-3"><button type="button" title="Copiar chave" onClick={() => navigator.clipboard.writeText(credito.chave).then(() => toast('Chave copiada.', 'sucesso'))} className="font-black text-viva-roxo hover:underline">{credito.chave}</button></td>
+                              <td className="p-3 font-semibold">{formatarMoedaBR(credito.valor_origem)}</td>
+                              <td className="p-3"><span className="font-black text-green-700">{formatarMoedaBR(utilizavel)}</span><span className="block text-[10px] text-gray-400">Saldo: {formatarMoedaBR(credito.valor_disponivel)}</span></td>
+                              <td className="p-3">{formatarMoedaBR(credito.valor_reservado)}</td>
+                              <td className="p-3">{credito.tipo}</td>
+                              <td className="p-3 text-xs">{credito.email_restricao || 'Livre'}</td>
+                              <td className="p-3">
+                                <button type="button" onClick={() => alternarCredito(credito)} aria-pressed={credito.ativo} className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ${credito.ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                  <span className={`h-2 w-2 rounded-full ${credito.ativo ? 'bg-green-500' : 'bg-gray-400'}`} />{credito.ativo ? 'Ativo' : 'Inativo'}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </section>
           )}
 

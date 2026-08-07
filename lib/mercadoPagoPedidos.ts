@@ -129,7 +129,17 @@ export async function sincronizarPagamentoMercadoPago(paymentId: string) {
   );
 
   if (statusPagamento === 'approved') {
+    const { error: creditoError } = await supabase.rpc('finalizar_credito_pedido', {
+      p_pedido_id: String(pedidoId),
+    });
+    if (creditoError) throw creditoError;
     await supabase.rpc('finalizar_cupom_pedido', { p_pedido_id: String(pedidoId) });
+  } else if (statusPagamento === 'rejected' || statusPagamento === 'cancelled') {
+    const { error: creditoError } = await supabase.rpc('liberar_credito_pedido', {
+      p_pedido_id: String(pedidoId),
+      p_cliente_id: null,
+    });
+    if (creditoError) throw creditoError;
   }
 
   return {

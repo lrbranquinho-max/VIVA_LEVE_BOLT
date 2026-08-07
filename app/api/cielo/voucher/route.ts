@@ -169,6 +169,10 @@ export async function POST(request: NextRequest) {
         p_pagamento_status: 'error',
         p_status_pedido: 'Aguardando Pagamento',
       });
+      await supabase.rpc('liberar_credito_pedido', {
+        p_pedido_id: pedidoId,
+        p_cliente_id: authData.user.id,
+      });
       return respostaJson({ error: mensagem, code: codigo }, cieloHttp.status >= 500 ? 502 : 400);
     }
 
@@ -191,6 +195,13 @@ export async function POST(request: NextRequest) {
     if (processarError) throw new Error(processarError.message);
 
     if (!aprovado) {
+      if (!pendente) {
+        const { error: liberarError } = await supabase.rpc('liberar_credito_pedido', {
+          p_pedido_id: pedidoId,
+          p_cliente_id: authData.user.id,
+        });
+        if (liberarError) throw new Error(liberarError.message);
+      }
       return respostaJson({
         error: pendente
           ? 'Pagamento em análise. Acompanhe a atualização na página de pedidos.'
@@ -199,6 +210,16 @@ export async function POST(request: NextRequest) {
         status: pagamentoStatus,
       }, pendente ? 202 : 402);
     }
+
+    const { error: creditoError } = await supabase.rpc('finalizar_credito_pedido', {
+      p_pedido_id: pedidoId,
+    });
+    if (creditoError) throw new Error(creditoError.message);
+
+    const { error: cupomError } = await supabase.rpc('finalizar_cupom_pedido', {
+      p_pedido_id: pedidoId,
+    });
+    if (cupomError) throw new Error(cupomError.message);
 
     return respostaJson({ approved: true, paymentId: payment?.PaymentId, status: pagamentoStatus });
   } catch (error: any) {

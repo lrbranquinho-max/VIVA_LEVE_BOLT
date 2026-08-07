@@ -136,6 +136,9 @@ export default function LojaCliente() {
   const [canais, setCanais] = useState<CanalLoja[]>([]);
   const [cupons, setCupons] = useState<CupomDesconto[]>([]);
   const [cupomSelecionadoId, setCupomSelecionadoId] = useState('');
+  const [chaveCredito, setChaveCredito] = useState('');
+  const [creditoValidado, setCreditoValidado] = useState<{ chave: string; valorDisponivel: number } | null>(null);
+  const [validandoCredito, setValidandoCredito] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
 
@@ -337,6 +340,8 @@ export default function LojaCliente() {
   const descontoValor = subtotalProdutos * (descontoPercentual / 100);
   const valorFrete = subtotalProdutos > 0 && subtotalProdutos < LIMITE_FRETE_GRATIS ? lojaConfig.taxa_entrega_padrao : 0;
   const totalPedidoFinal = Math.max(subtotalProdutos - descontoValor + valorFrete, 0);
+  const creditoPrevisto = Math.min(Number(creditoValidado?.valorDisponivel || 0), totalPedidoFinal);
+  const totalAposCredito = Math.max(totalPedidoFinal - creditoPrevisto, 0);
   const totalItens = Object.values(carrinho).reduce((a, b) => a + b, 0);
   const mensagensPromocionais = useMemo(() => {
     const mensagens = [
@@ -546,6 +551,41 @@ export default function LojaCliente() {
     });
   };
 
+  const validarChaveCredito = async () => {
+    if (!chaveCredito.trim()) {
+      adicionarToast('Informe a chave de crédito.', 'erro');
+      return;
+    }
+    setValidandoCredito(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Entre na sua conta para validar a chave.');
+      const resposta = await fetch('/api/creditos/validar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ chave: chaveCredito }),
+      });
+      const resultado = await resposta.json();
+      if (!resposta.ok) throw new Error(resultado.error || 'Chave de crédito inválida.');
+      setChaveCredito(resultado.chave);
+      setCreditoValidado({ chave: resultado.chave, valorDisponivel: Number(resultado.valorDisponivel || 0) });
+      adicionarToast(`Crédito disponível: ${formatarMoedaBR(resultado.valorDisponivel)}.`, 'sucesso');
+    } catch (err: any) {
+      setCreditoValidado(null);
+      adicionarToast(err.message || 'Não foi possível validar a chave.', 'erro');
+    } finally {
+      setValidandoCredito(false);
+    }
+  };
+
+  const liberarCreditoPedido = async (pedidoId: string | number, accessToken: string) => {
+    await fetch('/api/creditos/liberar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ pedidoId }),
+    }).catch(() => undefined);
+  };
+
   const finalizarPedido = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -555,6 +595,10 @@ export default function LojaCliente() {
     }
 
     setEnviando(true);
+    let pedidoIdCriado: string | number | null = null;
+    let creditoReservado = false;
+    let pagamentoIniciado = false;
+    let accessTokenAtual = '';
 
     try {
       const { data: { session }, error: errSession } = await supabase.auth.getSession();
@@ -564,15 +608,16 @@ export default function LojaCliente() {
         setEnviando(false);
         return;
       }
+      accessTokenAtual = session.access_token;
 
       const cadastroPedido = await validarCadastroPedido(user.id);
       const cpfPagadorDigitos = somenteDigitos(cpfPagador);
-      if ((metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && cpfPagadorDigitos.length !== 11) {
+      if (totalAposCredito > 0 && (metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && cpfPagadorDigitos.length !== 11) {
         adicionarToast('Informe o CPF do pagador com 11 digitos para pagamento com cartao.', 'erro');
         throw new Error('CPF do pagador invalido.');
       }
 
-      if (metodoPagamento === 'voucher') {
+      if (totalAposCredito > 0 && metodoPagamento === 'voucher') {
         if (bandeiraVoucher === 'pluxee') {
           throw new Error('A Cielo E-commerce 3.0 ainda não processa Pluxee. Selecione Alelo ou outro meio de pagamento.');
         }
@@ -628,6 +673,33 @@ export default function LojaCliente() {
         .maybeSingle();
 
       if (errPedido) throw new Error(errPedido.message);
+      if (!pedidoCriado?.id) throw new Error('O banco não retornou o identificador do pedido.');
+      pedidoIdCriado = pedidoCriado.id;
+
+      if (creditoValidado) {
+        const respostaCredito = await fetch('/api/creditos/aplicar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ pedidoId: pedidoCriado.id, chave: creditoValidado.chave }),
+        });
+        const credito = await respostaCredito.json();
+        if (!respostaCredito.ok) throw new Error(credito.error || 'Não foi possível aplicar a chave de crédito.');
+
+        if (credito.quitado) {
+          setCarrinho({});
+          setVerCarrinho(false);
+          setCupomSelecionadoId('');
+          setChaveCredito('');
+          setCreditoValidado(null);
+          adicionarToast('Pedido pago integralmente com a chave de crédito!', 'sucesso');
+          router.push('/pedidos?pagamento=sucesso');
+          return;
+        }
+        creditoReservado = Number(credito.valor_aplicado || 0) > 0;
+        if ((metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && cpfPagadorDigitos.length !== 11) {
+          throw new Error('Informe o CPF do pagador para pagar o saldo restante.');
+        }
+      }
 
       const paymentTokenVoucher = metodoPagamento === 'voucher'
         ? await tokenizarVoucher(session.access_token)
@@ -664,6 +736,7 @@ export default function LojaCliente() {
 
       const pagamento = await respostaPagamento.json();
       if (!respostaPagamento.ok) throw new Error(pagamento.error || 'Erro ao iniciar pagamento.');
+      pagamentoIniciado = true;
 
       if (metodoPagamento === 'pix') {
         setPixGerado({
@@ -674,6 +747,8 @@ export default function LojaCliente() {
         setCarrinho({});
         setVerCarrinho(false);
         setCupomSelecionadoId('');
+        setChaveCredito('');
+        setCreditoValidado(null);
         adicionarToast('Pix gerado. Copie o codigo para pagar.', 'sucesso');
         return;
       }
@@ -682,6 +757,8 @@ export default function LojaCliente() {
         setCarrinho({});
         setVerCarrinho(false);
         setCupomSelecionadoId('');
+        setChaveCredito('');
+        setCreditoValidado(null);
         setNumeroVoucher('');
         setNomeVoucher('');
         setValidadeVoucher('');
@@ -697,10 +774,15 @@ export default function LojaCliente() {
       setCarrinho({});
       setVerCarrinho(false);
       setCupomSelecionadoId('');
+      setChaveCredito('');
+      setCreditoValidado(null);
       adicionarToast('Pedido registrado. Redirecionando para pagamento...', 'sucesso');
       window.location.href = checkoutUrl;
     } catch (err: any) {
       console.error('[Pedido] Falha:', err);
+      if (pedidoIdCriado && creditoReservado && !pagamentoIniciado && accessTokenAtual) {
+        await liberarCreditoPedido(pedidoIdCriado, accessTokenAtual);
+      }
       adicionarToast('Erro ao enviar pedido: ' + (err.message ?? 'tente novamente'), 'erro');
     } finally {
       setEnviando(false);
@@ -922,6 +1004,31 @@ export default function LojaCliente() {
                     </div>
                   )}
 
+                  <div className="rounded-xl border border-green-200 bg-green-50 p-3">
+                    <label className="mb-1 block text-xs font-bold text-green-900">Chave de Crédito</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={chaveCredito}
+                        onChange={e => {
+                          setChaveCredito(e.target.value.toUpperCase());
+                          setCreditoValidado(null);
+                        }}
+                        placeholder="Ex.: VL-ABC123-DEF456"
+                        className="min-w-0 flex-1 rounded-lg border border-green-200 bg-white p-2 text-sm font-bold uppercase text-gray-900"
+                      />
+                      <button type="button" disabled={validandoCredito} onClick={validarChaveCredito} className="rounded-lg bg-green-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+                        {validandoCredito ? 'Validando...' : 'Aplicar'}
+                      </button>
+                    </div>
+                    {creditoValidado && (
+                      <div className="mt-2 flex items-center justify-between text-xs font-bold text-green-800">
+                        <span>Saldo disponível: {formatarMoedaBR(creditoValidado.valorDisponivel)}</span>
+                        <button type="button" onClick={() => { setChaveCredito(''); setCreditoValidado(null); }} className="underline">Remover</button>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-1 border-t border-gray-100 pt-2 text-sm">
                     <div className="flex justify-between text-gray-600">
                       <span>Subtotal</span>
@@ -937,9 +1044,15 @@ export default function LojaCliente() {
                         <span>- {formatarMoedaBR(descontoValor)}</span>
                       </div>
                     )}
+                    {creditoPrevisto > 0 && (
+                      <div className="flex justify-between font-bold text-green-700">
+                        <span>Chave de crédito</span>
+                        <span>- {formatarMoedaBR(creditoPrevisto)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between pt-2 text-lg font-extrabold text-gray-800">
-                      <span>Total:</span>
-                      <span className="text-viva-roxo">{formatarMoedaBR(totalPedidoFinal)}</span>
+                      <span>Total a pagar:</span>
+                      <span className="text-viva-roxo">{formatarMoedaBR(totalAposCredito)}</span>
                     </div>
                   </div>
                 </div>
@@ -959,7 +1072,7 @@ export default function LojaCliente() {
                     <input required type="text" value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Quadra, Bairro..." className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
                   </div>
 
-                  <div>
+                  {totalAposCredito > 0 ? <div>
                     <label className="mb-2 block text-xs font-bold text-gray-600">Meio de pagamento</label>
                     <div className={`grid grid-cols-1 gap-2 ${voucherDisponivel ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
                       <button type="button" onClick={() => setMetodoPagamento('checkout')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'checkout' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
@@ -985,9 +1098,13 @@ export default function LojaCliente() {
                         </button>
                       )}
                     </div>
-                  </div>
+                  </div> : (
+                    <div className="rounded-xl bg-green-100 p-3 text-center text-sm font-black text-green-800">
+                      A chave cobre todo o pedido. Nenhum gateway será aberto.
+                    </div>
+                  )}
 
-                  {(metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && (
+                  {totalAposCredito > 0 && (metodoPagamento === 'checkout' || metodoPagamento === 'voucher') && (
                     <div className="rounded-2xl border border-purple-100 bg-purple-50 p-3">
                       <label className="flex items-center gap-2 text-xs font-bold text-viva-roxo">
                         <input
@@ -1027,7 +1144,7 @@ export default function LojaCliente() {
                     </div>
                   )}
 
-                  {metodoPagamento === 'voucher' && (
+                  {totalAposCredito > 0 && metodoPagamento === 'voucher' && (
                     <div className="space-y-3 rounded-2xl border border-green-200 bg-green-50 p-3">
                       <div>
                         <p className="text-sm font-black text-green-900">Cartão de benefício</p>
