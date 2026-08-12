@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../supabase';
 import Logo from '../components/Logo';
 import BottomNav from '../components/BottomNav';
+import StoreFooter from '../components/StoreFooter';
 
 declare global {
   interface Window {
@@ -1005,6 +1006,8 @@ export default function LojaCliente() {
         )}
       </main>
 
+      <StoreFooter />
+
       {verCarrinho && (
         <div className="fixed inset-0 z-50 mx-auto flex max-w-md items-end justify-center bg-black/50">
           <div className="max-h-[92vh] w-full space-y-5 overflow-y-auto rounded-t-3xl bg-white p-6">
@@ -1129,8 +1132,16 @@ export default function LojaCliente() {
                       </button>
                       {cieloDisponivel && (
                         <button type="button" onClick={() => setMetodoPagamento('cielo')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'cielo' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
-                          <span className="block">Cartão pela Cielo</span>
-                          <span className="mt-1 block text-[9px]">Crédito, débito ou Alelo</span>
+                          <span className="block">Cartão de Crédito, Débito ou Alelo</span>
+                          <span className="mt-2 flex items-center justify-center gap-1" aria-label="Bandeiras Visa, Mastercard, Elo e Alelo">
+                            <span className="flex h-4 min-w-8 items-center justify-center rounded-sm bg-white px-1 text-[7px] font-black italic text-[#1434CB] shadow-sm">VISA</span>
+                            <span className="flex h-4 min-w-8 items-center justify-center rounded-sm bg-white px-1 shadow-sm" title="Mastercard">
+                              <span className="h-2.5 w-2.5 rounded-full bg-[#EB001B]" />
+                              <span className="-ml-1 h-2.5 w-2.5 rounded-full bg-[#F79E1B] opacity-90" />
+                            </span>
+                            <span className="flex h-4 min-w-8 items-center justify-center rounded-sm bg-[#111827] px-1 text-[7px] font-black lowercase text-[#FFCB05] shadow-sm">elo</span>
+                            <span className="flex h-4 min-w-8 items-center justify-center rounded-sm bg-[#00A859] px-1 text-[7px] font-black lowercase text-white shadow-sm">alelo</span>
+                          </span>
                         </button>
                       )}
                       <button type="button" onClick={() => setMetodoPagamento('mercado_pago')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'mercado_pago' ? 'border-[#009EE3] bg-[#009EE3] text-white' : 'border-sky-200 bg-white text-[#007EB5]'}`}>
