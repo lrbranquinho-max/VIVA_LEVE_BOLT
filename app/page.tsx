@@ -1150,6 +1150,20 @@ export default function LojaCliente() {
                     </div>
                   </div>}
 
+                  {totalAposCredito > 0 && metodoPagamento === 'pix' && (
+                    <div className="rounded-2xl border border-green-200 bg-green-50 p-4" role="status">
+                      <div className="flex items-start gap-3">
+                        <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-[#32BCAD] text-xs font-black text-white">PIX</span>
+                        <div>
+                          <p className="text-sm font-black text-green-900">Pix selecionado</p>
+                          <p className="mt-1 text-xs leading-relaxed text-green-800">
+                            Ao confirmar o pedido, o QR Code e o código Pix Copia e Cola serão gerados pelo Mercado Pago.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {totalAposCredito > 0 && (metodoPagamento === 'cielo' || metodoPagamento === 'mercado_pago') && (
                     <div className="rounded-2xl border border-purple-100 bg-purple-50 p-3">
                       <label className="flex items-center gap-2 text-xs font-bold text-viva-roxo">
@@ -1291,7 +1305,9 @@ export default function LojaCliente() {
                   )}
 
                   <button type="submit" disabled={enviando} className="w-full rounded-xl bg-viva-roxo py-3.5 text-center font-bold text-white shadow-lg transition-all active:scale-[0.99] disabled:opacity-60">
-                    {enviando ? 'Processando...' : 'Confirmar Pedido'}
+                    {enviando
+                      ? (metodoPagamento === 'pix' ? 'Gerando Pix...' : 'Processando...')
+                      : (metodoPagamento === 'pix' ? 'Confirmar Pedido e Gerar Pix' : 'Confirmar Pedido')}
                   </button>
                 </form>
               </>
