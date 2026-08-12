@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../supabase';
+import { nomeMeioPagamento } from '../../lib/meiosPagamento';
 
 type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
@@ -1666,8 +1667,8 @@ export default function AdminPage() {
                         <p className="mt-1 text-xs text-gray-400">{dataPedido(pedido) ? new Date(dataPedido(pedido)).toLocaleString('pt-BR') : 'Data não informada'}</p>
                         {(pedido.pagamento_status || pedido.mercado_pago_status_detail || pedido.cielo_return_message) && (
                           <div className="mt-3 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-800">
-                            {pedido.meio_pagamento === 'cielo_alelo' ? 'Cielo / Alelo' : 'Mercado Pago'}: {pedido.pagamento_status || 'sem status'}
-                            {pedido.meio_pagamento === 'cielo_alelo'
+                            {nomeMeioPagamento(pedido.meio_pagamento)}: {pedido.pagamento_status || 'sem status'}
+                            {pedido.meio_pagamento?.startsWith('cielo_')
                               ? (pedido.cielo_return_message ? ` - ${pedido.cielo_return_message}` : '')
                               : (pedido.mercado_pago_status_detail ? ` - ${pedido.mercado_pago_status_detail}` : '')}
                           </div>

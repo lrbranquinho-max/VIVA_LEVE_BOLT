@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../supabase';
+import { nomeMeioPagamento } from '../../lib/meiosPagamento';
 import Logo from '../../components/Logo';
 import BottomNav from '../../components/BottomNav';
 
@@ -418,11 +419,11 @@ export default function MeusPedidos() {
                     {(pedido.pagamento_status || pedido.mercado_pago_status_detail || pedido.cielo_return_message) && (
                       <div className="rounded-xl border border-orange-100 bg-orange-50 p-3">
                         <p className="text-xs font-bold uppercase tracking-wider text-orange-600">
-                          {pedido.meio_pagamento === 'cielo_alelo' ? 'Cielo / Alelo' : 'Mercado Pago'}
+                          {nomeMeioPagamento(pedido.meio_pagamento)}
                         </p>
                         <p className="mt-1 text-xs font-semibold text-orange-800">
                           {pedido.pagamento_status || 'sem status'}
-                          {pedido.meio_pagamento === 'cielo_alelo'
+                          {pedido.meio_pagamento?.startsWith('cielo_')
                             ? (pedido.cielo_return_message ? ` - ${pedido.cielo_return_message}` : '')
                             : (pedido.mercado_pago_status_detail ? ` - ${pedido.mercado_pago_status_detail}` : '')}
                         </p>

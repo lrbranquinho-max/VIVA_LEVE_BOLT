@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 interface VoucherRequest {
   pedidoId?: string | number;
-  bandeira?: 'alelo' | 'pluxee';
+  bandeira?: 'ticket' | 'vr' | 'alelo' | 'pluxee';
   paymentToken?: string;
   payer?: {
     nome?: string;
@@ -94,11 +94,11 @@ export async function POST(request: NextRequest) {
     pedidoId = String(body.pedidoId ?? '').trim();
     if (!pedidoId) return respostaJson({ error: 'Pedido não informado.' }, 400);
 
-    if (body.bandeira === 'pluxee') {
-      return respostaJson({
-        error: 'A API E-commerce Cielo 3.0 aceita voucher Alelo. Pluxee depende de habilitação e integração próprias da operadora.',
-      }, 422);
+    const bandeira = body.bandeira;
+    if (!bandeira || !['ticket', 'vr', 'alelo', 'pluxee'].includes(bandeira)) {
+      return respostaJson({ error: 'Selecione a bandeira do cartão de benefício.' }, 400);
     }
+    const meioPagamento = `cielo_${bandeira}`;
 
     const paymentToken = String(body.paymentToken ?? '').trim();
     if (!/^[a-f0-9-]{36}$/i.test(paymentToken)) {
@@ -116,6 +116,12 @@ export async function POST(request: NextRequest) {
     if (pedidoError || !pedido) return respostaJson({ error: 'Pedido não encontrado.' }, 404);
     if (String(pedido.cliente_id) !== authData.user.id) return respostaJson({ error: 'Você não pode pagar este pedido.' }, 403);
     if (pedido.pagamento_status === 'approved') return respostaJson({ error: 'Este pedido já foi pago.' }, 409);
+
+    const { error: meioPagamentoError } = await supabase
+      .from('pedidos')
+      .update({ meio_pagamento: meioPagamento, updated_at: new Date().toISOString() })
+      .eq('id', pedido.id);
+    if (meioPagamentoError) throw new Error(meioPagamentoError.message);
 
     const valorCentavos = Math.round(Number(pedido.valor_total || 0) * 100);
     if (!Number.isInteger(valorCentavos) || valorCentavos <= 0) return respostaJson({ error: 'Valor do pedido inválido.' }, 400);
@@ -169,6 +175,7 @@ export async function POST(request: NextRequest) {
         p_pagamento_status: 'error',
         p_status_pedido: 'Aguardando Pagamento',
       });
+      await supabase.from('pedidos').update({ meio_pagamento: meioPagamento }).eq('id', pedidoId);
       await supabase.rpc('liberar_credito_pedido', {
         p_pedido_id: pedidoId,
         p_cliente_id: authData.user.id,
@@ -193,6 +200,12 @@ export async function POST(request: NextRequest) {
       p_status_pedido: statusPedido,
     });
     if (processarError) throw new Error(processarError.message);
+
+    const { error: registrarMeioError } = await supabase
+      .from('pedidos')
+      .update({ meio_pagamento: meioPagamento, updated_at: new Date().toISOString() })
+      .eq('id', pedidoId);
+    if (registrarMeioError) throw new Error(registrarMeioError.message);
 
     if (!aprovado) {
       if (!pendente) {

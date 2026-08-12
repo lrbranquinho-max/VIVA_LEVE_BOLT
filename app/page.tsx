@@ -161,7 +161,7 @@ export default function LojaCliente() {
   const [cpfPagador, setCpfPagador] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [metodoPagamento, setMetodoPagamento] = useState<'checkout' | 'pix' | 'voucher'>('checkout');
-  const [bandeiraVoucher, setBandeiraVoucher] = useState<'alelo' | 'pluxee'>('alelo');
+  const [bandeiraVoucher, setBandeiraVoucher] = useState<'ticket' | 'vr' | 'alelo' | 'pluxee'>('alelo');
   const [numeroVoucher, setNumeroVoucher] = useState('');
   const [nomeVoucher, setNomeVoucher] = useState('');
   const [validadeVoucher, setValidadeVoucher] = useState('');
@@ -618,9 +618,6 @@ export default function LojaCliente() {
       }
 
       if (totalAposCredito > 0 && metodoPagamento === 'voucher') {
-        if (bandeiraVoucher === 'pluxee') {
-          throw new Error('A Cielo E-commerce 3.0 ainda não processa Pluxee. Selecione Alelo ou outro meio de pagamento.');
-        }
         if (somenteDigitos(numeroVoucher).length < 13 || somenteDigitos(cvvVoucher).length < 3 || !nomeVoucher.trim() || somenteDigitos(validadeVoucher).length !== 6) {
           throw new Error('Preencha corretamente todos os dados do cartão de benefício.');
         }
@@ -1092,6 +1089,8 @@ export default function LojaCliente() {
                         <button type="button" onClick={() => setMetodoPagamento('voucher')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'voucher' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
                           <span className="block">Vale Refeição / Alimentação</span>
                           <span className="mt-2 flex justify-center gap-1.5">
+                            <span className="rounded bg-[#1B5FAA] px-2 py-0.5 text-[9px] font-black text-white">ticket</span>
+                            <span className="rounded bg-[#E31B23] px-2 py-0.5 text-[9px] font-black text-white">VR</span>
                             <span className="rounded bg-[#00A859] px-2 py-0.5 text-[9px] font-black text-white">alelo</span>
                             <span className="rounded bg-[#F26B38] px-2 py-0.5 text-[9px] font-black text-white">pluxee</span>
                           </span>
@@ -1147,24 +1146,22 @@ export default function LojaCliente() {
                         <p className="text-xs text-green-800">Pagamento à vista, sem parcelamento.</p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setBandeiraVoucher('alelo')}
-                          className={`rounded-xl border px-3 py-2 text-sm font-black ${bandeiraVoucher === 'alelo' ? 'border-[#00A859] bg-[#00A859] text-white' : 'border-green-200 bg-white text-[#008A49]'}`}
-                        >
-                          Alelo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBandeiraVoucher('pluxee');
-                            adicionarToast('Pluxee ainda não é suportado pela API E-commerce Cielo 3.0.', 'info');
-                          }}
-                          className={`rounded-xl border px-3 py-2 text-sm font-black ${bandeiraVoucher === 'pluxee' ? 'border-[#F26B38] bg-[#F26B38] text-white' : 'border-orange-200 bg-white text-[#D85325]'}`}
-                        >
-                          Pluxee <span className="block text-[9px] font-bold">aguardando integração</span>
-                        </button>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {([
+                          ['ticket', 'Ticket'],
+                          ['vr', 'VR'],
+                          ['alelo', 'Alelo'],
+                          ['pluxee', 'Pluxee'],
+                        ] as const).map(([codigo, nomeBandeira]) => (
+                          <button
+                            key={codigo}
+                            type="button"
+                            onClick={() => setBandeiraVoucher(codigo)}
+                            className={`rounded-xl border px-3 py-2 text-sm font-black ${bandeiraVoucher === codigo ? 'border-green-700 bg-green-700 text-white' : 'border-green-200 bg-white text-green-800'}`}
+                          >
+                            {nomeBandeira}
+                          </button>
+                        ))}
                       </div>
 
                       <div>
@@ -1231,7 +1228,7 @@ export default function LojaCliente() {
                         </div>
                       </div>
                       <input type="hidden" value="debitCard" readOnly className="bp-sop-cardtype" />
-                      <p className="text-[11px] font-semibold text-green-800">A Cielo E-commerce aceita voucher Alelo somente quando a modalidade está habilitada para o estabelecimento.</p>
+                      <p className="text-[11px] font-semibold text-green-800">A bandeira precisa estar habilitada no contrato Cielo do estabelecimento.</p>
                     </div>
                   )}
 

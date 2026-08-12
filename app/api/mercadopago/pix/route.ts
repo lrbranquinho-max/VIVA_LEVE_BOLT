@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import MercadoPagoConfig, { Payment } from 'mercadopago';
+import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 
@@ -36,15 +36,10 @@ function siteUrlPublica() {
 export async function POST(request: NextRequest) {
   try {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const authorization = request.headers.get('authorization');
 
     if (!accessToken || accessToken.includes('seu_access_token')) {
       return NextResponse.json({ error: 'MERCADOPAGO_ACCESS_TOKEN nao configurado.' }, { status: 500 });
-    }
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json({ error: 'Supabase nao configurado no servidor.' }, { status: 500 });
     }
     if (!authorization) {
       return NextResponse.json({ error: 'Usuario nao autenticado.' }, { status: 401 });
@@ -59,15 +54,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Pedido ou pagador invalidos.' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authorization } },
-      auth: { persistSession: false },
-    });
+    const supabase = criarSupabaseAdmin();
+    const bearer = authorization.replace(/^Bearer\s+/i, '').trim();
+    const { data: authData, error: authError } = await supabase.auth.getUser(bearer);
+    if (authError || !authData.user) {
+      return NextResponse.json({ error: 'Usuario nao autenticado.' }, { status: 401 });
+    }
 
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
       .select('id, valor_total')
       .eq('id', pedidoId)
+      .eq('cliente_id', authData.user.id)
       .maybeSingle();
 
     if (pedidoError) throw pedidoError;
@@ -105,14 +103,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Mercado Pago nao retornou o codigo Pix.' }, { status: 500 });
     }
 
-    await supabase
+    const { error: updateError } = await supabase
       .from('pedidos')
       .update({
         mercado_pago_payment_id: String(resposta.id),
         pagamento_status: resposta.status ?? 'pending',
+        meio_pagamento: 'pix',
         updated_at: new Date().toISOString(),
       })
       .eq('id', pedido.id);
+    if (updateError) throw updateError;
 
     return NextResponse.json({
       paymentId: resposta.id,

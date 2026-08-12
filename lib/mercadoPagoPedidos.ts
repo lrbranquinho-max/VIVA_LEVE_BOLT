@@ -1,5 +1,6 @@
 import MercadoPagoConfig, { Payment } from 'mercadopago';
 import { criarSupabaseAdmin } from './supabaseAdmin';
+import { meioPagamentoMercadoPago } from './meiosPagamento';
 
 interface ItemPedido {
   id?: number;
@@ -118,6 +119,10 @@ export async function sincronizarPagamentoMercadoPago(paymentId: string) {
   const statusPagamento = pagamento.status ?? 'unknown';
   const statusDetail = pagamento.status_detail ?? null;
   const statusPedido = statusPedidoMercadoPago(statusPagamento);
+  const meioPagamento = meioPagamentoMercadoPago(
+    pagamento.payment_method_id,
+    pagamento.payment_type_id,
+  );
 
   await processarPagamentoPedidoMercadoPago(
     supabase,
@@ -127,6 +132,14 @@ export async function sincronizarPagamentoMercadoPago(paymentId: string) {
     statusPedido,
     statusDetail
   );
+
+  if (meioPagamento) {
+    const { error: meioPagamentoError } = await supabase
+      .from('pedidos')
+      .update({ meio_pagamento: meioPagamento, updated_at: new Date().toISOString() })
+      .eq('id', String(pedidoId));
+    if (meioPagamentoError) throw meioPagamentoError;
+  }
 
   if (statusPagamento === 'approved') {
     const { error: creditoError } = await supabase.rpc('finalizar_credito_pedido', {
