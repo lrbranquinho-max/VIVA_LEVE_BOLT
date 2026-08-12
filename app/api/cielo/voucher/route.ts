@@ -150,22 +150,21 @@ export async function POST(request: NextRequest) {
     let paymentRequest: Record<string, unknown>;
     if (tipo === 'credito') {
       const antifraudProvider = process.env.CIELO_ANTIFRAUD_PROVIDER?.trim();
-      if (!antifraudProvider) {
-        return respostaJson({ error: 'Pagamento Cielo por crédito aguardando configuração do provedor antifraude.' }, 503);
-      }
       paymentRequest = {
         Type: 'CreditCard',
         Amount: valorCentavos,
         Installments: 1,
         Capture: true,
         CreditCard: { PaymentToken: paymentToken, Brand: brand },
-        FraudAnalysis: {
-          Provider: antifraudProvider,
-          Sequence: 'AnalyseFirst',
-          SequenceCriteria: 'OnSuccess',
-          ...(body.browserFingerprint ? { Browser: { BrowserFingerprint: body.browserFingerprint } } : {}),
-        },
-        Cart: { Items: cart },
+        ...(antifraudProvider ? {
+          FraudAnalysis: {
+            Provider: antifraudProvider,
+            Sequence: 'AnalyseFirst',
+            SequenceCriteria: 'OnSuccess',
+            ...(body.browserFingerprint ? { Browser: { BrowserFingerprint: body.browserFingerprint } } : {}),
+          },
+          Cart: { Items: cart },
+        } : {}),
       };
     } else if (tipo === 'debito') {
       const auth = body.externalAuthentication;
