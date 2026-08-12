@@ -6,8 +6,17 @@ export const dynamic = 'force-dynamic';
 
 interface VoucherRequest {
   pedidoId?: string | number;
-  bandeira?: 'ticket' | 'vr' | 'alelo' | 'pluxee';
+  tipo?: 'credito' | 'debito' | 'alelo';
   paymentToken?: string;
+  brand?: string;
+  browserFingerprint?: string;
+  externalAuthentication?: {
+    Cavv?: string;
+    Xid?: string;
+    Eci?: string;
+    Version?: string;
+    ReferenceId?: string;
+  };
   payer?: {
     nome?: string;
     cpf?: string;
@@ -29,8 +38,8 @@ interface CieloResponse {
 }
 
 const CIELO_URLS = {
-  sandbox: 'https://apisandbox.cieloecommerce.cielo.com.br/v2/sales/',
-  production: 'https://api.cieloecommerce.cielo.com.br/v2/sales/',
+  sandbox: 'https://apisandbox.cieloecommerce.cielo.com.br/1/sales/',
+  production: 'https://api.cieloecommerce.cielo.com.br/1/sales/',
 };
 
 const mensagensCielo: Record<string, string> = {
@@ -94,11 +103,11 @@ export async function POST(request: NextRequest) {
     pedidoId = String(body.pedidoId ?? '').trim();
     if (!pedidoId) return respostaJson({ error: 'Pedido não informado.' }, 400);
 
-    const bandeira = body.bandeira;
-    if (!bandeira || !['ticket', 'vr', 'alelo', 'pluxee'].includes(bandeira)) {
-      return respostaJson({ error: 'Selecione a bandeira do cartão de benefício.' }, 400);
+    const tipo = body.tipo;
+    if (!tipo || !['credito', 'debito', 'alelo'].includes(tipo)) {
+      return respostaJson({ error: 'Selecione crédito, débito ou Alelo.' }, 400);
     }
-    const meioPagamento = `cielo_${bandeira}`;
+    const meioPagamento = `cielo_${tipo}`;
 
     const paymentToken = String(body.paymentToken ?? '').trim();
     if (!/^[a-f0-9-]{36}$/i.test(paymentToken)) {
@@ -128,6 +137,68 @@ export async function POST(request: NextRequest) {
 
     const ambiente = process.env.CIELO_ENVIRONMENT === 'production' ? 'production' : 'sandbox';
     const merchantOrderId = `VL${pedidoId}${Date.now().toString().slice(-8)}`.replace(/[^a-zA-Z0-9]/g, '').slice(0, 50);
+    const brand = tipo === 'alelo' ? 'Elo' : normalizarTextoCielo(body.brand || '', 10);
+    if (!brand) return respostaJson({ error: 'Não foi possível identificar a bandeira do cartão.' }, 400);
+
+    const cart = Array.isArray(pedido.itens) ? pedido.itens.map((item: any) => ({
+      Name: String(item?.nome || 'Produto Viva Leve').slice(0, 255),
+      Quantity: Math.max(1, Number(item?.quantidade || 1)),
+      Sku: String(item?.id || '').slice(0, 32),
+      UnitPrice: Math.max(1, Math.round(Number(item?.preco || 0) * 100)),
+    })) : [];
+
+    let paymentRequest: Record<string, unknown>;
+    if (tipo === 'credito') {
+      const antifraudProvider = process.env.CIELO_ANTIFRAUD_PROVIDER?.trim();
+      if (!antifraudProvider) {
+        return respostaJson({ error: 'Pagamento Cielo por crédito aguardando configuração do provedor antifraude.' }, 503);
+      }
+      paymentRequest = {
+        Type: 'CreditCard',
+        Amount: valorCentavos,
+        Installments: 1,
+        Capture: true,
+        CreditCard: { PaymentToken: paymentToken, Brand: brand },
+        FraudAnalysis: {
+          Provider: antifraudProvider,
+          Sequence: 'AnalyseFirst',
+          SequenceCriteria: 'OnSuccess',
+          ...(body.browserFingerprint ? { Browser: { BrowserFingerprint: body.browserFingerprint } } : {}),
+        },
+        Cart: { Items: cart },
+      };
+    } else if (tipo === 'debito') {
+      const auth = body.externalAuthentication;
+      if (!auth?.Eci || !auth?.Version || !auth?.Cavv) {
+        return respostaJson({ error: 'A autenticação 3DS do cartão de débito não foi concluída.' }, 422);
+      }
+      paymentRequest = {
+        Type: 'DebitCard',
+        Amount: valorCentavos,
+        Installments: 1,
+        Capture: true,
+        Authenticate: true,
+        ReturnUrl: 'https://www.vivalevedf.com.br/pagamento/pendente',
+        ExternalAuthentication: {
+          Cavv: auth.Cavv,
+          Xid: auth.Xid,
+          Eci: auth.Eci,
+          Version: auth.Version,
+          ReferenceId: auth.ReferenceId,
+        },
+        DebitCard: { PaymentToken: paymentToken, Brand: brand },
+      };
+    } else {
+      paymentRequest = {
+        Type: 'DebitCard',
+        Amount: valorCentavos,
+        Installments: 1,
+        Capture: true,
+        Authenticate: false,
+        DebitCard: { PaymentToken: paymentToken, Brand: 'Elo' },
+      };
+    }
+
     const payload = {
       MerchantOrderId: merchantOrderId,
       Customer: {
@@ -136,16 +207,7 @@ export async function POST(request: NextRequest) {
         IdentityType: 'CPF',
         Email: authData.user.email,
       },
-      Payment: {
-        Type: 'DebitCard',
-        Amount: valorCentavos,
-        Installments: 1,
-        Capture: true,
-        Authenticate: false,
-        DebitCard: {
-          PaymentToken: paymentToken,
-        },
-      },
+      Payment: paymentRequest,
     };
 
     const cieloHttp = await fetch(CIELO_URLS[ambiente], {

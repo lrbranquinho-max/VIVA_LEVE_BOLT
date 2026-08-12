@@ -3,6 +3,8 @@ export const MEIOS_PAGAMENTO_LABELS: Record<string, string> = {
   credito: 'Chave de Crédito',
   mercado_pago_debito: 'Mercado Pago (Débito)',
   mercado_pago_credito: 'Mercado Pago (Crédito)',
+  cielo_credito: 'Cielo (Crédito)',
+  cielo_debito: 'Cielo (Débito)',
   cielo_ticket: 'Cielo (Ticket)',
   cielo_vr: 'Cielo (VR)',
   cielo_alelo: 'Cielo (Alelo)',
@@ -20,4 +22,3 @@ export function meioPagamentoMercadoPago(paymentMethodId?: string | null, paymen
   if (paymentTypeId === 'credit_card') return 'mercado_pago_credito';
   return null;
 }
-
