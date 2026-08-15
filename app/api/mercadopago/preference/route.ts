@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import MercadoPagoConfig, { Preference } from 'mercadopago';
+import { meioPagamentoEstaAtivo } from '../../../../lib/paymentConfig';
+import { validarEstoquePedido } from '../../../../lib/orderStock';
 
 interface ItemCheckout {
   id: number;
@@ -207,9 +209,13 @@ export async function POST(request: NextRequest) {
       auth: { persistSession: false },
     });
 
+    if (!(await meioPagamentoEstaAtivo(supabase, 'mercado_pago'))) {
+      return NextResponse.json({ error: 'O pagamento pelo Mercado Pago esta temporariamente desativado.' }, { status: 403 });
+    }
+
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
-      .select('id, valor_total, status, subtotal_produtos, valor_frete, desconto_valor, endereco_entrega, credito_valor_aplicado')
+      .select('id, valor_total, status, subtotal_produtos, valor_frete, desconto_valor, endereco_entrega, credito_valor_aplicado, itens')
       .eq('id', pedidoId)
       .maybeSingle();
 
@@ -217,6 +223,8 @@ export async function POST(request: NextRequest) {
     if (!pedido) {
       return NextResponse.json({ error: 'Pedido não encontrado para este usuário.' }, { status: 404 });
     }
+
+    await validarEstoquePedido(supabase, pedido.itens);
 
     const client = new MercadoPagoConfig({ accessToken });
     const preference = new Preference(client);

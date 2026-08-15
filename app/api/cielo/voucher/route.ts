@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { meioPagamentoEstaAtivo } from '../../../../lib/paymentConfig';
+import { validarEstoquePedido } from '../../../../lib/orderStock';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -93,6 +95,10 @@ export async function POST(request: NextRequest) {
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authData.user) return respostaJson({ error: 'Sessão inválida. Entre novamente para pagar.' }, 401);
 
+    if (!(await meioPagamentoEstaAtivo(supabase, 'cielo'))) {
+      return respostaJson({ error: 'O pagamento pela Cielo esta temporariamente desativado.' }, 403);
+    }
+
     const merchantId = process.env.CIELO_MERCHANT_ID?.trim();
     const merchantKey = process.env.CIELO_MERCHANT_KEY?.trim();
     if (!merchantId || !merchantKey) {
@@ -125,6 +131,8 @@ export async function POST(request: NextRequest) {
     if (pedidoError || !pedido) return respostaJson({ error: 'Pedido não encontrado.' }, 404);
     if (String(pedido.cliente_id) !== authData.user.id) return respostaJson({ error: 'Você não pode pagar este pedido.' }, 403);
     if (pedido.pagamento_status === 'approved') return respostaJson({ error: 'Este pedido já foi pago.' }, 409);
+
+    await validarEstoquePedido(supabase, pedido.itens);
 
     const { error: meioPagamentoError } = await supabase
       .from('pedidos')

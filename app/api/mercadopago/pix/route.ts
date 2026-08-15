@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import MercadoPagoConfig, { Payment } from 'mercadopago';
 import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { meioPagamentoEstaAtivo } from '../../../../lib/paymentConfig';
+import { validarEstoquePedido } from '../../../../lib/orderStock';
 
 export const runtime = 'nodejs';
 
@@ -61,9 +63,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Usuario nao autenticado.' }, { status: 401 });
     }
 
+    if (!(await meioPagamentoEstaAtivo(supabase, 'pix'))) {
+      return NextResponse.json({ error: 'O pagamento via Pix esta temporariamente desativado.' }, { status: 403 });
+    }
+
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
-      .select('id, valor_total')
+      .select('id, valor_total, itens')
       .eq('id', pedidoId)
       .eq('cliente_id', authData.user.id)
       .maybeSingle();
@@ -72,6 +78,8 @@ export async function POST(request: NextRequest) {
     if (!pedido) {
       return NextResponse.json({ error: 'Pedido nao encontrado para este usuario.' }, { status: 404 });
     }
+
+    await validarEstoquePedido(supabase, pedido.itens);
 
     const client = new MercadoPagoConfig({ accessToken });
     const payment = new Payment(client);

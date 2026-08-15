@@ -7,6 +7,7 @@ import { supabase } from '../supabase';
 import Logo from '../components/Logo';
 import BottomNav from '../components/BottomNav';
 import StoreFooter from '../components/StoreFooter';
+import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
 
 declare global {
   interface Window {
@@ -65,6 +66,7 @@ const LOJA_CONFIG_PADRAO = {
   taxa_entrega_padrao: 10,
   cupom_dia_d_percentual: 0,
   cupom_dia_d_ativo: false,
+  meios_pagamento: MEIOS_PAGAMENTO_PADRAO,
 };
 
 let toastId = 0;
@@ -106,6 +108,7 @@ function normalizarLojaConfig(valor: unknown) {
     taxa_entrega_padrao: Math.max(0, Number.isFinite(taxa) ? taxa : LOJA_CONFIG_PADRAO.taxa_entrega_padrao),
     cupom_dia_d_percentual: Math.min(100, Math.max(0, Number.isFinite(diaD) ? diaD : LOJA_CONFIG_PADRAO.cupom_dia_d_percentual)),
     cupom_dia_d_ativo: Boolean(bruto.cupom_dia_d_ativo),
+    meios_pagamento: normalizarMeiosPagamento(bruto),
   };
 }
 
@@ -202,6 +205,14 @@ export default function LojaCliente() {
       .catch(() => setCieloDisponivel(false));
   }, []);
 
+  useEffect(() => {
+    const meios = lojaConfig.meios_pagamento;
+    if (meios[metodoPagamento] && (metodoPagamento !== 'cielo' || cieloDisponivel)) return;
+    if (meios.pix) setMetodoPagamento('pix');
+    else if (meios.cielo && cieloDisponivel) setMetodoPagamento('cielo');
+    else if (meios.mercado_pago) setMetodoPagamento('mercado_pago');
+  }, [cieloDisponivel, lojaConfig.meios_pagamento, metodoPagamento]);
+
   const carregarCupons = useCallback(async (userId: string) => {
     const { data, error } = await supabase
       .from('cupons_desconto')
@@ -230,6 +241,10 @@ export default function LojaCliente() {
   }, []);
 
   useEffect(() => {
+    if (verCarrinho) carregarLojaConfig();
+  }, [verCarrinho, carregarLojaConfig]);
+
+  useEffect(() => {
     async function init() {
       setCarregando(true);
       setErroCarga(null);
@@ -240,7 +255,6 @@ export default function LojaCliente() {
             .from('produtos')
             .select('*')
             .eq('ativo', true)
-            .gt('estoque', 0)
             .order('categoria', { ascending: true }),
           supabase
             .from('canais_loja')
@@ -429,7 +443,7 @@ export default function LojaCliente() {
   const adicionarAoCarrinho = (id: number) => {
     const produto = produtos.find(p => p.id === id);
     if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
-      adicionarToast('Produto sem estoque no momento.', 'erro');
+      adicionarToast('Este produto esta temporariamente sem estoque.', 'erro');
       return;
     }
 
@@ -655,6 +669,10 @@ export default function LojaCliente() {
         return;
       }
       accessTokenAtual = session.access_token;
+
+      if (totalAposCredito > 0 && !lojaConfig.meios_pagamento[metodoPagamento]) {
+        throw new Error('Este meio de pagamento esta temporariamente indisponivel.');
+      }
 
       const cadastroPedido = await validarCadastroPedido(user.id);
       const cpfPagadorDigitos = somenteDigitos(cpfPagador);
@@ -939,7 +957,7 @@ export default function LojaCliente() {
         ) : produtos.length === 0 ? (
           <div className="py-16 text-center text-gray-500">
             <p className="mb-3 text-4xl">VL</p>
-            <p className="font-semibold">Nenhum item em estoque no momento.</p>
+            <p className="font-semibold">Nenhum produto ativo no momento.</p>
           </div>
         ) : (
           categoriasVisiveis.map(cat => (
@@ -948,7 +966,12 @@ export default function LojaCliente() {
               <div className="space-y-3 md:grid md:grid-cols-2 md:gap-4 md:space-y-0 lg:grid-cols-3">
                 {produtos.filter(p => p.categoria === cat).map(item => {
                   return (
-                  <div key={item.id} className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                  <div key={item.id} className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                    {Number(item.estoque || 0) <= 0 && (
+                      <span className="absolute right-3 top-3 z-10 rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-black tracking-wider text-white shadow-sm">
+                        ESGOTADO
+                      </span>
+                    )}
                     <Link href={`/produto/${item.id}`} className="flex w-full gap-4 p-4 text-left transition hover:bg-gray-50">
                     {item.imagem_url ? (
                       <img src={item.imagem_url} alt={item.nome} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" />
@@ -992,8 +1015,8 @@ export default function LojaCliente() {
                           <button onClick={() => adicionarAoCarrinho(item.id)} disabled={carrinho[item.id] >= Number(item.estoque || 0)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
                         </div>
                       ) : (
-                        <button onClick={() => adicionarAoCarrinho(item.id)} disabled={Number(item.estoque || 0) <= 0} className="rounded-full bg-viva-verde px-3 py-1.5 text-xs font-bold text-viva-roxo shadow-sm transition-transform active:scale-95 disabled:opacity-40">
-                          + Adicionar
+                        <button onClick={() => adicionarAoCarrinho(item.id)} aria-disabled={Number(item.estoque || 0) <= 0} className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition-transform active:scale-95 ${Number(item.estoque || 0) <= 0 ? 'bg-gray-200 text-gray-500' : 'bg-viva-verde text-viva-roxo'}`}>
+                          {Number(item.estoque || 0) <= 0 ? 'Esgotado' : '+ Adicionar'}
                         </button>
                       )}
                     </div>
@@ -1123,14 +1146,14 @@ export default function LojaCliente() {
                     <input required type="text" value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Quadra, Bairro..." className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
                   </div>
 
-                  {totalAposCredito > 0 && <div>
+                  {totalAposCredito > 0 && (lojaConfig.meios_pagamento.pix || (lojaConfig.meios_pagamento.cielo && cieloDisponivel) || lojaConfig.meios_pagamento.mercado_pago) && <div>
                     <label className="mb-2 block text-xs font-bold text-gray-600">Meio de pagamento</label>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <button type="button" onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'pix' ? 'border-green-600 bg-green-600 text-white' : 'border-green-200 bg-green-50 text-green-800'}`}>
+                      {lojaConfig.meios_pagamento.pix && <button type="button" onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'pix' ? 'border-green-600 bg-green-600 text-white' : 'border-green-200 bg-green-50 text-green-800'}`}>
                         <span className="block">Pix</span>
                         <span className="mt-1 inline-block rounded-full bg-white/90 px-2 py-0.5 text-[9px] font-black text-green-700">Aprovação imediata</span>
-                      </button>
-                      {cieloDisponivel && (
+                      </button>}
+                      {lojaConfig.meios_pagamento.cielo && cieloDisponivel && (
                         <button type="button" onClick={() => setMetodoPagamento('cielo')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'cielo' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-gray-200 bg-white text-gray-600'}`}>
                           <span className="block">Cartão de Crédito, Débito ou Alelo</span>
                           <span className="mt-2 flex items-center justify-center gap-1" aria-label="Bandeiras Visa, Mastercard, Elo e Alelo">
@@ -1144,13 +1167,19 @@ export default function LojaCliente() {
                           </span>
                         </button>
                       )}
-                      <button type="button" onClick={() => setMetodoPagamento('mercado_pago')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'mercado_pago' ? 'border-[#009EE3] bg-[#009EE3] text-white' : 'border-sky-200 bg-white text-[#007EB5]'}`}>
+                      {lojaConfig.meios_pagamento.mercado_pago && <button type="button" onClick={() => setMetodoPagamento('mercado_pago')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'mercado_pago' ? 'border-[#009EE3] bg-[#009EE3] text-white' : 'border-sky-200 bg-white text-[#007EB5]'}`}>
                         Pagar com Mercado Pago
-                      </button>
+                      </button>}
                     </div>
                   </div>}
 
-                  {totalAposCredito > 0 && metodoPagamento === 'pix' && (
+                  {totalAposCredito > 0 && !lojaConfig.meios_pagamento.pix && !(lojaConfig.meios_pagamento.cielo && cieloDisponivel) && !lojaConfig.meios_pagamento.mercado_pago && (
+                    <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
+                      Nenhum meio de pagamento esta disponivel no momento.
+                    </p>
+                  )}
+
+                  {totalAposCredito > 0 && metodoPagamento === 'pix' && lojaConfig.meios_pagamento.pix && (
                     <div className="rounded-2xl border border-green-200 bg-green-50 p-4" role="status">
                       <div className="flex items-start gap-3">
                         <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-[#32BCAD] text-xs font-black text-white">PIX</span>

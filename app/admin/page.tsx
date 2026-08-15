@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../supabase';
 import { nomeMeioPagamento } from '../../lib/meiosPagamento';
+import { normalizarMeiosPagamento } from '../../lib/paymentConfig';
 
 type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
@@ -139,6 +140,11 @@ interface LojaConfigForm {
   taxa_entrega_padrao: string;
   cupom_dia_d_percentual: string;
   cupom_dia_d_ativo: boolean;
+  meios_pagamento: {
+    cielo: boolean;
+    mercado_pago: boolean;
+    pix: boolean;
+  };
 }
 
 interface ExercicioCatalogo {
@@ -204,6 +210,11 @@ const LOJA_CONFIG_FORM_PADRAO: LojaConfigForm = {
   taxa_entrega_padrao: '10,00',
   cupom_dia_d_percentual: '0,00',
   cupom_dia_d_ativo: false,
+  meios_pagamento: {
+    cielo: true,
+    mercado_pago: true,
+    pix: true,
+  },
 };
 
 let toastId = 0;
@@ -253,6 +264,7 @@ function configParaForm(valor: unknown): LojaConfigForm {
     taxa_entrega_padrao: formatarNumeroBR(Math.max(0, Number.isFinite(taxaEntrega) ? taxaEntrega : 10), 2),
     cupom_dia_d_percentual: formatarNumeroBR(Math.min(100, Math.max(0, Number.isFinite(diaD) ? diaD : 0)), 2),
     cupom_dia_d_ativo: Boolean(bruto.cupom_dia_d_ativo),
+    meios_pagamento: normalizarMeiosPagamento(bruto),
   };
 }
 
@@ -875,6 +887,7 @@ export default function AdminPage() {
       taxa_entrega_padrao: Math.max(0, parseNumeroBR(formConfig.taxa_entrega_padrao)),
       cupom_dia_d_percentual: percentualLimitado(formConfig.cupom_dia_d_percentual),
       cupom_dia_d_ativo: Boolean(formConfig.cupom_dia_d_ativo) && percentualLimitado(formConfig.cupom_dia_d_percentual) > 0,
+      meios_pagamento: formConfig.meios_pagamento,
     };
 
     try {
@@ -2027,6 +2040,37 @@ export default function AdminPage() {
                       <span className={`h-5 w-5 rounded-full bg-white shadow transition ${formConfig.cupom_dia_d_ativo ? 'translate-x-5' : 'translate-x-0'}`} />
                     </button>
                   </label>
+                </div>
+
+                <div className="mt-6 border-t border-gray-200 pt-5">
+                  <h3 className="text-sm font-black text-gray-900">Meios de pagamento</h3>
+                  <p className="mt-1 text-xs text-gray-500">As alteracoes passam a valer no checkout assim que forem salvas.</p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    {([
+                      ['cielo', 'Cielo'],
+                      ['mercado_pago', 'Mercado Pago'],
+                      ['pix', 'Pix'],
+                    ] as const).map(([chave, titulo]) => {
+                      const ativo = formConfig.meios_pagamento[chave];
+                      return (
+                        <label key={chave} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                          <span>
+                            <span className="block text-sm font-black text-gray-800">{titulo}</span>
+                            <span className={`mt-0.5 block text-xs font-bold ${ativo ? 'text-green-600' : 'text-gray-400'}`}>{ativo ? 'Ativado' : 'Desativado'}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setFormConfig({ ...formConfig, meios_pagamento: { ...formConfig.meios_pagamento, [chave]: !ativo } })}
+                            className={`inline-flex h-7 w-12 items-center rounded-full p-1 transition ${ativo ? 'bg-green-500' : 'bg-gray-300'}`}
+                            aria-label={`${ativo ? 'Desativar' : 'Ativar'} ${titulo}`}
+                            aria-pressed={ativo}
+                          >
+                            <span className={`h-5 w-5 rounded-full bg-white shadow transition ${ativo ? 'translate-x-5' : 'translate-x-0'}`} />
+                          </button>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="mt-5 flex gap-3">
