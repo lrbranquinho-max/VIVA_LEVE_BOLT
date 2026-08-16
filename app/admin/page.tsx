@@ -1391,9 +1391,11 @@ export default function AdminPage() {
       margin: 0;
       width: 100mm;
       height: ${alturaEtiqueta}mm;
-      color: #000;
+      color: #383838;
       background: #fff;
       font-family: Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust: economy;
+      print-color-adjust: economy;
     }
     .label {
       width: 100mm;
@@ -1403,14 +1405,14 @@ export default function AdminPage() {
       grid-template-rows: auto auto 1fr auto;
       gap: ${ehCaldo ? '1.2mm' : '2mm'};
       overflow: hidden;
-      border: 0.4mm solid #000;
+      border: 0.18mm solid #666;
     }
     .header {
       display: grid;
       grid-template-columns: 1fr 20mm;
       align-items: center;
       gap: 3mm;
-      border-bottom: 0.3mm solid #000;
+      border-bottom: 0.15mm solid #777;
       padding-bottom: 1.5mm;
     }
     .brand img {
@@ -1419,15 +1421,16 @@ export default function AdminPage() {
       max-width: 66mm;
       height: ${ehCaldo ? '8mm' : '10mm'};
       object-fit: contain;
+      opacity: 0.68;
     }
-    .qr { width: 18mm; height: 18mm; object-fit: contain; justify-self: end; }
+    .qr { width: 15mm; height: 15mm; object-fit: contain; justify-self: end; }
     .name {
       font-size: ${ehCaldo ? '10pt' : '13pt'};
       line-height: 1.05;
-      font-weight: 900;
+      font-weight: 700;
       text-transform: uppercase;
     }
-    .weight { margin-top: 0.7mm; font-size: ${ehCaldo ? '7pt' : '8pt'}; font-weight: 900; }
+    .weight { margin-top: 0.7mm; font-size: ${ehCaldo ? '7pt' : '8pt'}; font-weight: 700; }
     .content {
       min-height: 0;
       display: grid;
@@ -1436,28 +1439,28 @@ export default function AdminPage() {
     }
     .details { min-width: 0; font-size: ${ehCaldo ? '6pt' : '7pt'}; line-height: 1.15; overflow: hidden; }
     .details p { margin: 0 0 ${ehCaldo ? '1mm' : '1.7mm'}; }
-    .details strong { font-weight: 900; }
-    .allergens { text-transform: uppercase; font-weight: 900; }
-    .nutrition { align-self: start; border: 0.5mm solid #000; background: #fff; color: #000; }
-    .nutrition h2 { margin: 0; padding: 1mm; border-bottom: 1mm solid #000; font-size: ${ehCaldo ? '8pt' : '10pt'}; line-height: 1; }
-    .nutrition-meta { padding: 0.8mm 1mm; border-bottom: 0.5mm solid #000; font-size: ${ehCaldo ? '6pt' : '6.5pt'}; line-height: 1.1; }
+    .details strong { font-weight: 700; }
+    .allergens { text-transform: uppercase; font-weight: 700; }
+    .nutrition { align-self: start; border: 0.22mm solid #555; background: #fff; color: #303030; }
+    .nutrition h2 { margin: 0; padding: 1mm; border-bottom: 0.3mm solid #555; font-size: ${ehCaldo ? '8pt' : '10pt'}; line-height: 1; font-weight: 700; }
+    .nutrition-meta { padding: 0.8mm 1mm; border-bottom: 0.18mm solid #666; font-size: ${ehCaldo ? '6pt' : '6.5pt'}; line-height: 1.1; }
     .nutrition table { width: 100%; border-collapse: collapse; font-size: ${ehCaldo ? '6pt' : '6.2pt'}; line-height: 1.05; }
-    .nutrition th, .nutrition td { padding: ${ehCaldo ? '0.45mm' : '0.7mm'} 0.6mm; border-bottom: 0.2mm solid #000; text-align: right; vertical-align: middle; }
-    .nutrition th:first-child, .nutrition td:first-child { text-align: left; font-weight: 700; }
-    .nutrition th { font-weight: 800; }
+    .nutrition th, .nutrition td { padding: ${ehCaldo ? '0.45mm' : '0.7mm'} 0.6mm; border-bottom: 0.1mm solid #777; text-align: right; vertical-align: middle; }
+    .nutrition th:first-child, .nutrition td:first-child { text-align: left; font-weight: 600; }
+    .nutrition th { font-weight: 700; }
     .nutrition-note { margin: 0; padding: 0.7mm; font-size: 6pt; line-height: 1.05; }
     .traceability {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 0.5mm 2mm;
-      border-top: 0.3mm solid #000;
+      border-top: 0.15mm solid #777;
       padding-top: 1mm;
       font-size: ${ehCaldo ? '5.5pt' : '6.5pt'};
       line-height: 1.1;
-      font-weight: 800;
+      font-weight: 600;
     }
     .traceability .full { grid-column: 1 / -1; }
-    .manufacturer { grid-column: 1 / -1; margin-top: 0.5mm; font-size: ${ehCaldo ? '6pt' : '6.5pt'}; line-height: 1.08; font-weight: 700; }
+    .manufacturer { grid-column: 1 / -1; margin-top: 0.5mm; font-size: ${ehCaldo ? '6pt' : '6.5pt'}; line-height: 1.08; font-weight: 600; }
   </style>
 </head>
 <body>
