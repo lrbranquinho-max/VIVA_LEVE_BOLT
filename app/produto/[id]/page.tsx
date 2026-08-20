@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '../../../supabase';
 import Logo from '../../../components/Logo';
 import BottomNav from '../../../components/BottomNav';
+import { DEFAULT_STORE_LAUNCH_AT } from '../../../lib/storeLaunch';
+import { useStoreLaunch } from '../../../hooks/useStoreLaunch';
 
 interface Produto {
   id: number;
@@ -59,6 +61,8 @@ export default function ProdutoDetalhePage() {
   const [quantidade, setQuantidade] = useState(1);
   const [carregando, setCarregando] = useState(true);
   const [toast, setToast] = useState('');
+  const [dataLiberacaoVendas, setDataLiberacaoVendas] = useState(DEFAULT_STORE_LAUNCH_AT);
+  const { vendasLiberadas, dataLiberacaoCurta } = useStoreLaunch({ data_liberacao_vendas: dataLiberacaoVendas });
 
   const mostrarToast = useCallback((texto: string) => {
     setToast(texto);
@@ -71,15 +75,24 @@ export default function ProdutoDetalhePage() {
       try {
         if (!Number.isFinite(produtoId)) throw new Error('Produto invalido.');
 
-        const { data, error } = await supabase
-          .from('produtos')
-          .select('*')
-          .eq('id', produtoId)
-          .maybeSingle();
+        const [produtoRes, configRes] = await Promise.all([
+          supabase
+            .from('produtos')
+            .select('*')
+            .eq('id', produtoId)
+            .maybeSingle(),
+          supabase
+            .from('app_config')
+            .select('valor')
+            .eq('chave', 'loja_config')
+            .maybeSingle(),
+        ]);
 
-        if (error) throw error;
-        if (!data || !data.ativo) throw new Error('Produto nao encontrado.');
-        setProduto(data as Produto);
+        if (produtoRes.error) throw produtoRes.error;
+        if (!produtoRes.data || !produtoRes.data.ativo) throw new Error('Produto nao encontrado.');
+        setProduto(produtoRes.data as Produto);
+        const dataConfigurada = configRes.data?.valor?.data_liberacao_vendas;
+        if (!configRes.error && typeof dataConfigurada === 'string') setDataLiberacaoVendas(dataConfigurada);
       } catch (err: any) {
         mostrarToast(err.message || 'Nao foi possivel carregar o produto.');
       } finally {
@@ -95,6 +108,10 @@ export default function ProdutoDetalhePage() {
 
   const adicionarAoCarrinho = () => {
     if (!produto) return;
+    if (!vendasLiberadas) {
+      mostrarToast(`Disponivel para compra em ${dataLiberacaoCurta}.`);
+      return;
+    }
     if (estoqueDisponivel <= 0) {
       mostrarToast('Produto sem estoque no momento.');
       return;
@@ -168,7 +185,13 @@ export default function ProdutoDetalhePage() {
             <p className="text-xs font-black uppercase tracking-wider text-viva-roxo">{produto.categoria || 'Produto'}</p>
             <h1 className="mt-2 text-2xl font-black leading-tight text-gray-900">{produto.nome}</h1>
             <p className="mt-3 text-2xl font-black text-viva-roxo">{formatarMoedaBR(produto.preco)}</p>
-            <p className="mt-2 text-xs font-bold text-gray-400">Estoque disponivel: {estoqueDisponivel} unidade(s)</p>
+            {!vendasLiberadas ? (
+              <span className="mt-3 inline-flex rounded-md bg-viva-roxo px-3 py-1.5 text-xs font-black text-viva-verde shadow-sm">
+                Disponível a partir de {dataLiberacaoCurta}
+              </span>
+            ) : (
+              <p className="mt-2 text-xs font-bold text-gray-400">Estoque disponivel: {estoqueDisponivel} unidade(s)</p>
+            )}
           </div>
 
           <div className="rounded-2xl bg-white p-5 shadow-sm">
@@ -213,11 +236,11 @@ export default function ProdutoDetalhePage() {
               <div className="flex items-center gap-3">
                 <button type="button" onClick={() => setQuantidade(prev => Math.max(prev - 1, 1))} className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-lg font-black text-gray-600">-</button>
                 <span className="w-8 text-center text-lg font-black text-gray-900">{quantidade}</span>
-                <button type="button" onClick={() => setQuantidade(prev => Math.min(prev + 1, estoqueDisponivel || 1))} className="flex h-10 w-10 items-center justify-center rounded-full bg-viva-verde text-lg font-black text-viva-roxo">+</button>
+                <button type="button" onClick={() => setQuantidade(prev => Math.min(prev + 1, estoqueDisponivel || 1))} disabled={!vendasLiberadas} className="flex h-10 w-10 items-center justify-center rounded-full bg-viva-verde text-lg font-black text-viva-roxo disabled:opacity-40">+</button>
               </div>
             </div>
-            <button type="button" onClick={adicionarAoCarrinho} disabled={estoqueDisponivel <= 0} className="mt-4 w-full rounded-xl bg-viva-verde py-4 text-sm font-black text-viva-roxo shadow-sm transition active:scale-[0.99] disabled:opacity-50">
-              Adicionar ao carrinho
+            <button type="button" onClick={adicionarAoCarrinho} disabled={!vendasLiberadas || estoqueDisponivel <= 0} className="mt-4 w-full rounded-xl bg-viva-verde py-4 text-sm font-black text-viva-roxo shadow-sm transition active:scale-[0.99] disabled:opacity-50">
+              {!vendasLiberadas ? `Disponível em ${dataLiberacaoCurta}` : estoqueDisponivel <= 0 ? 'Esgotado' : 'Adicionar ao carrinho'}
             </button>
           </div>
         </section>

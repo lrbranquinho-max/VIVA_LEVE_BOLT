@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { autenticarUsuarioApi } from '../../../../lib/apiAuth';
+import { validarLiberacaoVendas } from '../../../../lib/orderStock';
 
 export const runtime = 'nodejs';
 
@@ -10,6 +11,8 @@ export async function POST(request: NextRequest) {
     if (!pedidoId || !String(chave ?? '').trim()) {
       return NextResponse.json({ error: 'Pedido e chave de crédito são obrigatórios.' }, { status: 400 });
     }
+
+    await validarLiberacaoVendas(supabase);
 
     const { data, error } = await supabase.rpc('aplicar_credito_pedido', {
       p_pedido_id: String(pedidoId),
@@ -40,4 +43,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: mensagem }, { status });
   }
 }
-

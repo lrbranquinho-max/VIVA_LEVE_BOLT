@@ -8,6 +8,8 @@ import Logo from '../components/Logo';
 import BottomNav from '../components/BottomNav';
 import StoreFooter from '../components/StoreFooter';
 import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
+import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
+import { useStoreLaunch } from '../hooks/useStoreLaunch';
 
 declare global {
   interface Window {
@@ -67,6 +69,7 @@ const LOJA_CONFIG_PADRAO = {
   cupom_dia_d_percentual: 0,
   cupom_dia_d_ativo: false,
   meios_pagamento: MEIOS_PAGAMENTO_PADRAO,
+  data_liberacao_vendas: DEFAULT_STORE_LAUNCH_AT,
 };
 
 let toastId = 0;
@@ -109,6 +112,9 @@ function normalizarLojaConfig(valor: unknown) {
     cupom_dia_d_percentual: Math.min(100, Math.max(0, Number.isFinite(diaD) ? diaD : LOJA_CONFIG_PADRAO.cupom_dia_d_percentual)),
     cupom_dia_d_ativo: Boolean(bruto.cupom_dia_d_ativo),
     meios_pagamento: normalizarMeiosPagamento(bruto),
+    data_liberacao_vendas: typeof bruto.data_liberacao_vendas === 'string'
+      ? bruto.data_liberacao_vendas
+      : LOJA_CONFIG_PADRAO.data_liberacao_vendas,
   };
 }
 
@@ -177,6 +183,7 @@ export default function LojaCliente() {
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('todos');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [lojaConfig, setLojaConfig] = useState(LOJA_CONFIG_PADRAO);
+  const { vendasLiberadas, dataLiberacaoCurta } = useStoreLaunch(lojaConfig);
 
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -197,6 +204,10 @@ export default function LojaCliente() {
   useEffect(() => {
     localStorage.setItem(CARRINHO_STORAGE_KEY, JSON.stringify(carrinho));
   }, [carrinho]);
+
+  useEffect(() => {
+    if (!vendasLiberadas) setCarrinho({});
+  }, [vendasLiberadas]);
 
   useEffect(() => {
     fetch('/api/cielo/sop-token', { cache: 'no-store' })
@@ -323,6 +334,12 @@ export default function LojaCliente() {
     const bruto = localStorage.getItem('viva-leve-plano-carrinho');
     if (!bruto) return;
 
+    if (!vendasLiberadas) {
+      localStorage.removeItem('viva-leve-plano-carrinho');
+      adicionarToast(`Os produtos estarao disponiveis para compra em ${dataLiberacaoCurta}.`, 'info');
+      return;
+    }
+
     try {
       const itens = JSON.parse(bruto) as Record<string, number>;
       const disponiveis = new Set(produtos.map(produto => String(produto.id)));
@@ -342,7 +359,7 @@ export default function LojaCliente() {
     } finally {
       localStorage.removeItem('viva-leve-plano-carrinho');
     }
-  }, [produtos, adicionarToast]);
+  }, [produtos, adicionarToast, dataLiberacaoCurta, vendasLiberadas]);
 
   const subtotalProdutos = useMemo(() => Object.entries(carrinho).reduce((total, [id, qtd]) => {
     const produto = produtos.find(p => p.id === Number(id));
@@ -441,6 +458,11 @@ export default function LojaCliente() {
   };
 
   const adicionarAoCarrinho = (id: number) => {
+    if (!vendasLiberadas) {
+      adicionarToast(`Disponivel para compra em ${dataLiberacaoCurta}.`, 'info');
+      return;
+    }
+
     const produto = produtos.find(p => p.id === id);
     if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
       adicionarToast('Este produto esta temporariamente sem estoque.', 'erro');
@@ -470,6 +492,10 @@ export default function LojaCliente() {
   };
 
   const revalidarEstoqueCarrinho = async () => {
+    if (!vendasLiberadas) {
+      throw new Error(`As vendas estarao disponiveis a partir de ${dataLiberacaoCurta}.`);
+    }
+
     const ids = Object.keys(carrinho).map(Number);
     if (ids.length === 0) return [];
 
@@ -648,6 +674,11 @@ export default function LojaCliente() {
 
   const finalizarPedido = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!vendasLiberadas) {
+      adicionarToast(`As vendas estarao disponiveis a partir de ${dataLiberacaoCurta}.`, 'info');
+      return;
+    }
 
     if (totalItens === 0) {
       adicionarToast('Adicione itens ao carrinho!', 'erro');
@@ -967,11 +998,15 @@ export default function LojaCliente() {
                 {produtos.filter(p => p.categoria === cat).map(item => {
                   return (
                   <div key={item.id} className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                    {Number(item.estoque || 0) <= 0 && (
+                    {!vendasLiberadas ? (
+                      <span className="absolute right-3 top-3 z-10 rounded-md bg-viva-roxo px-2.5 py-1 text-[10px] font-black text-viva-verde shadow-sm">
+                        Disponível a partir de {dataLiberacaoCurta}
+                      </span>
+                    ) : Number(item.estoque || 0) <= 0 ? (
                       <span className="absolute right-3 top-3 z-10 rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-black tracking-wider text-white shadow-sm">
                         ESGOTADO
                       </span>
-                    )}
+                    ) : null}
                     <Link href={`/produto/${item.id}`} className="flex w-full gap-4 p-4 text-left transition hover:bg-gray-50">
                     {item.imagem_url ? (
                       <img src={item.imagem_url} alt={item.nome} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" />
@@ -1012,11 +1047,11 @@ export default function LojaCliente() {
                         <div className="flex items-center gap-2">
                           <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
                           <span className="w-4 text-center text-sm font-bold text-gray-800">{carrinho[item.id]}</span>
-                          <button onClick={() => adicionarAoCarrinho(item.id)} disabled={carrinho[item.id] >= Number(item.estoque || 0)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
+                          <button onClick={() => adicionarAoCarrinho(item.id)} disabled={!vendasLiberadas || carrinho[item.id] >= Number(item.estoque || 0)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
                         </div>
                       ) : (
-                        <button onClick={() => adicionarAoCarrinho(item.id)} aria-disabled={Number(item.estoque || 0) <= 0} className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition-transform active:scale-95 ${Number(item.estoque || 0) <= 0 ? 'bg-gray-200 text-gray-500' : 'bg-viva-verde text-viva-roxo'}`}>
-                          {Number(item.estoque || 0) <= 0 ? 'Esgotado' : '+ Adicionar'}
+                        <button onClick={() => adicionarAoCarrinho(item.id)} aria-disabled={!vendasLiberadas || Number(item.estoque || 0) <= 0} className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition-transform active:scale-95 ${!vendasLiberadas || Number(item.estoque || 0) <= 0 ? 'bg-gray-200 text-gray-500' : 'bg-viva-verde text-viva-roxo'}`}>
+                          {!vendasLiberadas ? `Disponível em ${dataLiberacaoCurta}` : Number(item.estoque || 0) <= 0 ? 'Esgotado' : '+ Adicionar'}
                         </button>
                       )}
                     </div>

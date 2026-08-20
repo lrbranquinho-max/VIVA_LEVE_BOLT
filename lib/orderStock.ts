@@ -1,9 +1,27 @@
+import { resolverDataLiberacaoVendas } from './storeLaunch';
+
 interface ItemPedidoEstoque {
   id?: string | number;
   quantidade?: string | number;
 }
 
+export async function validarLiberacaoVendas(supabase: any) {
+  const { data, error } = await supabase
+    .from('app_config')
+    .select('valor')
+    .eq('chave', 'loja_config')
+    .maybeSingle();
+
+  if (error) throw new Error(`Nao foi possivel validar a liberacao das vendas: ${error.message}`);
+
+  const dataLiberacao = resolverDataLiberacaoVendas(data?.valor);
+  if (Date.now() < Date.parse(dataLiberacao)) {
+    throw new Error('As vendas estarao disponiveis a partir de 01/09/2026.');
+  }
+}
+
 export async function validarEstoquePedido(supabase: any, itens: unknown) {
+  await validarLiberacaoVendas(supabase);
   if (!Array.isArray(itens) || itens.length === 0) throw new Error('O pedido nao possui produtos validos.');
 
   const quantidades = new Map<number, number>();
