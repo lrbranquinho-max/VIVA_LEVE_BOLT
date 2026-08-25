@@ -32,6 +32,11 @@ interface Pedido {
   criado_em?: string;
   created_at?: string;
   updated_at?: string;
+  entregador_id?: string | null;
+  saiu_entrega_em?: string | null;
+  entregue_em?: string | null;
+  entrega_metodo_confirmacao?: string | null;
+  entrega_janela?: string | null;
 }
 
 const ETAPAS_STATUS = [
@@ -171,6 +176,9 @@ export default function MeusPedidos() {
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const [pedidoPagando, setPedidoPagando] = useState<string | null>(null);
   const [mensagemPagamento, setMensagemPagamento] = useState<string | null>(null);
+  const [codigosEntrega, setCodigosEntrega] = useState<Record<string, string>>({});
+  const [confirmandoRecebimento, setConfirmandoRecebimento] = useState<string | null>(null);
+  const [mensagemEntrega, setMensagemEntrega] = useState<{ texto: string; erro?: boolean } | null>(null);
 
   const carregarPedidos = useCallback(async (userId: string) => {
     const limite = limiteHistoricoISO();
@@ -181,7 +189,16 @@ export default function MeusPedidos() {
       .or(`status.neq.Entregue,updated_at.gte.${limite}`)
       .order('criado_em', { ascending: false });
 
-    if (!error && data) setPedidos(data as Pedido[]);
+    if (!error && data) {
+      const lista = data as Pedido[];
+      setPedidos(lista);
+      const emRota = lista.filter(item => item.status === 'Saiu para Entrega');
+      const resultados = await Promise.all(emRota.map(async pedido => {
+        const { data: codigo } = await supabase.rpc('obter_codigo_entrega_cliente', { p_pedido_id: pedido.id });
+        return [pedido.id, typeof codigo === 'string' ? codigo : ''] as const;
+      }));
+      setCodigosEntrega(Object.fromEntries(resultados.filter(([, codigo]) => codigo)));
+    }
   }, []);
 
   const carregarHistorico = useCallback(async (userId: string) => {
@@ -286,6 +303,21 @@ export default function MeusPedidos() {
     }
   };
 
+  const confirmarRecebimento = async (pedido: Pedido) => {
+    if (!window.confirm('Confirma que recebeu seu pedido?')) return;
+    setConfirmandoRecebimento(pedido.id);
+    setMensagemEntrega(null);
+    const { data, error } = await supabase.rpc('confirmar_entrega_pelo_cliente', { p_pedido_id: pedido.id });
+    setConfirmandoRecebimento(null);
+    if (error) { setMensagemEntrega({ texto: error.message, erro: true }); return; }
+    const resposta = data as { ok?: boolean; message?: string } | null;
+    setMensagemEntrega({ texto: resposta?.message || (resposta?.ok ? 'Recebimento confirmado.' : 'Não foi possível confirmar.'), erro: !resposta?.ok });
+    if (resposta?.ok) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await carregarPedidos(user.id);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -299,6 +331,11 @@ export default function MeusPedidos() {
       {mensagemPagamento && (
         <div className="fixed left-1/2 top-4 z-50 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-xl bg-red-500 px-4 py-3 text-center text-sm font-bold text-white shadow-xl">
           {mensagemPagamento}
+        </div>
+      )}
+      {mensagemEntrega && (
+        <div className={`fixed left-1/2 top-4 z-50 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-xl px-4 py-3 text-center text-sm font-bold text-white shadow-xl ${mensagemEntrega.erro ? 'bg-red-500' : 'bg-emerald-600'}`}>
+          {mensagemEntrega.texto}
         </div>
       )}
       <header className="border-b border-gray-100 bg-white p-4 shadow-sm">
@@ -395,6 +432,23 @@ export default function MeusPedidos() {
 
                 {aberto && (
                   <div className="space-y-3 border-t border-gray-100 bg-gray-50 p-4">
+                    {pedido.status === 'Saiu para Entrega' && (
+                      <div className="border-l-4 border-viva-verde bg-white p-4 shadow-sm">
+                        <p className="text-xs font-black uppercase text-viva-roxo">Seu pedido está em rota</p>
+                        {pedido.entrega_janela && <p className="mt-1 text-xs font-bold text-gray-500">Previsão: {pedido.entrega_janela}</p>}
+                        <p className="mt-3 text-xs font-bold text-gray-500">Código de confirmação</p>
+                        <p className="mt-1 font-mono text-3xl font-black tracking-[0.3em] text-gray-900">{codigosEntrega[pedido.id] || '------'}</p>
+                        <p className="mt-2 text-xs text-gray-500">Informe este código ao entregador somente após receber o pedido.</p>
+                        <button
+                          type="button"
+                          onClick={() => confirmarRecebimento(pedido)}
+                          disabled={confirmandoRecebimento === pedido.id}
+                          className="mt-4 h-12 w-full rounded-xl bg-viva-verde text-sm font-black text-viva-roxo disabled:opacity-50"
+                        >
+                          {confirmandoRecebimento === pedido.id ? 'Confirmando...' : 'Recebi meu pedido'}
+                        </button>
+                      </div>
+                    )}
                     <div>
                       <p className="mb-1 text-xs font-bold uppercase tracking-wider text-gray-500">Endereço de entrega</p>
                       <p className="text-sm text-gray-700">{enderecoPedido(pedido)}</p>

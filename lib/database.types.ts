@@ -17,6 +17,38 @@ export type TabelaNutricional = {
 export type Database = {
   public: {
     Tables: {
+      admin_usuario_roles: {
+        Row: {
+          email: string;
+          role: 'admin' | 'trainer' | 'delivery';
+          nome: string;
+          ativo: boolean;
+          user_id: string | null;
+          telefone: string | null;
+          observacoes: string | null;
+          criado_em: string;
+          atualizado_em: string;
+        };
+        Insert: {
+          email: string;
+          role: 'admin' | 'trainer' | 'delivery';
+          nome?: string;
+          ativo?: boolean;
+          user_id?: string | null;
+          telefone?: string | null;
+          observacoes?: string | null;
+          criado_em?: string;
+          atualizado_em?: string;
+        };
+        Update: {
+          nome?: string;
+          ativo?: boolean;
+          user_id?: string | null;
+          telefone?: string | null;
+          observacoes?: string | null;
+          atualizado_em?: string;
+        };
+      };
       app_config: {
         Row: {
           chave: string;
@@ -69,6 +101,73 @@ export type Database = {
           ativo?: boolean;
           atualizado_em?: string;
         };
+      };
+      financeiro_categorias: {
+        Row: { id: string; tipo: 'insumo' | 'operacional' | 'investimento'; nome: string; ativo: boolean; criado_em: string; atualizado_em: string };
+        Insert: { id?: string; tipo: 'insumo' | 'operacional' | 'investimento'; nome: string; ativo?: boolean; criado_em?: string; atualizado_em?: string };
+        Update: { tipo?: 'insumo' | 'operacional' | 'investimento'; nome?: string; ativo?: boolean; atualizado_em?: string };
+      };
+      financeiro_centros_custo: {
+        Row: { id: string; nome: string; ativo: boolean; criado_em: string; atualizado_em: string };
+        Insert: { id?: string; nome: string; ativo?: boolean; criado_em?: string; atualizado_em?: string };
+        Update: { nome?: string; ativo?: boolean; atualizado_em?: string };
+      };
+      financeiro_fornecedores: {
+        Row: { id: string; nome_razao_social: string; cpf_cnpj: string | null; telefone: string | null; observacao: string | null; ativo: boolean; criado_em: string; atualizado_em: string };
+        Insert: { id?: string; nome_razao_social: string; cpf_cnpj?: string | null; telefone?: string | null; observacao?: string | null; ativo?: boolean; criado_em?: string; atualizado_em?: string };
+        Update: { nome_razao_social?: string; cpf_cnpj?: string | null; telefone?: string | null; observacao?: string | null; ativo?: boolean; atualizado_em?: string };
+      };
+      financeiro_lancamentos: {
+        Row: {
+          id: string; tipo: 'insumo' | 'operacional' | 'investimento'; categoria_id: string; centro_custo_id: string | null;
+          fornecedor_id: string | null; descricao: string; numero_documento: string | null; data_compra: string; valor_total: number;
+          forma_pagamento: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'boleto' | 'transferencia' | 'outro' | null;
+          condicao_pagamento: 'avista' | 'parcelado'; quantidade_parcelas: number; status: 'pendente' | 'pago' | 'cancelado';
+          observacoes: string | null; anexo_path: string | null; recorrente: boolean; frequencia_recorrencia: 'semanal' | 'mensal' | 'anual' | null;
+          proxima_recorrencia: string | null; insumo_id: number | null; quantidade_insumo: number | null; custo_unitario: number | null;
+          criado_por: string; criado_em: string; atualizado_em: string;
+        };
+        Insert: {
+          id?: string; tipo: 'insumo' | 'operacional' | 'investimento'; categoria_id: string; centro_custo_id?: string | null;
+          fornecedor_id?: string | null; descricao: string; numero_documento?: string | null; data_compra?: string; valor_total: number;
+          forma_pagamento?: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'boleto' | 'transferencia' | 'outro' | null;
+          condicao_pagamento?: 'avista' | 'parcelado'; quantidade_parcelas?: number; status?: 'pendente' | 'pago' | 'cancelado';
+          observacoes?: string | null; anexo_path?: string | null; recorrente?: boolean; frequencia_recorrencia?: 'semanal' | 'mensal' | 'anual' | null;
+          proxima_recorrencia?: string | null; insumo_id?: number | null; quantidade_insumo?: number | null; custo_unitario?: number | null;
+          criado_por?: string; criado_em?: string; atualizado_em?: string;
+        };
+        Update: Partial<Database['public']['Tables']['financeiro_lancamentos']['Insert']>;
+      };
+      financeiro_parcelas: {
+        Row: {
+          id: string; lancamento_id: string; numero_parcela: number; total_parcelas: number; valor: number; data_vencimento: string;
+          data_pagamento: string | null; forma_pagamento: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'boleto' | 'transferencia' | 'outro' | null;
+          status: 'pendente' | 'pago' | 'cancelado'; pago_por: string | null; criado_em: string; atualizado_em: string;
+        };
+        Insert: {
+          id?: string; lancamento_id: string; numero_parcela: number; total_parcelas: number; valor: number; data_vencimento: string;
+          data_pagamento?: string | null; forma_pagamento?: 'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'boleto' | 'transferencia' | 'outro' | null;
+          status?: 'pendente' | 'pago' | 'cancelado'; pago_por?: string | null; criado_em?: string; atualizado_em?: string;
+        };
+        Update: Partial<Database['public']['Tables']['financeiro_parcelas']['Insert']>;
+      };
+      entregas_historico: {
+        Row: {
+          id: number;
+          pedido_id: number;
+          evento: 'atribuido' | 'reatribuido' | 'atribuicao_removida' | 'saiu_para_entrega' | 'entregue' | 'status_alterado' | 'tentativa_codigo_invalido';
+          status_anterior: string | null;
+          status_novo: string | null;
+          entregador_anterior_id: string | null;
+          entregador_novo_id: string | null;
+          ator_id: string | null;
+          ator_tipo: 'admin' | 'delivery' | 'client' | 'system';
+          metodo_confirmacao: string | null;
+          detalhes: Json;
+          criado_em: string;
+        };
+        Insert: never;
+        Update: never;
       };
       produtos: {
         Row: {

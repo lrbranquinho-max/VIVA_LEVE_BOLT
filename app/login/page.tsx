@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../../supabase';
 import Logo from '../../components/Logo';
 
-type AccessMode = 'client' | 'admin' | 'trainer';
+type AccessMode = 'client' | 'admin' | 'trainer' | 'delivery';
 
 const CUPOM_BOAS_VINDAS_PADRAO = 30;
 const SITE_PUBLICO_PADRAO = 'https://vivalevedf.com.br';
@@ -82,6 +82,8 @@ export default function LoginCliente() {
           ? 'client'
           : current === 'trainer' && !roles.includes('trainer')
             ? 'client'
+            : current === 'delivery' && !roles.includes('delivery')
+              ? 'client'
             : current);
       setCheckingAccess(false);
     }, 350);
@@ -247,8 +249,12 @@ export default function LoginCliente() {
           await supabase.auth.signOut();
           throw new Error('Este usuário não possui acesso de treinador.');
         }
+        if (accessMode === 'delivery' && !authenticatedRoles.includes('delivery')) {
+          await supabase.auth.signOut();
+          throw new Error('Este usuário não possui acesso de entregador.');
+        }
 
-        router.push(accessMode === 'admin' ? '/admin' : accessMode === 'trainer' ? '/treinador' : '/dieta');
+        router.push(accessMode === 'admin' ? '/admin' : accessMode === 'trainer' ? '/treinador' : accessMode === 'delivery' ? '/entregas' : '/dieta');
       }
     } catch (error: any) {
       setMensagem({ texto: error.message || 'Erro na autenticacao.', tipo: 'erro' });
@@ -376,6 +382,12 @@ export default function LoginCliente() {
                     <label className={`cursor-pointer rounded-xl border p-3 text-sm font-bold ${accessMode === 'trainer' ? 'border-viva-roxo bg-purple-50 text-viva-roxo' : 'border-gray-200 text-gray-600'}`}>
                       <input type="radio" name="access-mode" value="trainer" checked={accessMode === 'trainer'} onChange={() => setAccessMode('trainer')} className="mr-2" />
                       Acessar como treinador
+                    </label>
+                  )}
+                  {accessRoles.includes('delivery') && (
+                    <label className={`cursor-pointer rounded-xl border p-3 text-sm font-bold ${accessMode === 'delivery' ? 'border-viva-roxo bg-purple-50 text-viva-roxo' : 'border-gray-200 text-gray-600'}`}>
+                      <input type="radio" name="access-mode" value="delivery" checked={accessMode === 'delivery'} onChange={() => setAccessMode('delivery')} className="mr-2" />
+                      Acessar como entregador
                     </label>
                   )}
                 </div>

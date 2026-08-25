@@ -1583,6 +1583,12 @@ export default function AdminPage() {
                   </div>
 
                   <div className="my-2 border-t border-gray-100" />
+                  <Link href="/admin/entregas" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Entregas
+                  </Link>
+                  <Link href="/admin/financeiro" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Financeiro
+                  </Link>
                   <Link href="/admin/planos-nutri" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Planos Nutri
                   </Link>
