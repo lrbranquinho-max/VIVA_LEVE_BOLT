@@ -72,6 +72,8 @@ Funcoes existentes adaptadas: `aplicar_credito_pedido`, `processar_pagamento_ped
 - TypeScript/build aprovados; lint sem erros, com avisos de imagens `<img>` existentes e do seletor. Build tambem informa aviso existente de dependencia dinamica no SDK de IA.
 - Pagamento real Pix/cartao, terminal de voucher e aplicativo Android fisico nao foram homologados nesta execucao. UI autenticada de admin/entregador deve receber homologacao operacional antes de ativar os produtos.
 
+O advisor do Supabase continua sinalizando funcoes preexistentes com [search_path mutavel](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable) e [protecao contra senhas vazadas desativada](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection). Tambem sinaliza as [RPCs SECURITY DEFINER acessiveis a autenticados](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable): as novas RPCs publicas verificam usuario, papel e vinculo; as de pagamento interno sao restritas ao servidor. Os alertas anteriores nao foram alterados fora do escopo.
+
 ## Segunda fase
 
 - Relatorio de demanda por sabor/data usando itens das entregas pendentes, sem movimentar estoque duas vezes.

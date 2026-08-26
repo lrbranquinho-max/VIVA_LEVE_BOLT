@@ -26,4 +26,3 @@ begin
 end $$;
 create trigger validar_config_planos before insert or update on public.app_config for each row execute function public.validar_config_planos();
 revoke all on function public.validar_config_planos() from public,anon,authenticated;
-
