@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Logo from '../../components/Logo';
 import { supabase } from '../../supabase';
 
-type Tab = 'plans' | 'editor' | 'students' | 'access';
+type Tab = 'plans' | 'editor' | 'students';
 type ToastType = 'success' | 'error' | 'info';
 
 interface CatalogExercise {
@@ -95,13 +95,6 @@ interface Assignment {
   trainer_plan_templates?: { name: string } | null;
 }
 
-interface AccessRole {
-  email: string;
-  role: 'admin' | 'trainer';
-  nome: string;
-  ativo: boolean;
-}
-
 const WEEKDAYS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
 const TECHNIQUES = ['', 'Drop-set', 'Rest-Pause', 'SST', 'Bi-set', 'Superset', 'Circuito'];
 
@@ -175,8 +168,6 @@ export default function TrainerPage() {
   const [exerciseSearch, setExerciseSearch] = useState<Record<string, string>>({});
   const [userEmail, setUserEmail] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [accessRoles, setAccessRoles] = useState<AccessRole[]>([]);
-  const [accessForm, setAccessForm] = useState({ email: '', nome: '', role: 'trainer' as 'admin' | 'trainer' });
   const [toasts, setToasts] = useState<Array<{ id: number; text: string; type: ToastType }>>([]);
 
   const toast = useCallback((text: string, type: ToastType = 'info') => {
@@ -241,15 +232,6 @@ export default function TrainerPage() {
       setCatalog((catalogResult.data ?? []) as CatalogExercise[]);
       setPlans((plansResult.data ?? []) as unknown as SavedPlan[]);
       setAssignments((assignmentsResult.data ?? []) as unknown as Assignment[]);
-      if (adminAccess) {
-        const { data: roleData, error: roleError } = await supabase
-          .from('admin_usuario_roles')
-          .select('email,role,nome,ativo')
-          .order('nome')
-          .order('email');
-        if (roleError) throw roleError;
-        setAccessRoles((roleData ?? []) as AccessRole[]);
-      }
     } catch (error: any) {
       toast(`Erro ao carregar área do treinador: ${error.message}`, 'error');
     } finally {
@@ -426,43 +408,6 @@ export default function TrainerPage() {
     router.replace('/login');
   };
 
-  const saveAccessRole = async () => {
-    try {
-      if (!accessForm.email.includes('@')) throw new Error('Informe um e-mail válido.');
-      const { error } = await supabase.from('admin_usuario_roles').upsert({
-        email: accessForm.email.trim().toLowerCase(),
-        nome: accessForm.nome.trim(),
-        role: accessForm.role,
-        ativo: true,
-        atualizado_em: new Date().toISOString(),
-      }, { onConflict: 'email,role' });
-      if (error) throw error;
-      toast('Perfil de acesso salvo.', 'success');
-      setAccessForm({ email: '', nome: '', role: 'trainer' });
-      await loadData();
-    } catch (error: any) {
-      toast(`Erro ao salvar acesso: ${error.message}`, 'error');
-    }
-  };
-
-  const toggleAccessRole = async (item: AccessRole) => {
-    try {
-      if (item.ativo && item.role === 'admin' && item.email.toLowerCase() === userEmail.toLowerCase()) {
-        throw new Error('Você não pode desativar o próprio acesso administrativo.');
-      }
-      const { error } = await supabase
-        .from('admin_usuario_roles')
-        .update({ ativo: !item.ativo, atualizado_em: new Date().toISOString() })
-        .eq('email', item.email)
-        .eq('role', item.role);
-      if (error) throw error;
-      toast(`Acesso ${item.ativo ? 'desativado' : 'ativado'}.`, 'success');
-      await loadData();
-    } catch (error: any) {
-      toast(`Erro ao alterar acesso: ${error.message}`, 'error');
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-100">
@@ -524,11 +469,11 @@ export default function TrainerPage() {
               <>
                 <button
                   type="button"
-                  onClick={() => setTab('access')}
-                  className={`min-w-40 rounded-lg px-4 py-3 text-left lg:min-w-0 ${tab === 'access' ? 'bg-viva-roxo text-white' : 'border border-viva-roxo text-viva-roxo'}`}
+                  onClick={() => router.push('/admin/usuarios')}
+                  className="min-w-40 rounded-lg border border-viva-roxo px-4 py-3 text-left text-viva-roxo lg:min-w-0"
                 >
-                  <span className="block text-sm font-black">Acessos</span>
-                  <span className="mt-1 block text-xs">Admins e treinadores</span>
+                  <span className="block text-sm font-black">Usuários e perfis</span>
+                  <span className="mt-1 block text-xs">Administração</span>
                 </button>
                 <button
                   type="button"
@@ -632,52 +577,6 @@ export default function TrainerPage() {
                       </tr>
                     ))}
                     {!assignments.length && <tr><td colSpan={5} className="p-8 text-center text-gray-400">Nenhum plano enviado.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {tab === 'access' && isAdmin && (
-            <div className="mx-auto max-w-5xl">
-              <header className="mb-5">
-                <p className="text-xs font-black uppercase text-viva-roxo">Controle de acesso</p>
-                <h1 className="text-2xl font-black">Administradores e treinadores</h1>
-                <p className="mt-1 text-sm text-gray-500">O mesmo e-mail pode acumular as duas funções.</p>
-              </header>
-              <section className="mb-5 grid gap-3 rounded-lg border border-gray-200 bg-white p-4 md:grid-cols-4">
-                <label className="md:col-span-2">
-                  <span className="text-xs font-black uppercase text-gray-500">E-mail</span>
-                  <input type="email" value={accessForm.email} onChange={event => setAccessForm({ ...accessForm, email: event.target.value })} className="mt-1 w-full rounded-lg border p-3 text-sm" placeholder="profissional@email.com" />
-                </label>
-                <label>
-                  <span className="text-xs font-black uppercase text-gray-500">Nome</span>
-                  <input value={accessForm.nome} onChange={event => setAccessForm({ ...accessForm, nome: event.target.value })} className="mt-1 w-full rounded-lg border p-3 text-sm" />
-                </label>
-                <label>
-                  <span className="text-xs font-black uppercase text-gray-500">Função</span>
-                  <select value={accessForm.role} onChange={event => setAccessForm({ ...accessForm, role: event.target.value as 'admin' | 'trainer' })} className="mt-1 w-full rounded-lg border p-3 text-sm font-bold">
-                    <option value="trainer">Treinador</option>
-                    <option value="admin">Administrador</option>
-                  </select>
-                </label>
-                <button type="button" onClick={saveAccessRole} className="rounded-lg bg-viva-verde px-4 py-3 text-sm font-black text-viva-roxo md:col-start-4">
-                  Salvar acesso
-                </button>
-              </section>
-              <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-                <table className="w-full min-w-[620px] text-left text-sm">
-                  <thead className="bg-gray-950 text-xs uppercase text-white"><tr><th className="p-3">Profissional</th><th className="p-3">E-mail</th><th className="p-3">Função</th><th className="p-3">Status</th><th className="p-3">Ação</th></tr></thead>
-                  <tbody>
-                    {accessRoles.map(item => (
-                      <tr key={`${item.email}-${item.role}`} className="border-t border-gray-100">
-                        <td className="p-3 font-bold">{item.nome || '-'}</td>
-                        <td className="p-3">{item.email}</td>
-                        <td className="p-3 font-black">{item.role === 'admin' ? 'Administrador' : 'Treinador'}</td>
-                        <td className="p-3">{item.ativo ? 'Ativo' : 'Inativo'}</td>
-                        <td className="p-3"><button type="button" onClick={() => toggleAccessRole(item)} className={`rounded-lg px-3 py-2 text-xs font-black ${item.ativo ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{item.ativo ? 'Desativar' : 'Ativar'}</button></td>
-                      </tr>
-                    ))}
                   </tbody>
                 </table>
               </div>

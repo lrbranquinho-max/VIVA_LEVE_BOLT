@@ -509,6 +509,7 @@ export default function Dieta() {
         supabase
           .from('produtos')
           .select('id, nome, kcal, proteinas, carboidratos, gorduras')
+          .eq('tipo_produto', 'avulso')
           .eq('ativo', true)
           .ilike('nome', `%${preFiltro}%`)
           .limit(60),
@@ -785,6 +786,7 @@ export default function Dieta() {
       const { data, error } = await supabase
         .from('produtos')
         .select('id, nome, kcal, proteinas, carboidratos, gorduras, porcao_g')
+        .eq('tipo_produto', 'avulso')
         .eq('id', produtoId)
         .maybeSingle();
 

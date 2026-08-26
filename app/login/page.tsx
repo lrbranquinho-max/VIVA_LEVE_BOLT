@@ -107,7 +107,7 @@ export default function LoginCliente() {
       window.history.replaceState(null, '', window.location.pathname);
     }
 
-    if (params.get('reset_password') === '1' || hashParams.get('type') === 'recovery') {
+    if (!erroHash && (params.get('reset_password') === '1' || params.get('definir_senha') === '1' || ['recovery', 'invite'].includes(hashParams.get('type') || ''))) {
       setModoRedefinirSenha(true);
       setIsCadastro(false);
       setModoEsqueciSenha(false);
@@ -171,6 +171,7 @@ export default function LoginCliente() {
       setSenha('');
       setConfirmarSenha('');
       await supabase.auth.signOut();
+      window.history.replaceState(null, '', '/login');
     } catch (error: any) {
       setMensagem({ texto: error.message || 'Erro ao atualizar senha.', tipo: 'erro' });
     } finally {

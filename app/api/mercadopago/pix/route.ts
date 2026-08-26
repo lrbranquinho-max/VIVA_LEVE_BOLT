@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Pedido nao encontrado para este usuario.' }, { status: 404 });
     }
 
-    await validarEstoquePedido(supabase, pedido.itens);
+    await validarEstoquePedido(supabase, pedido.itens, pedido.id, 'pix');
 
     const client = new MercadoPagoConfig({ accessToken });
     const payment = new Payment(client);

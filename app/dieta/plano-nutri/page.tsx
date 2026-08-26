@@ -238,6 +238,7 @@ export default function PlanoNutriPage() {
         supabase
           .from('produtos')
           .select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras')
+          .eq('tipo_produto', 'avulso')
           .eq('ativo', true)
           .gt('estoque', 0),
         supabase

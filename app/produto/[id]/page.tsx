@@ -8,8 +8,12 @@ import Logo from '../../../components/Logo';
 import BottomNav from '../../../components/BottomNav';
 import { DEFAULT_STORE_LAUNCH_AT } from '../../../lib/storeLaunch';
 import { useStoreLaunch } from '../../../hooks/useStoreLaunch';
+import PlanoKitSelector from '@/components/PlanoKitSelector';
+import { PlanoConfig } from '@/lib/planosMarmitas';
 
 interface Produto {
+  tipo_produto?: 'avulso' | 'kit';
+  plano_config?: PlanoConfig | null;
   id: number;
   nome: string;
   descricao: string;
@@ -190,7 +194,7 @@ export default function ProdutoDetalhePage() {
                 Disponível a partir de {dataLiberacaoCurta}
               </span>
             ) : (
-              <p className="mt-2 text-xs font-bold text-gray-400">Estoque disponivel: {estoqueDisponivel} unidade(s)</p>
+              <p className="mt-2 text-xs font-bold text-gray-400">{produto.tipo_produto === 'kit' ? 'Produção programada por entrega' : `Estoque disponivel: ${estoqueDisponivel} unidade(s)`}</p>
             )}
           </div>
 
@@ -201,6 +205,7 @@ export default function ProdutoDetalhePage() {
             </p>
           </div>
 
+          {produto.tipo_produto === 'kit' ? <PlanoKitSelector produto={produto} liberado={vendasLiberadas} /> : <>
           <div className="rounded-2xl bg-white p-5 shadow-sm">
             <h2 className="text-xs font-black uppercase tracking-wider text-gray-400">Informacoes nutricionais</h2>
             <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs md:grid-cols-5">
@@ -243,6 +248,7 @@ export default function ProdutoDetalhePage() {
               {!vendasLiberadas ? `Disponível em ${dataLiberacaoCurta}` : estoqueDisponivel <= 0 ? 'Esgotado' : 'Adicionar ao carrinho'}
             </button>
           </div>
+          </>}
         </section>
       </main>
 

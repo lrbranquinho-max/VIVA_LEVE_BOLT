@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../supabase';
@@ -11,6 +11,7 @@ import StorePromotionalCarousel from '../components/StorePromotionalCarousel';
 import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
 import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
+import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, diaSemana, lerKitsCarrinho, validarEscolhaPlano } from '@/lib/planosMarmitas';
 
 declare global {
   interface Window {
@@ -21,6 +22,8 @@ declare global {
 }
 
 interface Produto {
+  tipo_produto?: 'avulso' | 'kit';
+  plano_config?: PlanoConfig | null;
   id: number;
   nome: string;
   descricao: string;
@@ -164,6 +167,32 @@ export default function LojaCliente() {
     }
   });
   const [verCarrinho, setVerCarrinho] = useState(false);
+  const [kitsCarrinho, setKitsCarrinho] = useState<Record<number, EscolhaPlano>>({});
+  const [configPlanos, setConfigPlanos] = useState<PlanosConfig | null>(null);
+  const [bandeiraPresencial, setBandeiraPresencial] = useState('');
+  const tentativaPlano = useRef({ assinatura: '', id: '' });
+  useEffect(() => {
+    if (Object.keys(carrinho).length === 0) tentativaPlano.current = { assinatura: '', id: '' };
+  }, [carrinho]);
+  const temPlanos = Object.keys(carrinho).some(id => produtos.find(p => p.id === Number(id))?.tipo_produto === 'kit');
+  const voucherElegivel = Object.keys(carrinho).length > 0 && Object.keys(carrinho).every(id => {
+    const p = produtos.find(item => item.id === Number(id));
+    return p?.tipo_produto === 'kit' && p.plano_config?.permite_voucher;
+  }) && Boolean(configPlanos && Object.values(configPlanos.bandeiras).some(Boolean));
+
+  useEffect(() => {
+    setKitsCarrinho(lerKitsCarrinho());
+    if (new URLSearchParams(window.location.search).get('sacola') === '1') setVerCarrinho(true);
+  }, []);
+  useEffect(() => {
+    let ativo = true;
+    supabase.from('app_config').select('valor').eq('chave', 'planos_config').maybeSingle().then(({ data, error }: any) => {
+      if (!ativo || error || !data?.valor) return;
+      setConfigPlanos(data.valor);
+      setBandeiraPresencial(atual => data.valor.bandeiras?.[atual] ? atual : Object.keys(data.valor.bandeiras || {}).find(b => data.valor.bandeiras[b]) || '');
+    });
+    return () => { ativo = false; };
+  }, [verCarrinho]);
 
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
@@ -173,7 +202,7 @@ export default function LojaCliente() {
   const [telefonePagador, setTelefonePagador] = useState('');
   const [cpfPagador, setCpfPagador] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [metodoPagamento, setMetodoPagamento] = useState<'pix' | 'cielo' | 'mercado_pago'>('pix');
+  const [metodoPagamento, setMetodoPagamento] = useState<'pix' | 'cielo' | 'mercado_pago' | 'voucher_presencial'>('pix');
   const [tipoCartaoCielo, setTipoCartaoCielo] = useState<'credito' | 'debito' | 'alelo'>('credito');
   const [numeroVoucher, setNumeroVoucher] = useState('');
   const [nomeVoucher, setNomeVoucher] = useState('');
@@ -219,11 +248,13 @@ export default function LojaCliente() {
 
   useEffect(() => {
     const meios = lojaConfig.meios_pagamento;
-    if (meios[metodoPagamento] && (metodoPagamento !== 'cielo' || cieloDisponivel)) return;
+    if (metodoPagamento === 'voucher_presencial' && voucherElegivel) return;
+    if (metodoPagamento !== 'voucher_presencial' && meios[metodoPagamento] && (metodoPagamento !== 'cielo' || cieloDisponivel)) return;
     if (meios.pix) setMetodoPagamento('pix');
     else if (meios.cielo && cieloDisponivel) setMetodoPagamento('cielo');
     else if (meios.mercado_pago) setMetodoPagamento('mercado_pago');
-  }, [cieloDisponivel, lojaConfig.meios_pagamento, metodoPagamento]);
+    else if (voucherElegivel) setMetodoPagamento('voucher_presencial');
+  }, [cieloDisponivel, lojaConfig.meios_pagamento, metodoPagamento, voucherElegivel]);
 
   const carregarCupons = useCallback(async (userId: string) => {
     const { data, error } = await supabase
@@ -465,6 +496,7 @@ export default function LojaCliente() {
     }
 
     const produto = produtos.find(p => p.id === id);
+    if (produto?.tipo_produto === 'kit') { router.push(`/produto/${id}`); return; }
     if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
       adicionarToast('Este produto esta temporariamente sem estoque.', 'erro');
       return;
@@ -502,7 +534,7 @@ export default function LojaCliente() {
 
     const { data, error } = await supabase
       .from('produtos')
-      .select('id,nome,preco,estoque,ativo')
+      .select('id,nome,descricao,imagem_url,preco,estoque,ativo,tipo_produto,plano_config')
       .in('id', ids);
 
     if (error) throw new Error(error.message);
@@ -515,6 +547,13 @@ export default function LojaCliente() {
     for (const [idTexto, qtd] of Object.entries(carrinho)) {
       const id = Number(idTexto);
       const produto = mapa.get(id);
+      if (produto?.tipo_produto === 'kit') {
+        const escolha = kitsCarrinho[id];
+        if (!produto.ativo || !produto.plano_config || !escolha) throw new Error('Configure novamente os sabores do plano.');
+        const erroPlano = validarEscolhaPlano(produto.plano_config, escolha.sabores);
+        if (erroPlano) throw new Error(erroPlano);
+        continue;
+      }
       if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
         delete carrinhoCorrigido[id];
         erroEstoque = `"${produto?.nome ?? 'Produto'}" nao esta mais disponivel.`;
@@ -702,7 +741,8 @@ export default function LojaCliente() {
       }
       accessTokenAtual = session.access_token;
 
-      if (totalAposCredito > 0 && !lojaConfig.meios_pagamento[metodoPagamento]) {
+      if (metodoPagamento === 'voucher_presencial' && (!voucherElegivel || !bandeiraPresencial || creditoValidado)) throw new Error('Voucher presencial exige planos elegíveis e não pode ser combinado com chave de crédito.');
+      if (totalAposCredito > 0 && metodoPagamento !== 'voucher_presencial' && !lojaConfig.meios_pagamento[metodoPagamento]) {
         throw new Error('Este meio de pagamento esta temporariamente indisponivel.');
       }
 
@@ -736,6 +776,7 @@ export default function LojaCliente() {
           preco: produto?.preco ?? 0,
           quantidade: qtd,
           subtotal: (produto?.preco ?? 0) * qtd,
+          ...(produto?.tipo_produto === 'kit' ? { plano: kitsCarrinho[Number(id)] } : {}),
         };
       });
 
@@ -746,9 +787,17 @@ export default function LojaCliente() {
       const descontoDiaDValidado = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
       const descontoPercentualValidado = Math.max(descontoAutomaticoValidado, descontoCupomValidado, descontoDiaDValidado);
       const descontoValorValidado = subtotalValidado * (descontoPercentualValidado / 100);
-      const valorTotal = Math.max(subtotalValidado - descontoValorValidado + freteValidado, 0);
+      let valorTotal = Math.max(subtotalValidado - descontoValorValidado + freteValidado, 0);
+      const assinaturaPlano = JSON.stringify([user.id, listaItens, metodoPagamento, bandeiraPresencial, cupomSelecionado?.id]);
+      if (tentativaPlano.current.assinatura !== assinaturaPlano) tentativaPlano.current = { assinatura: assinaturaPlano, id: crypto.randomUUID() };
 
-      const { data: pedidoCriado, error: errPedido } = await supabase
+      const { data: pedidoCriado, error: errPedido } = temPlanos ? await supabase.rpc('criar_pedido_com_planos', {
+        p_itens: listaItens,
+        p_metodo: totalAposCredito <= 0 ? 'credito' : metodoPagamento,
+        p_bandeira: metodoPagamento === 'voucher_presencial' ? bandeiraPresencial : null,
+        p_cupom_id: cupomSelecionado?.id ?? null,
+        p_idempotencia: tentativaPlano.current.id,
+      }) : await supabase
         .from('pedidos')
         .insert([{
           cliente_id: user.id,
@@ -768,6 +817,17 @@ export default function LojaCliente() {
       if (errPedido) throw new Error(errPedido.message);
       if (!pedidoCriado?.id) throw new Error('O banco não retornou o identificador do pedido.');
       pedidoIdCriado = pedidoCriado.id;
+      if (temPlanos) valorTotal = Number(pedidoCriado.valor_total);
+      if (temPlanos && valorTotal === 0) {
+        setCarrinho({}); setVerCarrinho(false);
+        adicionarToast('Plano confirmado!', 'sucesso');
+        router.push('/meus-planos'); return;
+      }
+      if (metodoPagamento === 'voucher_presencial') {
+        setCarrinho({}); setVerCarrinho(false); setCupomSelecionadoId('');
+        adicionarToast('Plano solicitado. Pagamento integral na primeira entrega.', 'sucesso');
+        router.push('/meus-planos'); return;
+      }
 
       if (creditoValidado) {
         const respostaCredito = await fetch('/api/creditos/aplicar', {
@@ -999,7 +1059,7 @@ export default function LojaCliente() {
                       <span className="absolute right-3 top-3 z-10 rounded-md bg-viva-roxo px-2.5 py-1 text-[10px] font-black text-viva-verde shadow-sm">
                         Disponível a partir de {dataLiberacaoCurta}
                       </span>
-                    ) : Number(item.estoque || 0) <= 0 ? (
+                    ) : item.tipo_produto !== 'kit' && Number(item.estoque || 0) <= 0 ? (
                       <span className="absolute right-3 top-3 z-10 rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-black tracking-wider text-white shadow-sm">
                         ESGOTADO
                       </span>
@@ -1017,6 +1077,7 @@ export default function LojaCliente() {
                       <div>
                         <h3 className="text-sm font-bold leading-tight text-gray-800">{item.nome}</h3>
                         <p className="mt-0.5 line-clamp-2 text-xs text-gray-500">{item.descricao}</p>
+                        {item.tipo_produto === 'kit' && item.plano_config && <p className="mt-1 text-xs font-bold text-viva-roxo">{item.plano_config.total_marmitas} marmitas · {item.plano_config.entregas} entregas programadas</p>}
                         {(item.kcal > 0 || item.proteinas > 0 || item.carboidratos > 0 || item.gorduras > 0 || item.porcao_g) && (
                           <>
                           <p className="mt-1 text-[10px] text-gray-400">
@@ -1040,7 +1101,7 @@ export default function LojaCliente() {
 
                     <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
                       <p className="text-xs font-semibold text-gray-400">Detalhes em tela propria</p>
-                      {carrinho[item.id] ? (
+                      {item.tipo_produto === 'kit' ? <Link href={`/produto/${item.id}`} className="rounded-lg bg-viva-verde px-3 py-2 text-xs font-black text-viva-roxo">Escolher sabores</Link> : carrinho[item.id] ? (
                         <div className="flex items-center gap-2">
                           <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
                           <span className="w-4 text-center text-sm font-bold text-gray-800">{carrinho[item.id]}</span>
@@ -1081,7 +1142,7 @@ export default function LojaCliente() {
                     if (!prod) return null;
                     return (
                       <div key={id} className="flex items-center justify-between border-b border-gray-100 py-2 text-sm">
-                        <span className="flex-1 font-medium text-gray-700">{prod.nome}</span>
+                        <span className="min-w-0 flex-1 font-medium text-gray-700">{prod.nome}{prod.tipo_produto === 'kit' && <><span className="mt-1 block text-xs text-viva-roxo">{prod.plano_config?.entregas} entregas · {prod.plano_config?.marmitas_por_entrega} por etapa{kitsCarrinho[prod.id]?.primeira_data ? ` · ${DIAS_PLANO[diaSemana(kitsCarrinho[prod.id].primeira_data)]}` : ''}</span><Link href={`/produto/${prod.id}`} className="text-xs underline">Conferir sabores e datas</Link></>}</span>
                         <div className="ml-2 flex items-center gap-2">
                           <button onClick={() => removerDoCarrinho(prod.id)} className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600 active:scale-90">-</button>
                           <span className="w-4 text-center font-bold">{qtd}</span>
@@ -1178,7 +1239,8 @@ export default function LojaCliente() {
                     <input required type="text" value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Quadra, Bairro..." className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
                   </div>
 
-                  {totalAposCredito > 0 && (lojaConfig.meios_pagamento.pix || (lojaConfig.meios_pagamento.cielo && cieloDisponivel) || lojaConfig.meios_pagamento.mercado_pago) && <div>
+                  {temPlanos && <p className="border-l-4 border-viva-verde bg-green-50 p-3 text-sm">As entregas do plano serão realizadas nas datas escolhidas. A Viva Leve enviará a janela de horário após a compra.</p>}
+                  {totalAposCredito > 0 && (voucherElegivel || lojaConfig.meios_pagamento.pix || (lojaConfig.meios_pagamento.cielo && cieloDisponivel) || lojaConfig.meios_pagamento.mercado_pago) && <div>
                     <label className="mb-2 block text-xs font-bold text-gray-600">Meio de pagamento</label>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       {lojaConfig.meios_pagamento.pix && <button type="button" onClick={() => setMetodoPagamento('pix')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'pix' ? 'border-green-600 bg-green-600 text-white' : 'border-green-200 bg-green-50 text-green-800'}`}>
@@ -1202,10 +1264,12 @@ export default function LojaCliente() {
                       {lojaConfig.meios_pagamento.mercado_pago && <button type="button" onClick={() => setMetodoPagamento('mercado_pago')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'mercado_pago' ? 'border-[#009EE3] bg-[#009EE3] text-white' : 'border-sky-200 bg-white text-[#007EB5]'}`}>
                         Pagar com Mercado Pago
                       </button>}
+                      {voucherElegivel && <button type="button" onClick={() => { setMetodoPagamento('voucher_presencial'); setCreditoValidado(null); setChaveCredito(''); }} className={`rounded-lg border p-3 text-xs font-black ${metodoPagamento === 'voucher_presencial' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-purple-200 bg-white text-viva-roxo'}`}>Voucher — pagamento na primeira entrega</button>}
                     </div>
                   </div>}
 
-                  {totalAposCredito > 0 && !lojaConfig.meios_pagamento.pix && !(lojaConfig.meios_pagamento.cielo && cieloDisponivel) && !lojaConfig.meios_pagamento.mercado_pago && (
+                  {metodoPagamento === 'voucher_presencial' && voucherElegivel && <section className="border-l-4 border-amber-400 bg-amber-50 p-4 text-sm"><p>O valor total do plano será pago presencialmente na primeira entrega por meio da maquininha.</p><label className="mt-3 block font-bold">Bandeira<select value={bandeiraPresencial} onChange={e => setBandeiraPresencial(e.target.value)} className="mt-1 h-11 w-full rounded-lg border bg-white px-3">{Object.entries(configPlanos?.bandeiras || {}).filter(([, ativo]) => ativo).map(([b]) => <option key={b}>{b}</option>)}</select></label><p className="mt-2 font-black">Total na primeira entrega: {formatarMoedaBR(totalPedidoFinal)}</p></section>}
+                  {totalAposCredito > 0 && !voucherElegivel && !lojaConfig.meios_pagamento.pix && !(lojaConfig.meios_pagamento.cielo && cieloDisponivel) && !lojaConfig.meios_pagamento.mercado_pago && (
                     <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
                       Nenhum meio de pagamento esta disponivel no momento.
                     </p>

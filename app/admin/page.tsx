@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { supabase } from '../../supabase';
 import { nomeMeioPagamento } from '../../lib/meiosPagamento';
 import { normalizarMeiosPagamento } from '../../lib/paymentConfig';
+import { CONFIG_PLANO_INICIAL, PlanoConfig } from '@/lib/planosMarmitas';
 
 type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
@@ -19,6 +20,8 @@ interface ItemPedido {
 }
 
 interface Pedido {
+  somente_planos?: boolean;
+  checkout_idempotencia?: string;
   id: number | string;
   cliente_id?: string | null;
   endereco_entrega?: string | null;
@@ -51,6 +54,9 @@ interface PerfilCliente {
 }
 
 interface Produto {
+  tipo_produto?: 'avulso' | 'kit';
+  disponivel_kit?: boolean;
+  plano_config?: PlanoConfig | null;
   id: number;
   nome: string;
   descricao: string | null;
@@ -102,6 +108,10 @@ interface TabelaNutri {
 }
 
 interface ProdutoForm {
+  tipo_produto: 'avulso' | 'kit';
+  disponivel_kit: boolean;
+  ativo: boolean;
+  plano_config: PlanoConfig;
   nome: string;
   descricao: string;
   preco: string;
@@ -172,6 +182,7 @@ const PRODUTOS_IMAGE_BUCKETS = [
 ].filter(Boolean) as string[];
 
 const FORM_VAZIO: ProdutoForm = {
+  tipo_produto: 'avulso', disponivel_kit: false, ativo: true, plano_config: { ...CONFIG_PLANO_INICIAL },
   nome: '',
   descricao: '',
   preco: '',
@@ -479,6 +490,14 @@ function ModalProduto({
         </div>
 
         <form onSubmit={onSubmit} className="space-y-5 p-5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-bold">Tipo de produto<select value={form.tipo_produto} onChange={e => onChange({ ...form, tipo_produto: e.target.value as 'kit' | 'avulso', disponivel_kit: false })} className="mt-1 h-11 w-full rounded-lg border px-3"><option value="avulso">Produto avulso</option><option value="kit">KIT / PLANO</option></select></label>
+            <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.ativo} onChange={e => onChange({ ...form, ativo: e.target.checked })} />Produto ativo</label>
+          </div>
+          {form.tipo_produto === 'kit' ? <fieldset className="grid gap-3 border-y py-4 sm:grid-cols-2"><legend className="font-black text-viva-roxo">Configuração do plano</legend>
+            {([['total_marmitas', 'Total de marmitas'], ['entregas', 'Quantidade de entregas'], ['marmitas_por_entrega', 'Marmitas por entrega'], ['intervalo_dias', 'Intervalo das entregas (dias, múltiplo de 7)'], ['sabores_min', 'Mínimo de sabores'], ['sabores_max', 'Máximo de sabores']] as const).map(([key, label]) => <label key={key} className="text-xs font-bold">{label}<input required type="number" min={key === 'intervalo_dias' ? 7 : 1} step={key === 'intervalo_dias' ? 7 : 1} value={form.plano_config[key]} onChange={e => onChange({ ...form, plano_config: { ...form.plano_config, [key]: Number(e.target.value) } })} className="mt-1 h-11 w-full rounded-lg border px-3 text-sm" /></label>)}
+            <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2"><input type="checkbox" checked={form.plano_config.permite_voucher} onChange={e => onChange({ ...form, plano_config: { ...form.plano_config, permite_voucher: e.target.checked } })} />Permite voucher presencial na primeira entrega</label>
+          </fieldset> : form.categoria === 'Marmitas' && <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.disponivel_kit} onChange={e => onChange({ ...form, disponivel_kit: e.target.checked })} />Disponível para Kits/Planos</label>}
           <div className="grid gap-4 md:grid-cols-2">
             <label className="md:col-span-2">
               <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Nome</span>
@@ -502,7 +521,7 @@ function ModalProduto({
               <input required type="text" inputMode="decimal" value={form.preco} onChange={e => onChange({ ...form, preco: e.target.value })} onBlur={e => onChange({ ...form, preco: valorInputBR(e.target.value, 2) })} placeholder="0,00" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
             </label>
 
-            <label>
+            {form.tipo_produto !== 'kit' && <><label>
               <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Estoque</span>
               <input type="text" inputMode="numeric" value={form.estoque} onChange={e => onChange({ ...form, estoque: e.target.value.replace(/\D/g, '') })} placeholder="0" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
             </label>
@@ -512,6 +531,7 @@ function ModalProduto({
               <input type="text" inputMode="decimal" value={form.porcao_kg} onChange={e => onChange({ ...form, porcao_kg: e.target.value })} onBlur={e => onChange({ ...form, porcao_kg: valorInputBR(e.target.value, 3) })} placeholder="0,350" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
             </label>
 
+            </>}
             <label>
               <span className="mb-1 block text-xs font-bold uppercase text-gray-500">Imagem URL</span>
               <input type="url" value={form.imagem_url} onChange={e => onChange({ ...form, imagem_url: e.target.value })} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-800" />
@@ -547,7 +567,7 @@ function ModalProduto({
             </div>
           </div>
 
-          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+          {form.tipo_produto !== 'kit' && <><div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
             <p className="mb-3 text-xs font-bold uppercase text-gray-500">Macros por 100g</p>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {[
@@ -607,6 +627,7 @@ function ModalProduto({
             </div>
           </div>
 
+          </>}
           <div className="flex gap-3">
             <button disabled={salvando} className="flex-1 rounded-xl bg-gray-900 px-4 py-3 text-sm font-bold text-white hover:bg-gray-800 disabled:opacity-60">
               {salvando ? 'Salvando...' : editando ? 'Salvar alterações' : 'Cadastrar produto'}
@@ -674,6 +695,7 @@ export default function AdminPage() {
       const { data, error } = await supabase
         .from('pedidos')
         .select('*')
+        .is('plano_id', null)
         .order('criado_em', { ascending: false });
 
       if (error) throw error;
@@ -842,7 +864,7 @@ export default function AdminPage() {
   const produtosBalcaoFiltrados = useMemo(() => {
     const termo = normalizarBusca(filtroProdutoBalcao);
     return produtos
-      .filter(produto => produto.ativo)
+      .filter(produto => produto.ativo && produto.tipo_produto !== 'kit')
       .filter(produto => !termo || normalizarBusca(produto.nome).includes(termo));
   }, [filtroProdutoBalcao, produtos]);
 
@@ -1126,6 +1148,7 @@ export default function AdminPage() {
     const fatorLegado = porcaoTabela > 0 ? porcaoTabela / 100 : 1;
     setProdutoEditando(produto);
     setFormProduto({
+      tipo_produto: produto.tipo_produto || 'avulso', disponivel_kit: Boolean(produto.disponivel_kit), ativo: produto.ativo, plano_config: produto.plano_config || { ...CONFIG_PLANO_INICIAL },
       nome: produto.nome ?? '',
       descricao: produto.descricao ?? '',
       preco: valorInputBR(produto.preco ?? 0, 2),
@@ -1223,6 +1246,10 @@ export default function AdminPage() {
 
     const payload = {
       nome: formProduto.nome.trim(),
+      tipo_produto: formProduto.tipo_produto,
+      disponivel_kit: formProduto.tipo_produto === 'avulso' && formProduto.categoria === 'Marmitas' && formProduto.disponivel_kit,
+      plano_config: formProduto.tipo_produto === 'kit' ? formProduto.plano_config : null,
+      ativo: formProduto.ativo,
       descricao: formProduto.descricao.trim(),
       preco: parseNumeroBR(formProduto.preco),
       categoria: formProduto.categoria,
@@ -1250,7 +1277,7 @@ export default function AdminPage() {
       } else {
         const { data, error } = await supabase
           .from('produtos')
-          .insert([{ ...payload, ativo: true }])
+          .insert([payload])
           .select('id')
           .maybeSingle();
         if (error) throw error;
@@ -1324,6 +1351,7 @@ export default function AdminPage() {
   };
 
   const imprimirEtiqueta = (produto: Produto) => {
+    if (produto.tipo_produto === 'kit') { toast('Imprima as etiquetas das marmitas individuais do plano.', 'info'); return; }
     const tabela = produto.tabela_nutri ?? null;
     const gramas = Number(tabela?.porcao_g || produto.porcao_g || 100);
     const fatorLegado = gramas / 100;
@@ -1583,6 +1611,10 @@ export default function AdminPage() {
                   </div>
 
                   <div className="my-2 border-t border-gray-100" />
+                  <Link href="/admin/usuarios" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Usuários e Perfis
+                  </Link>
+                  <Link href="/admin/planos" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">Planos / Kits vendidos</Link>
                   <Link href="/admin/entregas" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Entregas
                   </Link>
@@ -1711,7 +1743,8 @@ export default function AdminPage() {
                       </div>
 
                       <div className="flex flex-wrap gap-2 border-t border-gray-100 p-4">
-                        {STATUS_FLUXO.map(status => (
+                        {pedido.checkout_idempotencia && <Link href="/admin/planos" className="rounded-lg bg-viva-roxo px-3 py-2 text-xs font-bold text-white">Gerenciar entregas do plano</Link>}
+                        {!pedido.somente_planos && STATUS_FLUXO.map(status => (
                           <button
                             key={status}
                             onClick={() => atualizarStatus(pedido, status)}

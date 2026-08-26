@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import MercadoPagoConfig, { Preference } from 'mercadopago';
 import { meioPagamentoEstaAtivo } from '../../../../lib/paymentConfig';
 import { validarEstoquePedido } from '../../../../lib/orderStock';
+import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 interface ItemCheckout {
   id: number;
@@ -213,10 +214,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'O pagamento pelo Mercado Pago esta temporariamente desativado.' }, { status: 403 });
     }
 
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError || !auth.user) return NextResponse.json({ error: 'Faça login para pagar.' }, { status: 401 });
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
       .select('id, valor_total, status, subtotal_produtos, valor_frete, desconto_valor, endereco_entrega, credito_valor_aplicado, itens')
       .eq('id', pedidoId)
+      .eq('cliente_id', auth.user.id)
       .maybeSingle();
 
     if (pedidoError) throw pedidoError;
@@ -224,7 +228,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Pedido não encontrado para este usuário.' }, { status: 404 });
     }
 
-    await validarEstoquePedido(supabase, pedido.itens);
+    await validarEstoquePedido(supabase, pedido.itens, pedido.id, 'mercado_pago');
 
     const client = new MercadoPagoConfig({ accessToken });
     const preference = new Preference(client);
@@ -238,14 +242,14 @@ export async function POST(request: NextRequest) {
     const cpfPagador = somenteDigitos(payer?.cpf);
     const telefonePagador = telefoneMercadoPago(payer?.telefone);
     const enderecoPagador = enderecoMercadoPago(payer?.endereco || pedido.endereco_entrega);
-    const itensPreferencia = montarItensMercadoPago(itens, pedido);
+    const itensPreferencia = montarItensMercadoPago(pedido.itens, pedido);
 
     const body = {
       external_reference: pedidoId,
       notification_url: `${baseUrl}/api/mercadopago/webhook`,
       auto_return: 'all',
       back_urls: backUrls,
-      additional_info: additionalInfoPedido(itens, pedido, payer),
+      additional_info: additionalInfoPedido(pedido.itens, pedido, payer),
       payer: {
         name: nomePagador.name,
         surname: nomePagador.surname,
@@ -280,13 +284,15 @@ export async function POST(request: NextRequest) {
     const resposta = await preference.create({ body });
 
     if (resposta.id) {
-      await supabase
+      const { error } = await criarSupabaseAdmin()
         .from('pedidos')
         .update({
           mercado_pago_preference_id: String(resposta.id),
+          meio_pagamento: 'mercado_pago',
           updated_at: new Date().toISOString(),
         })
         .eq('id', pedidoId);
+      if (error) throw error;
     }
 
     return NextResponse.json({

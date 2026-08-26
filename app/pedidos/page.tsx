@@ -17,6 +17,7 @@ interface ItemPedido {
 }
 
 interface Pedido {
+  checkout_idempotencia?: string;
   id: string;
   endereco_entrega: string;
   endereco?: string;
@@ -185,6 +186,7 @@ export default function MeusPedidos() {
     const { data, error } = await supabase
       .from('pedidos')
       .select('*')
+      .is('plano_id', null)
       .eq('cliente_id', userId)
       .or(`status.neq.Entregue,updated_at.gte.${limite}`)
       .order('criado_em', { ascending: false });
@@ -207,6 +209,7 @@ export default function MeusPedidos() {
     const { data, error } = await supabase
       .from('pedidos')
       .select('*')
+      .is('plano_id', null)
       .eq('cliente_id', userId)
       .eq('status', 'Entregue')
       .lt('updated_at', limite)
@@ -354,7 +357,7 @@ export default function MeusPedidos() {
 
       <main className="space-y-4 p-4">
         <div className="rounded-2xl border border-viva-verde/40 bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
-          Prazo estimado de entrega: ate 24hs apos a confirmacao do pedido.
+          Pedidos avulsos: até 24h após confirmação. Kits seguem a programação escolhida em Meus Planos.
         </div>
         <>
         {pedidos.length === 0 ? (
@@ -449,6 +452,7 @@ export default function MeusPedidos() {
                         </button>
                       </div>
                     )}
+                    {pedido.checkout_idempotencia && <Link href="/meus-planos" className="block rounded-lg bg-purple-50 p-3 text-sm font-bold text-viva-roxo">Ver sabores, saldo e entregas do plano</Link>}
                     <div>
                       <p className="mb-1 text-xs font-bold uppercase tracking-wider text-gray-500">Endereço de entrega</p>
                       <p className="text-sm text-gray-700">{enderecoPedido(pedido)}</p>

@@ -6,7 +6,10 @@ import Logo from '@/components/Logo';
 import { nomeMeioPagamento } from '@/lib/meiosPagamento';
 import { supabase } from '@/supabase';
 
+import VoucherPlanoPagamento from '@/components/VoucherPlanoPagamento';
+
 interface Entrega {
+  plano_id?: string; plano_nome?: string; entrega_numero?: number; entrega_prevista?: string; valor_cobrar?: number; voucher_bandeira?: string;
   id: number;
   status: string;
   endereco_entrega: string | null;
@@ -128,6 +131,7 @@ export default function EntregasPage() {
               <button onClick={() => setAberta(detalhes ? null : entrega.id)} className="w-full p-4 text-left"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-mono text-xs font-black text-gray-400">PEDIDO #{entrega.id}</p><h2 className="mt-1 truncate text-lg font-black">{entrega.cliente_nome}</h2><p className="mt-1 line-clamp-2 text-sm font-bold text-gray-600">{endereco}</p>{entrega.entrega_janela && <p className="mt-1 text-xs font-black text-viva-roxo">Janela: {entrega.entrega_janela}</p>}</div><span className={`shrink-0 px-2 py-1 text-[10px] font-black uppercase ${emRota ? 'bg-purple-100 text-purple-800' : entrega.status === 'Entregue' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'}`}>{entrega.status === 'Saiu para Entrega' ? 'Em rota' : entrega.status === 'Entregue' ? 'Entregue' : 'Atribuída'}</span></div><p className="mt-3 text-right text-xs font-bold text-gray-400">{detalhes ? 'Ocultar detalhes' : 'Ver detalhes'}</p></button>
 
               {detalhes && <div className="space-y-4 border-t border-gray-100 bg-gray-50 p-4">
+                {entrega.plano_id && <p className="font-bold text-viva-roxo">{entrega.plano_nome} · Entrega {entrega.entrega_numero} · {entrega.entrega_prevista?.split('-').reverse().join('/')}</p>}
                 <section><p className="text-xs font-black uppercase text-gray-400">Cliente e contato</p><p className="mt-1 font-black">{entrega.cliente_nome}</p><div className="mt-2 flex flex-wrap gap-2">{telefone && <><a href={`tel:+${telefone}`} className="flex h-11 items-center bg-gray-900 px-4 text-sm font-black text-white">Ligar</a><a href={`https://wa.me/${telefone}`} target="_blank" rel="noreferrer" className="flex h-11 items-center bg-[#25D366] px-4 text-sm font-black text-white">WhatsApp</a></>}</div></section>
                 <section><p className="text-xs font-black uppercase text-gray-400">Endereço completo</p><p className="mt-1 text-sm font-bold text-gray-700">{endereco}</p>{entrega.endereco_complemento && <p className="text-sm text-gray-600">Complemento: {entrega.endereco_complemento}</p>}{entrega.endereco_referencia && <p className="text-sm text-gray-600">Referência: {entrega.endereco_referencia}</p>}<a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex h-11 items-center border border-viva-roxo px-4 text-sm font-black text-viva-roxo">Abrir no mapa</a></section>
                 {entrega.entrega_observacoes && <section className="border-l-4 border-amber-400 bg-amber-50 p-3"><p className="text-xs font-black uppercase text-amber-700">Observação da entrega</p><p className="mt-1 text-sm font-bold text-amber-900">{entrega.entrega_observacoes}</p></section>}
@@ -135,6 +139,7 @@ export default function EntregasPage() {
                 <section className="bg-white p-3"><p className="text-xs font-black uppercase text-gray-400">Pagamento</p><p className="mt-1 text-sm font-black">{entrega.pagamento_status === 'approved' || entrega.pagamento_status === 'pago' || entrega.pagamento_status === 'balcao' ? 'Pagamento realizado' : 'Pagamento na entrega'}</p><p className="text-xs text-gray-500">{nomeMeioPagamento(entrega.meio_pagamento)} · {entrega.pagamento_status || 'status não informado'}</p></section>
               </div>}
 
+              {emRota && entrega.plano_id && entrega.entrega_numero === 1 && entrega.meio_pagamento === 'voucher_presencial' && entrega.pagamento_status !== 'approved' && <div className="p-3"><VoucherPlanoPagamento entregaId={entrega.id} valor={Number(entrega.valor_cobrar)} bandeira={entrega.voucher_bandeira || ''} onSaved={carregar} /></div>}
               {entrega.status !== 'Entregue' && <footer className="border-t border-gray-100 p-3">{emRota ? <button onClick={() => { setConfirmando(entrega); setCodigo(''); }} className="h-14 w-full bg-viva-verde text-base font-black text-viva-roxo">Confirmar entrega</button> : <button disabled={atualizando === entrega.id} onClick={() => iniciarEntrega(entrega)} className="h-14 w-full bg-viva-roxo text-base font-black text-white disabled:opacity-50">{atualizando === entrega.id ? 'Iniciando...' : 'Saiu para entrega'}</button>}</footer>}
             </article>;
           })}

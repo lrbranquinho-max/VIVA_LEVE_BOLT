@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
     if (String(pedido.cliente_id) !== authData.user.id) return respostaJson({ error: 'Você não pode pagar este pedido.' }, 403);
     if (pedido.pagamento_status === 'approved') return respostaJson({ error: 'Este pedido já foi pago.' }, 409);
 
-    await validarEstoquePedido(supabase, pedido.itens);
+    await validarEstoquePedido(supabase, pedido.itens, pedido.id, meioPagamento);
 
     const { error: meioPagamentoError } = await supabase
       .from('pedidos')

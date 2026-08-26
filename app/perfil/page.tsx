@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../supabase';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Logo from '../../components/Logo';
 import BottomNav from '../../components/BottomNav';
 
@@ -232,6 +233,8 @@ export default function Perfil() {
             {salvando ? 'Salvando...' : 'Salvar Alterações'}
           </button>
         </form>
+
+        <Link href="/meus-planos" className="mt-4 flex min-h-[52px] items-center justify-between rounded-lg border border-purple-200 bg-purple-50 px-4 font-bold text-viva-roxo"><span>Meus Planos de Marmitas</span><span aria-hidden="true">→</span></Link>
 
         <button
           onClick={sair}
