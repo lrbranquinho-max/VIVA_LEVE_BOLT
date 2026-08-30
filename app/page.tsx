@@ -9,6 +9,7 @@ import BottomNav from '../components/BottomNav';
 import StoreFooter from '../components/StoreFooter';
 import StorePromotionalCarousel from '../components/StorePromotionalCarousel';
 import MercadoPagoBrandBadges from '../components/MercadoPagoBrandBadges';
+import VoucherBrandBadges from '../components/VoucherBrandBadges';
 import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
 import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
@@ -1267,7 +1268,10 @@ export default function LojaCliente() {
                         <span className="block">Pagar com Mercado Pago</span>
                         <MercadoPagoBrandBadges selected={metodoPagamento === 'mercado_pago'} />
                       </button>}
-                      {voucherElegivel && <button type="button" onClick={() => { setMetodoPagamento('voucher_presencial'); setCreditoValidado(null); setChaveCredito(''); }} className={`rounded-lg border p-3 text-xs font-black ${metodoPagamento === 'voucher_presencial' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-purple-200 bg-white text-viva-roxo'}`}>Voucher — pagamento na primeira entrega</button>}
+                      {voucherElegivel && <button type="button" onClick={() => { setMetodoPagamento('voucher_presencial'); setCreditoValidado(null); setChaveCredito(''); }} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'voucher_presencial' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-purple-200 bg-white text-viva-roxo'}`}>
+                        <span className="block">Voucher — pagamento na primeira entrega</span>
+                        <VoucherBrandBadges bandeiras={configPlanos?.bandeiras} selected={metodoPagamento === 'voucher_presencial'} />
+                      </button>}
                     </div>
                   </div>}
 
