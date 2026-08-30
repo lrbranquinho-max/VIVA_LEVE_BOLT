@@ -8,10 +8,12 @@ import Logo from '../components/Logo';
 import BottomNav from '../components/BottomNav';
 import StoreFooter from '../components/StoreFooter';
 import StorePromotionalCarousel from '../components/StorePromotionalCarousel';
+import MercadoPagoBrandBadges from '../components/MercadoPagoBrandBadges';
 import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
 import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
 import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, diaSemana, lerKitsCarrinho, validarEscolhaPlano } from '@/lib/planosMarmitas';
+import { ordenarProdutosLoja } from '@/lib/storeProducts';
 
 declare global {
   interface Window {
@@ -312,7 +314,7 @@ export default function LojaCliente() {
         ]);
 
         if (produtosRes.error) throw new Error(produtosRes.error.message);
-        setProdutos(produtosRes.data ?? []);
+        setProdutos(ordenarProdutosLoja((produtosRes.data ?? []) as Produto[]));
         if (!canaisRes.error) setCanais((canaisRes.data ?? []) as CanalLoja[]);
         if (!configRes.error && configRes.data?.valor) setLojaConfig(normalizarLojaConfig(configRes.data.valor));
       } catch (err: any) {
@@ -1262,7 +1264,8 @@ export default function LojaCliente() {
                         </button>
                       )}
                       {lojaConfig.meios_pagamento.mercado_pago && <button type="button" onClick={() => setMetodoPagamento('mercado_pago')} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'mercado_pago' ? 'border-[#009EE3] bg-[#009EE3] text-white' : 'border-sky-200 bg-white text-[#007EB5]'}`}>
-                        Pagar com Mercado Pago
+                        <span className="block">Pagar com Mercado Pago</span>
+                        <MercadoPagoBrandBadges selected={metodoPagamento === 'mercado_pago'} />
                       </button>}
                       {voucherElegivel && <button type="button" onClick={() => { setMetodoPagamento('voucher_presencial'); setCreditoValidado(null); setChaveCredito(''); }} className={`rounded-lg border p-3 text-xs font-black ${metodoPagamento === 'voucher_presencial' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-purple-200 bg-white text-viva-roxo'}`}>Voucher — pagamento na primeira entrega</button>}
                     </div>

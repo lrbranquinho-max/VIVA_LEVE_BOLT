@@ -1,5 +1,7 @@
 export const STORE_TIME_ZONE = 'America/Sao_Paulo';
-export const DEFAULT_STORE_LAUNCH_AT = '2026-09-01T00:00:00-03:00';
+// Sales are open. Keeping a past fallback also prevents stale clients from
+// recreating the former launch gate when the configuration cannot be loaded.
+export const DEFAULT_STORE_LAUNCH_AT = '2020-01-01T00:00:00-03:00';
 
 export interface StoreLaunchConfig {
   data_liberacao_vendas?: unknown;

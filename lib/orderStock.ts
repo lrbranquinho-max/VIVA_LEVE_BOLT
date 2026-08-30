@@ -1,4 +1,3 @@
-import { resolverDataLiberacaoVendas } from './storeLaunch';
 import { criarSupabaseAdmin } from './supabaseAdmin';
 
 interface ItemPedidoEstoque {
@@ -6,23 +5,7 @@ interface ItemPedidoEstoque {
   quantidade?: string | number;
 }
 
-export async function validarLiberacaoVendas(supabase: any) {
-  const { data, error } = await supabase
-    .from('app_config')
-    .select('valor')
-    .eq('chave', 'loja_config')
-    .maybeSingle();
-
-  if (error) throw new Error(`Nao foi possivel validar a liberacao das vendas: ${error.message}`);
-
-  const dataLiberacao = resolverDataLiberacaoVendas(data?.valor);
-  if (Date.now() < Date.parse(dataLiberacao)) {
-    throw new Error('As vendas estarao disponiveis a partir de 01/09/2026.');
-  }
-}
-
 export async function validarEstoquePedido(supabase: any, itens: unknown, pedidoId?: string | number, meio?: string) {
-  await validarLiberacaoVendas(supabase);
   let plano = false;
   if (pedidoId !== undefined) {
     const { data: pedido, error } = await supabase.from('pedidos').select('plano_id,status,pagamento_status,checkout_idempotencia').eq('id', pedidoId).single();
