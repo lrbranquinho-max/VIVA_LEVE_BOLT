@@ -28,6 +28,11 @@ function urlBasePublica() {
   return SITE_PUBLICO_PADRAO;
 }
 
+function destinoInternoSeguro(valor: string | null) {
+  if (!valor || !valor.startsWith('/') || valor.startsWith('//')) return '/dieta';
+  return valor;
+}
+
 function EyeIcon({ hidden }: { hidden: boolean }) {
   if (hidden) {
     return (
@@ -59,6 +64,8 @@ export default function LoginCliente() {
   const [accessRoles, setAccessRoles] = useState<string[]>([]);
   const [checkingAccess, setCheckingAccess] = useState(false);
   const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'sucesso' | 'erro' } | null>(null);
+  const [destinoAposLogin, setDestinoAposLogin] = useState('/dieta');
+  const [veioDoCheckout, setVeioDoCheckout] = useState(false);
 
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
@@ -95,6 +102,13 @@ export default function LoginCliente() {
     const params = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const erroHash = hashParams.get('error_description') || hashParams.get('error');
+
+    const destino = destinoInternoSeguro(params.get('next'));
+    setDestinoAposLogin(destino);
+    if (params.get('cadastro') === '1') {
+      setIsCadastro(true);
+      setVeioDoCheckout(true);
+    }
 
     if (erroHash) {
       setModoEsqueciSenha(true);
@@ -226,7 +240,12 @@ export default function LoginCliente() {
           }
         }
 
-        setMensagem({ texto: 'Cadastro realizado! Voce ja pode fazer login.', tipo: 'sucesso' });
+        if (data.session) {
+          router.push(destinoAposLogin);
+          return;
+        }
+
+        setMensagem({ texto: 'Cadastro realizado! Entre na sua conta para continuar a compra.', tipo: 'sucesso' });
         setIsCadastro(false);
         setNome('');
         setTelefone('');
@@ -255,7 +274,7 @@ export default function LoginCliente() {
           throw new Error('Este usuário não possui acesso de entregador.');
         }
 
-        router.push(accessMode === 'admin' ? '/admin' : accessMode === 'trainer' ? '/treinador' : accessMode === 'delivery' ? '/entregas' : '/dieta');
+        router.push(accessMode === 'admin' ? '/admin' : accessMode === 'trainer' ? '/treinador' : accessMode === 'delivery' ? '/entregas' : destinoAposLogin);
       }
     } catch (error: any) {
       setMensagem({ texto: error.message || 'Erro na autenticacao.', tipo: 'erro' });
@@ -315,6 +334,12 @@ export default function LoginCliente() {
           }`}
           >
             {mensagem.texto}
+          </div>
+        )}
+
+        {veioDoCheckout && !mensagem && !modoEsqueciSenha && !modoRedefinirSenha && (
+          <div className="mb-6 rounded-xl bg-blue-50 p-4 text-center text-sm font-bold text-blue-800">
+            Sua sacola foi preservada. Crie sua conta ou entre para continuar a compra.
           </div>
         )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -8,7 +8,12 @@ import Logo from '../../components/Logo';
 import BottomNav from '../../components/BottomNav';
 
 const REGIOES_ATIVAS_FALLBACK = [
-  'Gama', 'Novo Gama', 'Pedregal', 'Santa Maria', 'Valparaíso de Goiás',
+  { regiao: 'Gama', uf: 'DF' },
+  { regiao: 'Santa Maria', uf: 'DF' },
+  { regiao: 'Cidade Ocidental', uf: 'GO' },
+  { regiao: 'Novo Gama', uf: 'GO' },
+  { regiao: 'Pedregal', uf: 'GO' },
+  { regiao: 'Valparaíso de Goiás', uf: 'GO' },
 ];
 
 export default function Perfil() {
@@ -24,8 +29,11 @@ export default function Perfil() {
   const [enderecoComplemento, setEnderecoComplemento] = useState('');
   const [bairro, setBairro] = useState('');
   const [regiaoDf, setRegiaoDf] = useState('');
-  const [regioesAtivas, setRegioesAtivas] = useState<string[]>(REGIOES_ATIVAS_FALLBACK);
+  const [enderecoUf, setEnderecoUf] = useState('');
+  const [regioesAtivas, setRegioesAtivas] = useState(REGIOES_ATIVAS_FALLBACK);
   const [email, setEmail] = useState('');
+  const ufsAtendidas = useMemo(() => Array.from(new Set(regioesAtivas.map(item => item.uf))).sort(), [regioesAtivas]);
+  const regioesDaUf = useMemo(() => regioesAtivas.filter(item => !enderecoUf || item.uf === enderecoUf), [enderecoUf, regioesAtivas]);
 
   useEffect(() => {
     async function carregarPerfil() {
@@ -42,12 +50,12 @@ export default function Perfil() {
           .maybeSingle(),
         supabase
           .from('perfis_clientes')
-          .select('endereco_rua, endereco_numero, endereco_complemento, bairro, regiao_df')
+          .select('endereco_rua, endereco_numero, endereco_complemento, bairro, regiao_df, endereco_uf')
           .eq('id', user.id)
           .maybeSingle(),
         supabase
           .from('regioes_atendimento')
-          .select('regiao')
+          .select('regiao, uf')
           .eq('status', 'ativa')
           .order('regiao'),
       ]);
@@ -66,13 +74,13 @@ export default function Perfil() {
         setEnderecoNumero(perfilCliente.endereco_numero ?? '');
         setEnderecoComplemento(perfilCliente.endereco_complemento ?? '');
         setBairro(perfilCliente.bairro ?? '');
-        setRegiaoDf(perfilCliente.regiao_df ?? '');
+        const regiaoCadastrada = (regioesResultado.data ?? REGIOES_ATIVAS_FALLBACK).find(item => item.regiao === perfilCliente.regiao_df);
+        setRegiaoDf(regiaoCadastrada?.regiao ?? perfilCliente.regiao_df ?? '');
+        setEnderecoUf(perfilCliente.endereco_uf ?? regiaoCadastrada?.uf ?? '');
       }
 
       if (!regioesResultado.error && regioesResultado.data?.length) {
-        const nomes = regioesResultado.data.map(item => item.regiao);
-        const regiaoAtual = perfilCliente?.regiao_df;
-        setRegioesAtivas(regiaoAtual && !nomes.includes(regiaoAtual) ? [regiaoAtual, ...nomes] : nomes);
+        setRegioesAtivas(regioesResultado.data);
       }
 
       setLoading(false);
@@ -109,6 +117,7 @@ export default function Perfil() {
         endereco_complemento: enderecoComplemento,
         bairro,
         regiao_df: regiaoDf,
+        endereco_uf: enderecoUf,
       });
 
     if (errCliente) {
@@ -225,16 +234,35 @@ export default function Perfil() {
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">Região</label>
+            <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">UF</label>
+                <select
+                  required
+                  value={enderecoUf}
+                  onChange={e => {
+                    const proximaUf = e.target.value;
+                    setEnderecoUf(proximaUf);
+                    if (!regioesAtivas.some(item => item.uf === proximaUf && item.regiao === regiaoDf)) setRegiaoDf('');
+                  }}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-viva-verde transition text-sm text-gray-900"
+                >
+                  <option value="">UF</option>
+                  {ufsAtendidas.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+              </div>
+              <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">Região / Cidade</label>
               <select
+                required
                 value={regiaoDf}
                 onChange={e => setRegiaoDf(e.target.value)}
                 className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-viva-verde transition text-sm text-gray-900"
               >
                 <option value="">Selecione a região</option>
-                {regioesAtivas.map(r => <option key={r} value={r}>{r}</option>)}
+                {regioesDaUf.map(item => <option key={`${item.uf}-${item.regiao}`} value={item.regiao}>{item.regiao}</option>)}
               </select>
+              </div>
             </div>
           </div>
 

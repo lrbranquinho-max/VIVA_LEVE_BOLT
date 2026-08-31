@@ -62,6 +62,12 @@ interface PerfilPedido {
   telefone: string;
   endereco: string;
   regiao: string;
+  uf: string;
+}
+
+interface RegiaoAtendimento {
+  regiao: string;
+  uf: string;
 }
 
 interface Toast {
@@ -203,7 +209,13 @@ export default function LojaCliente() {
 
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
-  const [endereco, setEndereco] = useState('');
+  const [enderecoRua, setEnderecoRua] = useState('');
+  const [enderecoNumero, setEnderecoNumero] = useState('');
+  const [enderecoComplemento, setEnderecoComplemento] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [regiaoEntrega, setRegiaoEntrega] = useState('');
+  const [ufEntrega, setUfEntrega] = useState('');
+  const [regioesAtendimento, setRegioesAtendimento] = useState<RegiaoAtendimento[]>([]);
   const [usarDadosCadastroPagador, setUsarDadosCadastroPagador] = useState(true);
   const [nomePagador, setNomePagador] = useState('');
   const [telefonePagador, setTelefonePagador] = useState('');
@@ -221,6 +233,8 @@ export default function LojaCliente() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [lojaConfig, setLojaConfig] = useState(LOJA_CONFIG_PADRAO);
   const { vendasLiberadas, dataLiberacaoCurta } = useStoreLaunch(lojaConfig);
+  const ufsAtendidas = useMemo(() => Array.from(new Set(regioesAtendimento.map(item => item.uf))).sort(), [regioesAtendimento]);
+  const regioesDaUf = useMemo(() => regioesAtendimento.filter(item => !ufEntrega || item.uf === ufEntrega), [regioesAtendimento, ufEntrega]);
 
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -300,7 +314,7 @@ export default function LojaCliente() {
       setErroCarga(null);
 
       try {
-        const [produtosRes, canaisRes, configRes] = await Promise.all([
+        const [produtosRes, canaisRes, configRes, regioesRes] = await Promise.all([
           supabase
             .from('produtos')
             .select('*')
@@ -316,12 +330,19 @@ export default function LojaCliente() {
             .select('valor')
             .eq('chave', 'loja_config')
             .maybeSingle(),
+          supabase
+            .from('regioes_atendimento')
+            .select('regiao, uf')
+            .eq('status', 'ativa')
+            .order('uf')
+            .order('regiao'),
         ]);
 
         if (produtosRes.error) throw new Error(produtosRes.error.message);
         setProdutos(ordenarProdutosLoja((produtosRes.data ?? []) as Produto[]));
         if (!canaisRes.error) setCanais((canaisRes.data ?? []) as CanalLoja[]);
         if (!configRes.error && configRes.data?.valor) setLojaConfig(normalizarLojaConfig(configRes.data.valor));
+        if (!regioesRes.error) setRegioesAtendimento((regioesRes.data ?? []) as RegiaoAtendimento[]);
       } catch (err: any) {
         console.error('[Loja] Erro ao carregar produtos:', err);
         setErroCarga(err.message);
@@ -344,19 +365,31 @@ export default function LojaCliente() {
           setTelefone(perfil.telefone ?? '');
         }
 
-        const { data: perfilCliente } = await supabase
-          .from('perfis_clientes')
-          .select('endereco_rua, endereco_numero, bairro, regiao_df')
-          .eq('id', user.id)
-          .maybeSingle();
+        const [{ data: perfilCliente }, { data: regioes }] = await Promise.all([
+          supabase
+            .from('perfis_clientes')
+            .select('endereco_rua, endereco_numero, endereco_complemento, bairro, regiao_df, endereco_uf')
+            .eq('id', user.id)
+            .maybeSingle(),
+          supabase
+            .from('regioes_atendimento')
+            .select('regiao, uf')
+            .eq('status', 'ativa')
+            .order('uf')
+            .order('regiao'),
+        ]);
+
+        const regioesAtivas = (regioes ?? []) as RegiaoAtendimento[];
+        setRegioesAtendimento(regioesAtivas);
 
         if (perfilCliente) {
-          setEndereco([
-            perfilCliente.endereco_rua,
-            perfilCliente.endereco_numero,
-            perfilCliente.bairro,
-            perfilCliente.regiao_df,
-          ].filter(Boolean).join(', '));
+          const regiaoCadastrada = regioesAtivas.find(item => normalizarTexto(item.regiao) === normalizarTexto(perfilCliente.regiao_df ?? ''));
+          setEnderecoRua(perfilCliente.endereco_rua ?? '');
+          setEnderecoNumero(perfilCliente.endereco_numero ?? '');
+          setEnderecoComplemento(perfilCliente.endereco_complemento ?? '');
+          setBairro(perfilCliente.bairro ?? '');
+          setRegiaoEntrega(regiaoCadastrada?.regiao ?? perfilCliente.regiao_df ?? '');
+          setUfEntrega(perfilCliente.endereco_uf ?? regiaoCadastrada?.uf ?? '');
         }
 
         await Promise.all([carregarCupons(user.id), carregarLojaConfig()]);
@@ -437,34 +470,19 @@ export default function LojaCliente() {
   const canalPorNome = (nomeRede: string) => canais.find(canal => canal.nome_rede.toLowerCase() === nomeRede.toLowerCase());
 
   const validarCadastroPedido = async (userId: string): Promise<PerfilPedido> => {
-    const [{ data: perfil, error: errPerfil }, { data: perfilCliente, error: errCliente }] = await Promise.all([
-      supabase
-        .from('perfis')
-        .select('nome, telefone')
-        .eq('id', userId)
-        .maybeSingle(),
-      supabase
-        .from('perfis_clientes')
-        .select('endereco_rua, endereco_numero, bairro, regiao_df')
-        .eq('id', userId)
-        .maybeSingle(),
-    ]);
-
-    if (errPerfil) throw new Error(errPerfil.message);
-    if (errCliente) throw new Error(errCliente.message);
-
-    const nomePerfil = String(perfil?.nome ?? nome).trim();
-    const telefonePerfil = String(perfil?.telefone ?? telefone).trim();
+    const nomePerfil = nome.trim();
+    const telefonePerfil = telefone.trim();
     const digitosTelefone = somenteDigitos(telefonePerfil);
-    const rua = String(perfilCliente?.endereco_rua ?? '').trim();
-    const numero = String(perfilCliente?.endereco_numero ?? '').trim();
-    const bairroPerfil = String(perfilCliente?.bairro ?? '').trim();
-    const regiao = String(perfilCliente?.regiao_df ?? '').trim();
-    const cadastroCompleto = Boolean(nomePerfil && digitosTelefone.length >= 10 && rua && numero && bairroPerfil && regiao);
+    const rua = enderecoRua.trim();
+    const numero = enderecoNumero.trim();
+    const complemento = enderecoComplemento.trim();
+    const bairroPerfil = bairro.trim();
+    const regiaoInformada = regiaoEntrega.trim();
+    const ufInformada = ufEntrega.trim().toUpperCase();
+    const cadastroCompleto = Boolean(nomePerfil && digitosTelefone.length >= 10 && rua && numero && bairroPerfil && regiaoInformada && ufInformada);
 
     if (!cadastroCompleto) {
-      adicionarToast('Cadastro incompleto. Informe nome, telefone com DDD e endereco de entrega no perfil.', 'erro');
-      setTimeout(() => router.push('/perfil'), 1300);
+      adicionarToast('Preencha nome, telefone e todos os campos obrigatórios do endereço.', 'erro');
       throw new Error('Cadastro incompleto para finalizar pedido.');
     }
 
@@ -475,16 +493,36 @@ export default function LojaCliente() {
 
     if (errRegiao) throw new Error(errRegiao.message);
 
-    const regiaoAtiva = (regioes ?? []).some(item => normalizarTexto(item.regiao) === normalizarTexto(regiao));
+    const regiaoAtiva = (regioes ?? []).find(item =>
+      normalizarTexto(item.regiao) === normalizarTexto(regiaoInformada) && item.uf === ufInformada,
+    );
     if (!regiaoAtiva) {
-      adicionarToast('Ainda nao atendemos essa regiao. Atualize a regiao de entrega no perfil.', 'erro');
+      adicionarToast('A combinação de região e UF não está na área ativa de atendimento.', 'erro');
       throw new Error('Regiao de entrega fora da area ativa de atendimento.');
     }
 
-    const enderecoPerfil = [rua, numero, bairroPerfil, regiao].filter(Boolean).join(', ');
+    const [{ error: errPerfil }, { error: errCliente }] = await Promise.all([
+      supabase.from('perfis').upsert({ id: userId, nome: nomePerfil, telefone: telefonePerfil }),
+      supabase.from('perfis_clientes').upsert({
+        id: userId,
+        nome_completo: nomePerfil,
+        telefone: telefonePerfil,
+        endereco_rua: rua,
+        endereco_numero: numero,
+        endereco_complemento: complemento || null,
+        bairro: bairroPerfil,
+        regiao_df: regiaoAtiva.regiao,
+        endereco_uf: regiaoAtiva.uf,
+      }),
+    ]);
+    if (errPerfil) throw new Error(`Não foi possível salvar os dados pessoais: ${errPerfil.message}`);
+    if (errCliente) throw new Error(`Não foi possível salvar o endereço: ${errCliente.message}`);
+
+    const enderecoPerfil = [rua, numero, complemento, bairroPerfil, `${regiaoAtiva.regiao} - ${regiaoAtiva.uf}`].filter(Boolean).join(', ');
     setNome(nomePerfil);
     setTelefone(telefonePerfil);
-    setEndereco(enderecoPerfil);
+    setRegiaoEntrega(regiaoAtiva.regiao);
+    setUfEntrega(regiaoAtiva.uf);
     if (!nomePagador) setNomePagador(nomePerfil);
     if (!telefonePagador) setTelefonePagador(telefonePerfil);
 
@@ -492,7 +530,8 @@ export default function LojaCliente() {
       nome: nomePerfil,
       telefone: telefonePerfil,
       endereco: enderecoPerfil,
-      regiao,
+      regiao: regiaoAtiva.regiao,
+      uf: regiaoAtiva.uf,
     };
   };
 
@@ -743,8 +782,10 @@ export default function LojaCliente() {
       const { data: { session }, error: errSession } = await supabase.auth.getSession();
       const user = session?.user;
       if (errSession || !session || !user) {
-        adicionarToast('Voce precisa estar logado para finalizar o pedido!', 'erro');
+        adicionarToast('Você precisa criar uma conta ou entrar para finalizar o pedido.', 'info');
         setEnviando(false);
+        const parametros = new URLSearchParams({ cadastro: '1', next: '/?sacola=1' });
+        router.push(`/login?${parametros.toString()}`);
         return;
       }
       accessTokenAtual = session.access_token;
@@ -1233,7 +1274,7 @@ export default function LojaCliente() {
                   </div>
                 </div>
 
-                <form onSubmit={finalizarPedido} className="space-y-4 border-t border-gray-100 pt-2">
+                <form noValidate onSubmit={finalizarPedido} className="space-y-4 border-t border-gray-100 pt-2">
                   <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500">Dados para Entrega</h4>
                   <div>
                     <label className="mb-1 block text-xs font-bold text-gray-600">Nome completo *</label>
@@ -1243,10 +1284,50 @@ export default function LojaCliente() {
                     <label className="mb-1 block text-xs font-bold text-gray-600">WhatsApp *</label>
                     <input required type="tel" value={telefone} onChange={e => setTelefone(e.target.value)} className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
                   </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-bold text-gray-600">Endereco de entrega *</label>
-                    <input required type="text" value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, Quadra, Bairro..." className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                  <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-600">Rua / Quadra *</label>
+                      <input required type="text" value={enderecoRua} onChange={e => setEnderecoRua(e.target.value)} placeholder="Ex.: Rua 10 ou SQ 12" className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-600">Número *</label>
+                      <input required type="text" value={enderecoNumero} onChange={e => setEnderecoNumero(e.target.value)} placeholder="10" className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                    </div>
                   </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-gray-600">Complemento</label>
+                    <input type="text" value={enderecoComplemento} onChange={e => setEnderecoComplemento(e.target.value)} placeholder="Apto, bloco, lote ou referência" className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-gray-600">Bairro *</label>
+                    <input required type="text" value={bairro} onChange={e => setBairro(e.target.value)} placeholder="Seu bairro" className="w-full rounded-xl border border-gray-200 p-2.5 text-sm text-gray-900" />
+                  </div>
+                  <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-600">UF *</label>
+                      <select
+                        required
+                        value={ufEntrega}
+                        onChange={e => {
+                          const proximaUf = e.target.value;
+                          setUfEntrega(proximaUf);
+                          if (!regioesAtendimento.some(item => item.uf === proximaUf && item.regiao === regiaoEntrega)) setRegiaoEntrega('');
+                        }}
+                        className="w-full rounded-xl border border-gray-200 bg-white p-2.5 text-sm text-gray-900"
+                      >
+                        <option value="">UF</option>
+                        {ufsAtendidas.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-600">Região / Cidade *</label>
+                      <select required value={regiaoEntrega} onChange={e => setRegiaoEntrega(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-white p-2.5 text-sm text-gray-900">
+                        <option value="">Selecione a região</option>
+                        {regioesDaUf.map(item => <option key={`${item.uf}-${item.regiao}`} value={item.regiao}>{item.regiao}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <p className="rounded-xl bg-blue-50 p-3 text-xs font-semibold text-blue-800">As alterações feitas aqui também serão salvas no seu cadastro.</p>
 
                   {temPlanos && <p className="border-l-4 border-viva-verde bg-green-50 p-3 text-sm">As entregas do plano serão realizadas nas datas escolhidas. A Viva Leve enviará a janela de horário após a compra.</p>}
                   {totalAposCredito > 0 && (voucherElegivel || lojaConfig.meios_pagamento.pix || (lojaConfig.meios_pagamento.cielo && cieloDisponivel) || lojaConfig.meios_pagamento.mercado_pago) && <div>
