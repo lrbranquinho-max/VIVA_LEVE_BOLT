@@ -10,6 +10,7 @@ import { DEFAULT_STORE_LAUNCH_AT } from '../../../lib/storeLaunch';
 import { useStoreLaunch } from '../../../hooks/useStoreLaunch';
 import PlanoKitSelector from '@/components/PlanoKitSelector';
 import { PlanoConfig } from '@/lib/planosMarmitas';
+import { estoqueDisponivelProduto } from '@/lib/stock';
 
 interface Produto {
   tipo_produto?: 'avulso' | 'kit';
@@ -20,6 +21,8 @@ interface Produto {
   preco: number;
   categoria: string;
   estoque: number;
+  estoque_reservado?: number;
+  estoque_disponivel?: number;
   kcal: number;
   proteinas: number;
   carboidratos: number;
@@ -107,7 +110,7 @@ export default function ProdutoDetalhePage() {
     carregarProduto();
   }, [produtoId, mostrarToast]);
 
-  const estoqueDisponivel = Math.max(Number(produto?.estoque ?? 0), 0);
+  const estoqueDisponivel = estoqueDisponivelProduto(produto);
   const total = useMemo(() => Number(produto?.preco ?? 0) * quantidade, [produto?.preco, quantidade]);
 
   const adicionarAoCarrinho = () => {

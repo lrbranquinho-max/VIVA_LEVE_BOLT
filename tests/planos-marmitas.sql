@@ -68,6 +68,7 @@ begin
   if (select count(*) from public.pedidos where plano_id=plano)<>2 or (select entrega_prevista from public.pedidos where id=segunda)<>primeira_data+7 then raise exception 'FAIL agenda'; end if;
   if exists(select 1 from public.pedidos where plano_id=plano and (valor_total<>0 or pagamento_status<>'vinculado')) then raise exception 'FAIL cobrancas filhas'; end if;
   if exists(select 1 from public.produtos where id=any(sabores) and estoque<>100) then raise exception 'FAIL baixa antecipada'; end if;
+  if exists(select 1 from public.produtos where id=any(sabores) and estoque_reservado<>0) then raise exception 'FAIL reserva antes do pagamento'; end if;
   if (select saldo from public.planos_marmitas_resumo where id=plano)<>14 then raise exception 'FAIL saldo inicial'; end if;
   falhou:=false; begin perform public.aplicar_credito_pedido(pedido::text,'QA',cliente,email_cliente); exception when others then falhou:=sqlerrm like 'Voucher presencial%'; end;
   if not falhou then raise exception 'FAIL combinacao voucher credito'; end if;
@@ -100,6 +101,7 @@ begin
   if (select pagamento_status from public.pedidos where id=pedido)='approved' then raise exception 'FAIL recusa contabilizada'; end if;
   perform public.registrar_voucher_plano(primeira,true,'QA comprovante');
   if not exists(select 1 from public.planos_marmitas where id=plano and status='Ativo') or not exists(select 1 from public.pedidos where id=pedido and pago_em is not null) then raise exception 'FAIL pagamento voucher'; end if;
+  if (select sum(estoque_reservado) from public.produtos where id=any(sabores))<>7 then raise exception 'FAIL reserva semanas futuras voucher'; end if;
   perform set_config('request.jwt.claims',jsonb_build_object('sub',cliente,'email',email_cliente,'role','authenticated')::text,true);
   codigo:=public.obter_codigo_entrega_cliente(primeira);
   if length(codigo)<>6 then raise exception 'FAIL codigo'; end if;
@@ -110,6 +112,7 @@ begin
   perform public.gerenciar_plano_marmitas(plano,'reprogramar',segunda,primeira_data+8,'QA nova data');
   if (select entrega_prevista from public.pedidos where id=primeira)<>primeira_data then raise exception 'FAIL reprogramacao alterou outra semana'; end if;
   perform public.gerenciar_plano_marmitas(plano,'preparar',segunda);
+  if (select sum(estoque_reservado) from public.produtos where id=any(sabores))<>0 then raise exception 'FAIL consumo reserva voucher'; end if;
   perform public.atribuir_entregador_pedido(segunda,courier);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',courier,'email',email_courier,'role','authenticated')::text,true);
   perform public.iniciar_entrega_pedido(segunda);
@@ -129,6 +132,7 @@ begin
   if (select count(*) from public.pedidos where pedido_origem_id=pedido)<>4 then raise exception 'FAIL mensal'; end if;
   perform public.processar_pagamento_pedido_mp(pedido::text,'QA-rollback','approved','Em Preparo');
   if (select sum(100-estoque) from public.produtos where id=any(sabores))<>14 then raise exception 'FAIL gateway debitou semanas futuras'; end if;
+  if (select sum(estoque_reservado) from public.produtos where id=any(sabores))<>24 then raise exception 'FAIL gateway nao reservou kit'; end if;
   if not exists(select 1 from public.planos_marmitas where pedido_id=pedido and status='Ativo') then raise exception 'FAIL pagamento online'; end if;
   if has_table_privilege('authenticated','public.planos_marmitas','UPDATE') or has_table_privilege('anon','public.planos_marmitas','SELECT') then raise exception 'FAIL permissoes'; end if;
   -- A free mixed order consumes ordinary stock once, but never future kit stock.
@@ -144,4 +148,4 @@ begin
   end;
 end $$;
 rollback;
-select 'PASS: kits 14/24, sabores, totais, agenda, preco servidor, idempotencia, voucher, estoque por entrega, saldo, auditoria e pagamento online. Dados revertidos.' as resultado;
+select 'PASS: kits 14/24, sabores, totais, agenda, preco servidor, idempotencia, voucher, reserva/baixa de estoque, saldo, auditoria e pagamento online. Dados revertidos.' as resultado;

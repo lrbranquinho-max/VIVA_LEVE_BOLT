@@ -11,6 +11,7 @@ interface ProdutoMerchant {
   preco: number | string | null;
   categoria: string | null;
   estoque: number | string | null;
+  estoque_disponivel: number | string | null;
   imagem_url: string | null;
 }
 
@@ -43,7 +44,7 @@ function itemXml(produto: ProdutoMerchant) {
   const descricao = textoProduto(produto.descricao, titulo);
   const link = `${SITE_URL}/produto/${produto.id}`;
   const imagem = produto.imagem_url ? urlAbsoluta(produto.imagem_url) : `${SITE_URL}/icon-512x512.png`;
-  const disponibilidade = Number(produto.estoque ?? 0) > 0 ? 'in_stock' : 'out_of_stock';
+  const disponibilidade = Number(produto.estoque_disponivel ?? produto.estoque ?? 0) > 0 ? 'in_stock' : 'out_of_stock';
 
   return `
     <item>
@@ -78,7 +79,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('produtos')
-    .select('id, nome, descricao, preco, categoria, estoque, imagem_url')
+    .select('id, nome, descricao, preco, categoria, estoque, estoque_disponivel, imagem_url')
     .eq('ativo', true)
     .order('nome', { ascending: true });
 

@@ -77,6 +77,7 @@ O advisor do Supabase continua sinalizando funcoes preexistentes com [search_pat
 ## Segunda fase
 
 - Relatorio de demanda por sabor/data usando itens das entregas pendentes, sem movimentar estoque duas vezes.
+- Kits pagos reservam os sabores de todas as entregas ainda não preparadas. O estoque físico só é baixado na preparação; cancelamento ou estorno libera a reserva restante. Pedidos com pagamento pendente não reservam estoque.
 - Retomada/substituicao de entrega cancelada: atualmente cancelar uma entrega suspende o plano e preserva saldo/historico. Nao ha retomada automatica.
 - Troca de sabores com prazo, notificacoes de janela/rota, conciliacao da maquininha, reembolso proporcional e politica de estoque para cancelamento apos preparo.
 - Mais de uma configuracao do mesmo produto na sacola: nesta versao, ha uma selecao por produto; quantidade maior replica essa selecao.

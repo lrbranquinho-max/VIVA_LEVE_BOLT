@@ -240,7 +240,7 @@ export default function PlanoNutriPage() {
           .select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras')
           .eq('tipo_produto', 'avulso')
           .eq('ativo', true)
-          .gt('estoque', 0),
+          .gt('estoque_disponivel', 0),
         supabase
           .from('receitas_externas')
           .select('id,tipo_refeicao,nome_receita,modo_preparo,kcal_100g,carb_100g,prot_100g,gord_100g,porcao')

@@ -1,4 +1,5 @@
 import { criarSupabaseAdmin } from './supabaseAdmin';
+import { estoqueDisponivelProduto } from './stock';
 
 interface ItemPedidoEstoque {
   id?: string | number;
@@ -31,7 +32,7 @@ export async function validarEstoquePedido(supabase: any, itens: unknown, pedido
 
   const { data, error } = await supabase
     .from('produtos')
-    .select('id,nome,estoque,ativo,tipo_produto')
+    .select('id,nome,estoque,estoque_reservado,estoque_disponivel,ativo,tipo_produto')
     .in('id', Array.from(quantidades.keys()));
 
   if (error) throw new Error(`Nao foi possivel validar o estoque: ${error.message}`);
@@ -40,8 +41,9 @@ export async function validarEstoquePedido(supabase: any, itens: unknown, pedido
   for (const [produtoId, quantidade] of Array.from(quantidades.entries())) {
     const produto: any = produtos.get(produtoId);
     if (!produto || !produto.ativo) throw new Error('Um produto do pedido nao esta mais disponivel.');
-    if (produto.tipo_produto !== 'kit' && Number(produto.estoque || 0) < quantidade) {
-      throw new Error(`Estoque insuficiente para ${produto.nome}. Disponivel: ${Number(produto.estoque || 0)}.`);
+    const disponivel = estoqueDisponivelProduto(produto);
+    if (produto.tipo_produto !== 'kit' && disponivel < quantidade) {
+      throw new Error(`Estoque insuficiente para ${produto.nome}. Disponivel: ${disponivel}.`);
     }
   }
   if (plano && meio && pedidoId !== undefined) {

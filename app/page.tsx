@@ -16,6 +16,7 @@ import { useStoreLaunch } from '../hooks/useStoreLaunch';
 import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, diaSemana, lerKitsCarrinho, validarEscolhaPlano } from '@/lib/planosMarmitas';
 import { ordenarProdutosLoja } from '@/lib/storeProducts';
 import LojaAccessTracker from '@/components/LojaAccessTracker';
+import { estoqueDisponivelProduto } from '@/lib/stock';
 
 declare global {
   interface Window {
@@ -34,6 +35,8 @@ interface Produto {
   preco: number;
   categoria: string;
   estoque: number;
+  estoque_reservado?: number;
+  estoque_disponivel?: number;
   kcal: number;
   proteinas: number;
   carboidratos: number;
@@ -501,14 +504,14 @@ export default function LojaCliente() {
 
     const produto = produtos.find(p => p.id === id);
     if (produto?.tipo_produto === 'kit') { router.push(`/produto/${id}`); return; }
-    if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
+    if (!produto || !produto.ativo || estoqueDisponivelProduto(produto) <= 0) {
       adicionarToast('Este produto esta temporariamente sem estoque.', 'erro');
       return;
     }
 
     const quantidadeAtual = carrinho[id] || 0;
-    if (quantidadeAtual >= Number(produto.estoque || 0)) {
-      adicionarToast(`Limite de estoque atingido: ${produto.estoque} unidade(s).`, 'erro');
+    if (quantidadeAtual >= estoqueDisponivelProduto(produto)) {
+      adicionarToast(`Limite de estoque atingido: ${estoqueDisponivelProduto(produto)} unidade(s).`, 'erro');
       return;
     }
 
@@ -538,7 +541,7 @@ export default function LojaCliente() {
 
     const { data, error } = await supabase
       .from('produtos')
-      .select('id,nome,descricao,imagem_url,preco,estoque,ativo,tipo_produto,plano_config')
+      .select('id,nome,descricao,imagem_url,preco,estoque,estoque_reservado,estoque_disponivel,ativo,tipo_produto,plano_config')
       .in('id', ids);
 
     if (error) throw new Error(error.message);
@@ -558,14 +561,15 @@ export default function LojaCliente() {
         if (erroPlano) throw new Error(erroPlano);
         continue;
       }
-      if (!produto || !produto.ativo || Number(produto.estoque || 0) <= 0) {
+      if (!produto || !produto.ativo || estoqueDisponivelProduto(produto) <= 0) {
         delete carrinhoCorrigido[id];
         erroEstoque = `"${produto?.nome ?? 'Produto'}" nao esta mais disponivel.`;
         continue;
       }
-      if (qtd > Number(produto.estoque || 0)) {
-        carrinhoCorrigido[id] = Number(produto.estoque || 0);
-        erroEstoque = `Estoque insuficiente para "${produto.nome}". Disponivel: ${produto.estoque} unidade(s).`;
+      const disponivel = estoqueDisponivelProduto(produto);
+      if (qtd > disponivel) {
+        carrinhoCorrigido[id] = disponivel;
+        erroEstoque = `Estoque insuficiente para "${produto.nome}". Disponivel: ${disponivel} unidade(s).`;
       }
     }
 
@@ -1064,7 +1068,7 @@ export default function LojaCliente() {
                       <span className="absolute right-3 top-3 z-10 rounded-md bg-viva-roxo px-2.5 py-1 text-[10px] font-black text-viva-verde shadow-sm">
                         Disponível a partir de {dataLiberacaoCurta}
                       </span>
-                    ) : item.tipo_produto !== 'kit' && Number(item.estoque || 0) <= 0 ? (
+                    ) : item.tipo_produto !== 'kit' && estoqueDisponivelProduto(item) <= 0 ? (
                       <span className="absolute right-3 top-3 z-10 rounded-md bg-red-600 px-2.5 py-1 text-[10px] font-black tracking-wider text-white shadow-sm">
                         ESGOTADO
                       </span>
@@ -1110,11 +1114,11 @@ export default function LojaCliente() {
                         <div className="flex items-center gap-2">
                           <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
                           <span className="w-4 text-center text-sm font-bold text-gray-800">{carrinho[item.id]}</span>
-                          <button onClick={() => adicionarAoCarrinho(item.id)} disabled={!vendasLiberadas || carrinho[item.id] >= Number(item.estoque || 0)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
+                          <button onClick={() => adicionarAoCarrinho(item.id)} disabled={!vendasLiberadas || carrinho[item.id] >= estoqueDisponivelProduto(item)} className="flex h-7 w-7 items-center justify-center rounded-full bg-viva-verde text-sm font-bold text-viva-roxo transition active:scale-90 disabled:opacity-40">+</button>
                         </div>
                       ) : (
-                        <button onClick={() => adicionarAoCarrinho(item.id)} aria-disabled={!vendasLiberadas || Number(item.estoque || 0) <= 0} className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition-transform active:scale-95 ${!vendasLiberadas || Number(item.estoque || 0) <= 0 ? 'bg-gray-200 text-gray-500' : 'bg-viva-verde text-viva-roxo'}`}>
-                          {!vendasLiberadas ? `Disponível em ${dataLiberacaoCurta}` : Number(item.estoque || 0) <= 0 ? 'Esgotado' : '+ Adicionar'}
+                        <button onClick={() => adicionarAoCarrinho(item.id)} aria-disabled={!vendasLiberadas || estoqueDisponivelProduto(item) <= 0} className={`rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition-transform active:scale-95 ${!vendasLiberadas || estoqueDisponivelProduto(item) <= 0 ? 'bg-gray-200 text-gray-500' : 'bg-viva-verde text-viva-roxo'}`}>
+                          {!vendasLiberadas ? `Disponível em ${dataLiberacaoCurta}` : estoqueDisponivelProduto(item) <= 0 ? 'Esgotado' : '+ Adicionar'}
                         </button>
                       )}
                     </div>

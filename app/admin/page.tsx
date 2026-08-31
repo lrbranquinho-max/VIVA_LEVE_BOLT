@@ -7,6 +7,7 @@ import { supabase } from '../../supabase';
 import { nomeMeioPagamento } from '../../lib/meiosPagamento';
 import { normalizarMeiosPagamento } from '../../lib/paymentConfig';
 import { CONFIG_PLANO_INICIAL, PlanoConfig } from '@/lib/planosMarmitas';
+import { estoqueDisponivelProduto } from '@/lib/stock';
 
 type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
@@ -64,6 +65,8 @@ interface Produto {
   categoria: string;
   imagem_url: string | null;
   estoque: number;
+  estoque_reservado?: number;
+  estoque_disponivel?: number;
   porcao_g?: number | null;
   kcal: number;
   proteinas: number;
@@ -1005,14 +1008,14 @@ export default function AdminPage() {
   };
 
   const adicionarProdutoBalcao = (produto: Produto) => {
-    if (!produto.ativo || Number(produto.estoque || 0) <= 0) {
+    if (!produto.ativo || estoqueDisponivelProduto(produto) <= 0) {
       toast('Produto sem estoque para venda.', 'erro');
       return;
     }
 
     const quantidadeAtual = carrinhoBalcao[produto.id] ?? 0;
-    if (quantidadeAtual >= Number(produto.estoque || 0)) {
-      toast(`Limite de estoque atingido: ${produto.estoque} unidade(s).`, 'erro');
+    if (quantidadeAtual >= estoqueDisponivelProduto(produto)) {
+      toast(`Limite de estoque atingido: ${estoqueDisponivelProduto(produto)} unidade(s).`, 'erro');
       return;
     }
 
@@ -1051,7 +1054,7 @@ export default function AdminPage() {
       const ids = itensBalcao.map(item => item.produto.id);
       const { data: produtosAtualizados, error: estoqueError } = await supabase
         .from('produtos')
-        .select('id,nome,preco,estoque,ativo')
+        .select('id,nome,preco,estoque,estoque_reservado,estoque_disponivel,ativo')
         .in('id', ids);
 
       if (estoqueError) throw estoqueError;
@@ -1059,7 +1062,7 @@ export default function AdminPage() {
       const mapaEstoque = new Map((produtosAtualizados ?? []).map((produto: any) => [Number(produto.id), produto]));
       for (const item of itensBalcao) {
         const produtoAtual = mapaEstoque.get(item.produto.id);
-        if (!produtoAtual || !produtoAtual.ativo || Number(produtoAtual.estoque || 0) < item.quantidade) {
+        if (!produtoAtual || !produtoAtual.ativo || estoqueDisponivelProduto(produtoAtual) < item.quantidade) {
           throw new Error(`Estoque insuficiente para "${item.produto.nome}".`);
         }
       }
@@ -1117,7 +1120,7 @@ export default function AdminPage() {
           .from('produtos')
           .update({ estoque: novoEstoque })
           .eq('id', item.produto.id)
-          .gte('estoque', item.quantidade)
+          .gte('estoque_disponivel', item.quantidade)
           .select('id')
           .maybeSingle();
 
@@ -1794,7 +1797,7 @@ export default function AdminPage() {
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                   {produtosBalcaoFiltrados.map(produto => {
                     const quantidade = carrinhoBalcao[produto.id] ?? 0;
-                    const semEstoque = Number(produto.estoque || 0) <= 0;
+                    const semEstoque = estoqueDisponivelProduto(produto) <= 0;
 
                     return (
                       <article key={produto.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -1806,7 +1809,7 @@ export default function AdminPage() {
                                 <p className="mt-1 text-xs text-gray-500">{produto.categoria}</p>
                               </div>
                               <span className={`rounded-full px-2 py-1 text-[11px] font-black ${semEstoque ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                Est. {produto.estoque}
+                                Disp. {estoqueDisponivelProduto(produto)}
                               </span>
                             </div>
                             <p className="mt-2 text-lg font-black text-gray-900">{formatarMoedaBR(produto.preco)}</p>
@@ -1817,12 +1820,12 @@ export default function AdminPage() {
                               <div className="flex items-center gap-2">
                                 <button type="button" onClick={() => removerProdutoBalcao(produto.id)} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-sm font-black text-gray-700">-</button>
                                 <span className="w-8 text-center text-sm font-black">{quantidade}</span>
-                                <button type="button" onClick={() => adicionarProdutoBalcao(produto)} disabled={quantidade >= Number(produto.estoque || 0)} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-900 text-sm font-black text-white disabled:opacity-40">+</button>
+                                <button type="button" onClick={() => adicionarProdutoBalcao(produto)} disabled={quantidade >= estoqueDisponivelProduto(produto)} className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-900 text-sm font-black text-white disabled:opacity-40">+</button>
                               </div>
                             ) : (
                               <span className="text-xs font-semibold text-gray-400">Fora do carrinho</span>
                             )}
-                            <button type="button" onClick={() => adicionarProdutoBalcao(produto)} disabled={semEstoque || quantidade >= Number(produto.estoque || 0)} className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-black text-white hover:bg-gray-800 disabled:opacity-40">
+                            <button type="button" onClick={() => adicionarProdutoBalcao(produto)} disabled={semEstoque || quantidade >= estoqueDisponivelProduto(produto)} className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-black text-white hover:bg-gray-800 disabled:opacity-40">
                               Adicionar
                             </button>
                           </div>
@@ -2212,7 +2215,7 @@ export default function AdminPage() {
                         <th className="px-4 py-3 text-left font-black">Categoria</th>
                         <th className="px-4 py-3 text-right font-black">Preço</th>
                         <th className="px-4 py-3 text-center font-black">Porção</th>
-                        <th className="px-4 py-3 text-center font-black">Estoque</th>
+                        <th className="px-4 py-3 text-center font-black">Estoque físico / reservado / disponível</th>
                         <th className="px-4 py-3 text-center font-black">Status</th>
                         <th className="px-4 py-3 text-right font-black">Ações</th>
                       </tr>
@@ -2230,8 +2233,8 @@ export default function AdminPage() {
                           <td className="px-4 py-4 text-right font-black">{formatarMoedaBR(produto.preco)}</td>
                           <td className="px-4 py-4 text-center font-bold text-gray-600">{formatarPorcaoKg(produto.porcao_g)}</td>
                           <td className="px-4 py-4 text-center">
-                            <span className={`rounded-full px-3 py-1 text-xs font-black ${produto.estoque <= 0 ? 'bg-red-100 text-red-700' : produto.estoque <= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                              {produto.estoque}
+                            <span className={`rounded-full px-3 py-1 text-xs font-black ${estoqueDisponivelProduto(produto) <= 0 ? 'bg-red-100 text-red-700' : estoqueDisponivelProduto(produto) <= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                              {produto.estoque} / {Number(produto.estoque_reservado ?? 0)} / {estoqueDisponivelProduto(produto)}
                             </span>
                           </td>
                           <td className="px-4 py-4 text-center">

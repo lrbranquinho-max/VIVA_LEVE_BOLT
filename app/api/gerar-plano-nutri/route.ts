@@ -810,7 +810,7 @@ export async function POST(request: NextRequest) {
         .select('id,nome,descricao,categoria,porcao_g,kcal,proteinas,carboidratos,gorduras,preco')
         .eq('tipo_produto', 'avulso')
         .eq('ativo', true)
-        .gt('estoque', 0)
+        .gt('estoque_disponivel', 0)
         .order('categoria', { ascending: true })
         .order('nome', { ascending: true }),
       supabase

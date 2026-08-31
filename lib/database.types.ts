@@ -178,6 +178,8 @@ export type Database = {
           categoria: string;
           imagem_url: string | null;
           estoque: number;
+          estoque_reservado: number;
+          estoque_disponivel: number;
           kcal: number | null;
           carboidratos: number | null;
           proteinas: number | null;
@@ -196,6 +198,7 @@ export type Database = {
           categoria: string;
           imagem_url?: string | null;
           estoque?: number;
+          estoque_reservado?: number;
           kcal?: number | null;
           carboidratos?: number | null;
           proteinas?: number | null;
@@ -214,6 +217,7 @@ export type Database = {
           categoria?: string;
           imagem_url?: string | null;
           estoque?: number;
+          estoque_reservado?: number;
           kcal?: number | null;
           carboidratos?: number | null;
           proteinas?: number | null;
