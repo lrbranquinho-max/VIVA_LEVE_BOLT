@@ -15,6 +15,7 @@ import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
 import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, diaSemana, lerKitsCarrinho, validarEscolhaPlano } from '@/lib/planosMarmitas';
 import { ordenarProdutosLoja } from '@/lib/storeProducts';
+import LojaAccessTracker from '@/components/LojaAccessTracker';
 
 declare global {
   interface Window {
@@ -958,6 +959,7 @@ export default function LojaCliente() {
 
   return (
     <div className="relative mx-auto min-h-screen max-w-md bg-gray-50 pb-24 font-sans shadow-2xl md:max-w-6xl">
+      <LojaAccessTracker />
       <div className="pointer-events-none fixed left-1/2 top-4 z-[100] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 space-y-2">
         {toasts.map(t => (
           <div

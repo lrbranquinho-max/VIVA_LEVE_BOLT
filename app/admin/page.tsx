@@ -1611,6 +1611,9 @@ export default function AdminPage() {
                   </div>
 
                   <div className="my-2 border-t border-gray-100" />
+                  <Link href="/admin/dashboard" onClick={() => setMenuAberto(false)} className="block rounded-lg bg-purple-50 px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-100">
+                    Dashboard
+                  </Link>
                   <Link href="/admin/usuarios" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Usuários e Perfis
                   </Link>
