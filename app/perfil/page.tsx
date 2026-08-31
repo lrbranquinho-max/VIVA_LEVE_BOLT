@@ -7,12 +7,8 @@ import Link from 'next/link';
 import Logo from '../../components/Logo';
 import BottomNav from '../../components/BottomNav';
 
-const REGIOES_DF = [
-  'Asa Norte', 'Asa Sul', 'Águas Claras', 'Ceilândia', 'Gama', 'Guará',
-  'Lago Norte', 'Lago Sul', 'Planaltina', 'Samambaia', 'Santa Maria',
-  'Sobradinho', 'Taguatinga', 'Vicente Pires', 'Cruzeiro', 'Núcleo Bandeirante',
-  'Park Way', 'Riacho Fundo', 'SIA', 'Estrutural', 'Valparaíso de Goiás',
-  'Luziânia', 'Novo Gama', 'Pedregal',
+const REGIOES_ATIVAS_FALLBACK = [
+  'Gama', 'Novo Gama', 'Pedregal', 'Santa Maria', 'Valparaíso de Goiás',
 ];
 
 export default function Perfil() {
@@ -28,6 +24,7 @@ export default function Perfil() {
   const [enderecoComplemento, setEnderecoComplemento] = useState('');
   const [bairro, setBairro] = useState('');
   const [regiaoDf, setRegiaoDf] = useState('');
+  const [regioesAtivas, setRegioesAtivas] = useState<string[]>(REGIOES_ATIVAS_FALLBACK);
   const [email, setEmail] = useState('');
 
   useEffect(() => {
@@ -37,22 +34,32 @@ export default function Perfil() {
 
       setEmail(user.email ?? '');
 
-      const { data: perfil } = await supabase
-        .from('perfis')
-        .select('nome, telefone')
-        .eq('id', user.id)
-        .maybeSingle();
+      const [perfilResultado, clienteResultado, regioesResultado] = await Promise.all([
+        supabase
+          .from('perfis')
+          .select('nome, telefone')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('perfis_clientes')
+          .select('endereco_rua, endereco_numero, endereco_complemento, bairro, regiao_df')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('regioes_atendimento')
+          .select('regiao')
+          .eq('status', 'ativa')
+          .order('regiao'),
+      ]);
+
+      const perfil = perfilResultado.data;
 
       if (perfil) {
         setNome(perfil.nome ?? '');
         setTelefone(perfil.telefone ?? '');
       }
 
-      const { data: perfilCliente } = await supabase
-        .from('perfis_clientes')
-        .select('endereco_rua, endereco_numero, endereco_complemento, bairro, regiao_df')
-        .eq('id', user.id)
-        .maybeSingle();
+      const perfilCliente = clienteResultado.data;
 
       if (perfilCliente) {
         setEnderecoRua(perfilCliente.endereco_rua ?? '');
@@ -60,6 +67,12 @@ export default function Perfil() {
         setEnderecoComplemento(perfilCliente.endereco_complemento ?? '');
         setBairro(perfilCliente.bairro ?? '');
         setRegiaoDf(perfilCliente.regiao_df ?? '');
+      }
+
+      if (!regioesResultado.error && regioesResultado.data?.length) {
+        const nomes = regioesResultado.data.map(item => item.regiao);
+        const regiaoAtual = perfilCliente?.regiao_df;
+        setRegioesAtivas(regiaoAtual && !nomes.includes(regiaoAtual) ? [regiaoAtual, ...nomes] : nomes);
       }
 
       setLoading(false);
@@ -220,7 +233,7 @@ export default function Perfil() {
                 className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-viva-verde transition text-sm text-gray-900"
               >
                 <option value="">Selecione a região</option>
-                {REGIOES_DF.map(r => <option key={r} value={r}>{r}</option>)}
+                {regioesAtivas.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
           </div>
