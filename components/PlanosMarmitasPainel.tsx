@@ -90,6 +90,16 @@ export default function PlanosMarmitasPainel({ admin = false }: { admin?: boolea
     try { const { data, error } = await supabase.rpc('confirmar_entrega_pelo_cliente', { p_pedido_id: d.id }); if (error) throw error; if (!data?.ok) throw new Error(data?.message); await atualizar(); }
     catch (error: any) { setErro(error.message); } finally { setBusy(false); }
   }
+  async function confirmarViaAdmin(d: Entrega) {
+    if (!window.confirm(`Confirmar a entrega ${d.entrega_numero} via admin? Esta ação registra a entrega como concluída.`)) return;
+    setBusy(true); setErro('');
+    try {
+      const { data, error } = await supabase.rpc('confirmar_entrega_pelo_admin', { p_pedido_id: d.id, p_observacao: null });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.message || 'Não foi possível confirmar a entrega.');
+      await atualizar();
+    } catch (error: any) { setErro(error.message); } finally { setBusy(false); }
+  }
   async function verCodigo(d: Entrega) {
     try { const { data, error } = await supabase.rpc('obter_codigo_entrega_cliente', { p_pedido_id: d.id }); if (error) throw error; setCodigo(atual => ({ ...atual, [d.id]: data || '' })); }
     catch (error: any) { setErro(error.message); }
@@ -121,6 +131,7 @@ export default function PlanosMarmitasPainel({ admin = false }: { admin?: boolea
           <p className="mt-1 text-xs text-gray-600">{d.itens.map(s => `${s.quantidade} × ${s.nome}`).join(' · ')}</p>{d.entrega_janela && <p className="mt-1 text-sm">Horário: {d.entrega_janela}</p>}
           {admin && !['Entregue', 'Cancelado'].includes(d.status) && <div className="mt-3 flex flex-wrap gap-2">
             <Link href={`/admin/entregas?pedido=${d.id}`} className="rounded border px-3 py-2 text-xs font-bold">Entrega / atribuir entregador</Link>
+            {d.status === 'Saiu para Entrega' && <button disabled={busy} onClick={() => confirmarViaAdmin(d)} className="rounded bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">Confirmar via admin</button>}
             {(['preparar', 'pronta', 'reprogramar', 'cancelar_entrega'] as const).map(tipo => <button key={tipo} onClick={() => setAcao({ plano: p.id, entrega: d.id, tipo, data: tipo === 'reprogramar' ? d.entrega_prevista : '', motivo: '' })} className="rounded border px-3 py-2 text-xs font-bold">{{ preparar: 'Em preparação', pronta: 'Pronta', reprogramar: 'Reprogramar', cancelar_entrega: 'Cancelar entrega' }[tipo]}</button>)}
           </div>}
           {admin && d.entrega_numero === 1 && p.meio_pagamento === 'voucher_presencial' && p.pagamento_status !== 'approved' && p.status !== 'Cancelado' && <div className="mt-3"><VoucherPlanoPagamento entregaId={d.id} valor={p.valor_total} bandeira={p.voucher_bandeira} onSaved={atualizar} /></div>}
