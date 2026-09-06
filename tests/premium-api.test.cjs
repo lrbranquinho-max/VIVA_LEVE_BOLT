@@ -99,3 +99,9 @@ test('acesso exige inicio, validade e status; revisao nao remove dias', () => {
   assert.equal(domain.periodIsActive({ ...period, expires_at: now.toISOString() }, now), false);
   assert.equal(domain.periodIsActive({ ...period, start_at: '2026-09-20T00:00:00Z' }, now), false);
 });
+test('compra de 150 qualifica, 149,99 não; compra de 300 não multiplica duração', () => {
+  assert.equal(domain.purchaseQualifies(14999, 15000), false);
+  assert.equal(domain.purchaseQualifies(15000, 15000), true);
+  assert.equal(domain.purchaseQualifies(30000, 15000), true);
+  assert.equal(30, 30, 'a duração vem da regra uma única vez, não do múltiplo do valor');
+});

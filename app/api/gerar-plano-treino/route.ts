@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { generateTrainingPlan, TRAINING_SETTINGS, type ExerciseCatalogItem } from '../../../lib/training';
+import { premiumAccessDecision } from '../../../lib/premium/access';
 
 export const runtime = 'nodejs';
 
@@ -49,6 +50,8 @@ export async function POST(request: NextRequest) {
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authData.user) return NextResponse.json({ error: 'Usuario nao autenticado.' }, { status: 401 });
     const userId = authData.user.id;
+    const access=await premiumAccessDecision(userId,'training.access',authData.user.email);
+    if(!access.allowed)return NextResponse.json({error:'O Plano Treino ou Completo é necessário para acessar este recurso.',code:'PREMIUM_REQUIRED'},{status:402});
 
     const body = RequestSchema.parse(await request.json());
 

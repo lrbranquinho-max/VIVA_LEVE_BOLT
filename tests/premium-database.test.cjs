@@ -14,7 +14,7 @@ before(async () => {
   await db.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
     create schema auth;
-    create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);
+    create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,created_at timestamptz default now());
     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
     grant usage on schema public,auth to anon,authenticated,service_role;
     create table public.admin_usuario_roles(email text,role text,ativo boolean);
@@ -26,6 +26,7 @@ before(async () => {
   `);
   await db.exec(fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260906112026_premium_planos_base.sql'), 'utf8'));
   await db.exec(fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260906200553_premium_frete_transicao.sql'), 'utf8'));
+  await db.exec(fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260906215923_premium_operacoes.sql'), 'utf8'));
   plans = Object.fromEntries((await db.query('select * from premium_plans')).rows.map(p => [p.code, p]));
 });
 after(async () => { await db?.close(); });
@@ -186,4 +187,52 @@ test('API privilegiada nao pode editar em nome de nao administrador', () => tran
 test('auditoria nao permite alteracao pela chave de servico', () => transaction(async () => {
   await db.exec('set local role service_role');
   await assert.rejects(db.exec("update premium_audit set action='changed'"), /permission denied/);
+}));
+test('pagamento confirmado com valor exato concede uma vez', () => transaction(async () => {
+  const checkout='20000000-0000-4000-8000-000000000001';
+  await db.query(`insert into premium_checkouts(id,user_id,plan_id,plan_snapshot,amount_cents,duration_days,gateway,idempotency_key)
+    values($1,$2,$3,$4,1590,30,'MERCADO_PAGO','20000000-0000-4000-8000-000000000002')`,[checkout,user,plans.completo.id,plans.completo]);
+  const first=(await db.query("select premium_record_payment($1,'pay-1','approved',1590,'accredited') id",[checkout])).rows[0].id;
+  const again=(await db.query("select premium_record_payment($1,'pay-1','approved',1590,'accredited') id",[checkout])).rows[0].id;
+  assert.equal(first,again);
+  assert.equal((await db.query("select count(*)::int n from premium_grants where source_type='SUBSCRIPTION'")).rows[0].n,1);
+  assert.equal((await db.query('select status from premium_checkouts where id=$1',[checkout])).rows[0].status,'APPROVED');
+}));
+test('pagamento aprovado com valor divergente nao concede', () => transaction(async () => {
+  const checkout='20000000-0000-4000-8000-000000000003';
+  await db.query(`insert into premium_checkouts(id,user_id,plan_id,plan_snapshot,amount_cents,duration_days,gateway,idempotency_key)
+    values($1,$2,$3,$4,1590,30,'MERCADO_PAGO','20000000-0000-4000-8000-000000000004')`,[checkout,user,plans.completo.id,plans.completo]);
+  await assert.rejects(db.query("select premium_record_payment($1,'pay-wrong','approved',990,'accredited')",[checkout]),/amount mismatch/);
+}));
+test('pagamento pendente ou recusado nao concede', () => transaction(async () => {
+  for(const [i,status] of ['pending','rejected'].entries()){
+    const checkout=`20000000-0000-4000-8000-00000000000${5+i}`;
+    const key=`20000000-0000-4000-8000-00000000000${7+i}`;
+    await db.query(`insert into premium_checkouts(id,user_id,plan_id,plan_snapshot,amount_cents,duration_days,gateway,idempotency_key)
+      values($1,$2,$3,$4,1590,30,'MERCADO_PAGO',$5)`,[checkout,user,plans.completo.id,plans.completo,key]);
+    await db.query('select premium_record_payment($1,$2,$3,1590,null)',[checkout,`pay-${status}`,status]);
+  }
+  assert.equal((await db.query("select count(*)::int n from premium_grants where source_type='SUBSCRIPTION'")).rows[0].n,0);
+}));
+test('estorno sinaliza revisao sem apagar dias utilizados', () => transaction(async () => {
+  const checkout='20000000-0000-4000-8000-000000000009';
+  await db.query(`insert into premium_checkouts(id,user_id,plan_id,plan_snapshot,amount_cents,duration_days,gateway,idempotency_key)
+    values($1,$2,$3,$4,1590,30,'MERCADO_PAGO','20000000-0000-4000-8000-000000000010')`,[checkout,user,plans.completo.id,plans.completo]);
+  await db.query("select premium_record_payment($1,'pay-refund','approved',1590,null)",[checkout]);
+  await db.query("select premium_record_payment($1,'pay-refund','refunded',1590,null)",[checkout]);
+  assert.equal((await db.query("select status from premium_grants where source_id='pay-refund'")).rows[0].status,'REVIEW_REQUIRED');
+  assert.equal((await db.query("select count(*)::int n from premium_resource_periods")).rows[0].n,3);
+}));
+test('beneficio pendente ativa somente para a conta do email verificado', () => transaction(async () => {
+  const partner=(await db.query('select id from premium_partners')).rows[0].id;
+  const batch='30000000-0000-4000-8000-000000000001',row='30000000-0000-4000-8000-000000000002';
+  await db.query(`insert into premium_import_batches(id,partner_id,reference,created_by,plan_id,duration_days) values($1,$2,'TEST-BATCH',$3,$4,30)`,[batch,partner,actor,plans.completo.id]);
+  await db.query(`insert into premium_import_rows(id,batch_id,row_number,name,email,normalized_email,status) values($1,$2,2,'User','user@example.invalid','user@example.invalid','PENDING_REGISTRATION')`,[row,batch]);
+  await db.query(`insert into premium_pending_benefits(email,normalized_email,name,partner_id,plan_id,duration_days,import_batch_id,import_row_id) values('user@example.invalid','user@example.invalid','User',$1,$2,30,$3,$4)`,[partner,plans.completo.id,batch,row]);
+  await db.exec('savepoint invalid_email');
+  await assert.rejects(db.query("select premium_activate_pending($1,'user@example.invalid')",[other]),/email mismatch/);
+  await db.exec('rollback to savepoint invalid_email');
+  assert.equal((await db.query("select premium_activate_pending($1,'user@example.invalid') n",[user])).rows[0].n,1);
+  assert.equal((await db.query("select premium_activate_pending($1,'user@example.invalid') n",[user])).rows[0].n,0);
+  assert.equal((await db.query('select status from premium_pending_benefits')).rows[0].status,'ACTIVATED');
 }));

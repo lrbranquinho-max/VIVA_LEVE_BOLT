@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { premiumAccessDecision } from '@/lib/premium/access';
 import { generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
@@ -796,6 +797,7 @@ export async function POST(request: NextRequest) {
     if (!isAdmin && (!modoAutomatico || requisicao.user_id !== userId)) {
       return NextResponse.json({ error: 'Acesso restrito ao administrador ou ao modo automatico ativo.' }, { status: 403 });
     }
+    if(!isAdmin&&userId){const access=await premiumAccessDecision(userId,'diet.generate',authUser?.user?.email);if(!access.allowed)return NextResponse.json({error:'O Plano Dieta ou Completo é necessário para gerar o plano alimentar.',code:'PREMIUM_REQUIRED'},{status:402});}
 
     const refeicoes = refeicoesSelecionadas(requisicao.padrao_refeicoes);
     if (refeicoes.length < 3) {

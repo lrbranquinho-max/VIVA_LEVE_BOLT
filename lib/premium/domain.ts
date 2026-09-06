@@ -38,3 +38,8 @@ export function periodIsActive(period: { start_at: string; expires_at: string; s
   return ['ACTIVE', 'REVIEW_REQUIRED'].includes(period.status)
     && Date.parse(period.start_at) <= now.getTime() && Date.parse(period.expires_at) > now.getTime();
 }
+
+export function purchaseQualifies(amountPaidCents: number, minimumCents: number): boolean {
+  return Number.isInteger(amountPaidCents) && Number.isInteger(minimumCents)
+    && minimumCents > 0 && amountPaidCents >= minimumCents;
+}

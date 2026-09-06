@@ -88,7 +88,7 @@ export default function PremiumAdminPage() {
           </div>}
         </section>
         <section aria-labelledby="plans-title">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 id="plans-title" className="text-xl font-bold">Planos</h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 id="plans-title" className="text-xl font-bold">Planos</h2><Link href="/admin/premium/parceiros" className="rounded-xl border border-viva-roxo px-5 py-3 font-bold text-viva-roxo">Parceiros</Link><Link href="/admin/premium/analytics" className="rounded-xl border border-viva-roxo px-5 py-3 font-bold text-viva-roxo">Analytics</Link><Link href="/admin/premium/importar" className="rounded-xl border border-viva-roxo px-5 py-3 font-bold text-viva-roxo">Importar beneficiários</Link>
             <button onClick={() => { setForm(emptyPlan()); setMessage(''); }} className="rounded-xl bg-viva-roxo px-5 py-3 font-bold text-white">Novo plano</button></div>
           <div className="grid gap-4 md:grid-cols-3">{plans.map(plan => <article key={plan.id} className={`rounded-2xl border bg-white p-5 shadow-sm ${plan.highlighted ? 'border-viva-roxo' : 'border-slate-200'}`}>
             <div className="flex flex-wrap justify-between gap-2"><h3 className="text-lg font-bold">{plan.name}</h3><span className="text-sm">{plan.active ? 'Ativo' : 'Inativo'}</span></div>
