@@ -25,6 +25,7 @@ before(async () => {
     insert into public.admin_usuario_roles values ('admin@example.invalid','admin',true);
   `);
   await db.exec(fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260906112026_premium_planos_base.sql'), 'utf8'));
+  await db.exec(fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260906200553_premium_frete_transicao.sql'), 'utf8'));
   plans = Object.fromEntries((await db.query('select * from premium_plans')).rows.map(p => [p.code, p]));
 });
 after(async () => { await db?.close(); });
@@ -54,6 +55,28 @@ test('primeira concessao libera todos os recursos por 30 dias', () => transactio
   const rows = (await db.query('select extract(epoch from (expires_at-start_at))/86400 days from premium_resource_periods')).rows;
   assert.equal(rows.length, 3);
   for (const row of rows) assert.equal(Number(row.days), 30);
+}));
+test('frete conta no minimo e transicao Completo de 30 dias aguarda ativacao', async () => {
+  const config = (await db.query('select * from premium_settings')).rows[0];
+  assert.equal(config.purchase_include_shipping, true);
+  assert.equal(config.transition_enabled, true);
+  assert.equal(config.transition_duration_days, 30);
+  assert.equal(config.transition_plan_id, plans.completo.id);
+  assert.equal(config.transition_starts_at, null);
+  assert.equal(config.commercial_enabled, false);
+  assert.equal(config.enforcement_enabled, false);
+  assert.equal(config.purchase_reward_enabled, false);
+  assert.equal((await db.query('select count(*)::int n from premium_grants')).rows[0].n, 0);
+});
+test('decisao comercial registra antes e depois na auditoria', async () => {
+  const row = (await db.query("select * from premium_audit where entity='premium_settings' and action='UPDATE' order by created_at desc limit 1")).rows[0];
+  assert.equal(row.before_state.purchase_include_shipping, false);
+  assert.equal(row.after_state.purchase_include_shipping, true);
+  assert.equal(row.after_state.transition_duration_days, 30);
+  assert.equal(row.agent, 'migration:user_decision_2026_09_06');
+});
+test('transicao habilitada exige plano', () => transaction(async () => {
+  await assert.rejects(db.exec('update premium_settings set transition_plan_id=null'), /check constraint/);
 }));
 test('renovacao antecipada acumula sem perder dias; novo webhook nao repete', () => transaction(async () => {
   const first = await grant('one');

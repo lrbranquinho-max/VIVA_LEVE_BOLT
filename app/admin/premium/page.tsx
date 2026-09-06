@@ -7,7 +7,9 @@ import { PremiumPlan, PremiumResource, resourceNames } from '@/lib/premium/domai
 
 type AuditRow = { id: string; action: string; entity: string; created_at: string; origin: string };
 type Partner = { id: string; name: string; active: boolean; duration_days: number; partner_type: string };
-type Settings = { commercial_enabled: boolean; enforcement_enabled: boolean; purchase_reward_enabled: boolean };
+type Settings = { commercial_enabled: boolean; enforcement_enabled: boolean; purchase_reward_enabled: boolean;
+  purchase_include_shipping: boolean; purchase_minimum_cents: number; transition_enabled: boolean;
+  transition_duration_days: number; transition_plan_id: string | null; transition_starts_at: string | null };
 const emptyPlan = (): PremiumPlan => ({ code: '', name: '', description: '', price_cents: 0,
   duration_days: 30, resources: [], active: true, highlighted: false, renewable: true, display_order: 0, promotional_text: '' });
 const fieldClass = 'w-full rounded-xl border border-gray-300 bg-white p-3 text-gray-900';
@@ -79,6 +81,11 @@ export default function PremiumAdminPage() {
           <h2 className="font-bold">Implantação gradual — etapa de configuração</h2>
           <p className="mt-2 text-sm">Checkout, importações e bloqueios premium ainda não estão disponíveis nesta etapa. A configuração abaixo não altera compras ou acessos atuais.</p>
           <p className="mt-2 text-sm">Venda: {settings?.commercial_enabled ? 'ativada no banco' : 'desativada'} · Proteção comercial: {settings?.enforcement_enabled ? 'ativada no banco' : 'desativada'} · Recompensa por compra: {settings?.purchase_reward_enabled ? 'ativada no banco' : 'desativada'}</p>
+          {settings && <div className="mt-3 border-t border-amber-200 pt-3 text-sm">
+            <p>Compra qualificada: {(settings.purchase_minimum_cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} líquidos pagos, {settings.purchase_include_shipping ? 'incluindo' : 'excluindo'} o frete pago.</p>
+            <p>Transição dos usuários atuais: {settings.transition_enabled ? `${settings.transition_duration_days} dias de ${plans.find(plan => plan.id === settings.transition_plan_id)?.name || 'plano configurado'}` : 'desativada'}.
+              {settings.transition_enabled && !settings.transition_starts_at && ' Aguardando a ativação comercial; o prazo ainda não começou.'}</p>
+          </div>}
         </section>
         <section aria-labelledby="plans-title">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 id="plans-title" className="text-xl font-bold">Planos</h2>

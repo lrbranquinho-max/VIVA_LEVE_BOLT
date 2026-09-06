@@ -65,8 +65,14 @@ duplicado. Renovações pagas sempre estendem. Recursos contratados são preserv
 
 ## Decisões e configuração necessárias
 
-- Definir se frete conta no mínimo de R$150 e tratamento de créditos pagos/promocionais.
-- Definir transição dos usuários existentes antes de ativar exigência de assinatura.
+- Confirmado pelo administrador em 06/09/2026: frete efetivamente pago conta no mínimo de
+  R$150. Exemplo: R$140 de produtos + R$10 de frete pagos qualificam. Quando o total do
+  provedor já inclui o frete, não somá-lo novamente. Créditos/estornos ainda precisam ser
+  conciliados pelo adaptador antes de conceder.
+- Confirmado: usuários atuais recebem 30 dias de transição do Plano Completo. A configuração
+  está preparada, mas o prazo começa na ativação comercial, não durante o desenvolvimento.
+  `transition_starts_at` permanece nulo; a rotina de concessão em lote ainda será implementada,
+  com elegibilidade validada, idempotência por usuário e preservação de saldos existentes.
 - Escolher provedor de email transacional e verificar remetente/domínio.
 - Configurar chave de servidor Supabase e credenciais de gateway no ambiente local/deploy,
   somente em variáveis privadas. Não colocar valores no Git ou neste documento.
