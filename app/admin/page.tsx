@@ -1620,6 +1620,7 @@ export default function AdminPage() {
                   <Link href="/admin/usuarios" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Usuários e Perfis
                   </Link>
+                  <Link href="/admin/premium" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">Planos & Benefícios</Link>
                   <Link href="/admin/planos" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">Planos / Kits vendidos</Link>
                   <Link href="/admin/entregas" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Entregas
