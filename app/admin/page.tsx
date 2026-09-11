@@ -8,6 +8,7 @@ import { nomeMeioPagamento } from '../../lib/meiosPagamento';
 import { normalizarMeiosPagamento } from '../../lib/paymentConfig';
 import { CONFIG_PLANO_INICIAL, PlanoConfig } from '@/lib/planosMarmitas';
 import { estoqueDisponivelProduto } from '@/lib/stock';
+import { optimizeProductImage, PRODUCT_IMAGE_CACHE_CONTROL_SECONDS } from '@/lib/productImages';
 
 type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
@@ -64,6 +65,8 @@ interface Produto {
   preco: number;
   categoria: string;
   imagem_url: string | null;
+  imagem_thumbnail_url?: string | null;
+  imagem_detalhe_url?: string | null;
   estoque: number;
   estoque_reservado?: number;
   estoque_disponivel?: number;
@@ -120,6 +123,8 @@ interface ProdutoForm {
   preco: string;
   categoria: string;
   imagem_url: string;
+  imagem_thumbnail_url: string;
+  imagem_detalhe_url: string;
   estoque: string;
   porcao_kg: string;
   kcal: string;
@@ -191,6 +196,8 @@ const FORM_VAZIO: ProdutoForm = {
   preco: '',
   categoria: 'Marmitas',
   imagem_url: '',
+  imagem_thumbnail_url: '',
+  imagem_detalhe_url: '',
   estoque: '',
   porcao_kg: '',
   kcal: '',
@@ -544,7 +551,7 @@ function ModalProduto({
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-xs font-bold uppercase text-gray-500">Carregar imagem do produto</p>
-                  <p className="mt-1 text-xs text-gray-500">Selecione uma imagem do computador ou celular. O link sera preenchido automaticamente.</p>
+                  <p className="mt-1 text-xs text-gray-500">Ate 3 MB. O original sera preservado e versoes WebP de 480 px e 1200 px serao geradas automaticamente.</p>
                 </div>
                 <label className={`inline-flex cursor-pointer items-center justify-center rounded-xl px-4 py-3 text-sm font-black text-white shadow-sm ${enviandoImagem ? 'bg-gray-400' : 'bg-gray-900 hover:bg-gray-800'}`}>
                   {enviandoImagem ? 'Enviando...' : 'Escolher imagem'}
@@ -561,10 +568,10 @@ function ModalProduto({
                   />
                 </label>
               </div>
-              {form.imagem_url && (
+              {(form.imagem_thumbnail_url || form.imagem_url) && (
                 <div className="mt-3 flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-gray-100">
-                  <img src={form.imagem_url} alt="Previa do produto" className="h-16 w-16 rounded-lg object-cover" />
-                  <p className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-500">{form.imagem_url}</p>
+                  <img src={form.imagem_thumbnail_url || form.imagem_url} alt="Previa do produto" loading="lazy" className="h-16 w-16 rounded-lg object-cover" />
+                  <p className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-500">{form.imagem_thumbnail_url || form.imagem_url}</p>
                 </div>
               )}
             </div>
@@ -667,6 +674,8 @@ export default function AdminPage() {
   const [formProduto, setFormProduto] = useState<ProdutoForm>({ ...FORM_VAZIO });
   const [salvandoProduto, setSalvandoProduto] = useState(false);
   const [enviandoImagemProduto, setEnviandoImagemProduto] = useState(false);
+  const [otimizandoCatalogo, setOtimizandoCatalogo] = useState(false);
+  const [progressoOtimizacao, setProgressoOtimizacao] = useState('');
   const [carrinhoBalcao, setCarrinhoBalcao] = useState<Record<number, number>>({});
   const [formBalcao, setFormBalcao] = useState<VendaBalcaoForm>({ ...FORM_BALCAO_VAZIO });
   const [salvandoBalcao, setSalvandoBalcao] = useState(false);
@@ -745,7 +754,7 @@ export default function AdminPage() {
     try {
       const { data, error } = await supabase
         .from('produtos')
-        .select('*')
+        .select('id,nome,descricao,preco,categoria,imagem_url,imagem_thumbnail_url,imagem_detalhe_url,estoque,estoque_reservado,estoque_disponivel,porcao_g,kcal,proteinas,carboidratos,gorduras,ativo,tabela_nutri,tipo_produto,disponivel_kit,plano_config')
         .order('categoria', { ascending: true })
         .order('nome', { ascending: true });
 
@@ -1157,6 +1166,8 @@ export default function AdminPage() {
       preco: valorInputBR(produto.preco ?? 0, 2),
       categoria: produto.categoria || 'Marmitas',
       imagem_url: produto.imagem_url ?? '',
+      imagem_thumbnail_url: produto.imagem_thumbnail_url ?? '',
+      imagem_detalhe_url: produto.imagem_detalhe_url ?? '',
       estoque: String(Number(produto.estoque ?? 0)),
       porcao_kg: valorInputBR(Number(produto.porcao_g ?? 0) / 1000, 3),
       kcal: valorInputBR(produto.kcal ?? 0, 0),
@@ -1183,37 +1194,43 @@ export default function AdminPage() {
       toast('Selecione um arquivo de imagem valido.', 'erro');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast('A imagem deve ter no maximo 5 MB.', 'erro');
+    if (file.size > 3 * 1024 * 1024) {
+      toast('A imagem deve ter no maximo 3 MB.', 'erro');
       return;
     }
 
     setEnviandoImagemProduto(true);
     try {
-      const extensaoOriginal = file.name.split('.').pop()?.toLowerCase() || 'png';
-      const extensao = ['jpg', 'jpeg', 'png', 'webp'].includes(extensaoOriginal) ? extensaoOriginal : 'png';
       const baseNome = slugArquivo(formProduto.nome || produtoEditando?.nome || 'produto') || 'produto';
-      const caminho = `produtos/${baseNome}-${Date.now()}.${extensao}`;
+      const imagens = await optimizeProductImage(file, baseNome);
       let ultimoErro: unknown = null;
 
       for (const bucket of PRODUTOS_IMAGE_BUCKETS) {
-        const { error } = await supabase.storage
-          .from(bucket)
-          .upload(caminho, file, {
-            cacheControl: '3600',
-            contentType: file.type,
-            upsert: false,
-          });
+        const resultados = await Promise.all(
+          [imagens.original, imagens.thumbnail, imagens.detail].map(imagem =>
+            supabase.storage.from(bucket).upload(imagem.path, imagem.blob, {
+              cacheControl: PRODUCT_IMAGE_CACHE_CONTROL_SECONDS,
+              contentType: imagem.contentType,
+              upsert: false,
+            }),
+          ),
+        );
+        const falha = resultados.find(resultado => resultado.error)?.error;
 
-        if (!error) {
-          const { data } = supabase.storage.from(bucket).getPublicUrl(caminho);
-          setFormProduto(prev => ({ ...prev, imagem_url: data.publicUrl }));
-          toast('Imagem enviada e URL preenchida.', 'sucesso');
+        if (!falha) {
+          const storage = supabase.storage.from(bucket);
+          setFormProduto(prev => ({
+            ...prev,
+            imagem_url: storage.getPublicUrl(imagens.original.path).data.publicUrl,
+            imagem_thumbnail_url: storage.getPublicUrl(imagens.thumbnail.path).data.publicUrl,
+            imagem_detalhe_url: storage.getPublicUrl(imagens.detail.path).data.publicUrl,
+          }));
+          toast(`Imagem otimizada: miniatura ${Math.round(imagens.thumbnail.blob.size / 1024)} KB e detalhe ${Math.round(imagens.detail.blob.size / 1024)} KB.`, 'sucesso');
           return;
         }
 
-        ultimoErro = error;
-        const mensagem = String(error.message || '').toLowerCase();
+        ultimoErro = falha;
+        const mensagem = String(falha.message || '').toLowerCase();
         if (!mensagem.includes('bucket') && !mensagem.includes('not found')) {
           break;
         }
@@ -1224,6 +1241,31 @@ export default function AdminPage() {
       toast(`Erro ao enviar imagem: ${err.message || 'verifique o bucket/policies do Storage.'}`, 'erro');
     } finally {
       setEnviandoImagemProduto(false);
+    }
+  };
+
+  const prepararImagensCatalogo = async () => {
+    setOtimizandoCatalogo(true);
+    setProgressoOtimizacao('Iniciando backup e geracao das variantes...');
+    try {
+      let totalPreparado = 0;
+      for (let rodada = 0; rodada < 20; rodada += 1) {
+        const { data, error } = await supabase.functions.invoke('optimize-product-images', {
+          body: { action: 'prepare', limit: 3 },
+        });
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        totalPreparado += Number(data?.prepared?.length || 0);
+        const restantes = Number(data?.remaining || 0);
+        setProgressoOtimizacao(`${totalPreparado} imagem(ns) preparada(s) nesta execucao; ${restantes} restante(s).`);
+        if (restantes === 0 || !data?.prepared?.length) break;
+      }
+      toast('Variantes geradas e originais preservados. As URLs do cardapio ainda nao foram alteradas.', 'sucesso');
+    } catch (err: any) {
+      toast(`Erro ao otimizar catalogo: ${err.message || 'falha inesperada.'}`, 'erro');
+      setProgressoOtimizacao('A preparacao foi interrompida sem trocar URLs do cardapio.');
+    } finally {
+      setOtimizandoCatalogo(false);
     }
   };
 
@@ -1257,6 +1299,8 @@ export default function AdminPage() {
       preco: parseNumeroBR(formProduto.preco),
       categoria: formProduto.categoria,
       imagem_url: formProduto.imagem_url.trim() || null,
+      imagem_thumbnail_url: formProduto.imagem_thumbnail_url.trim() || null,
+      imagem_detalhe_url: formProduto.imagem_detalhe_url.trim() || null,
       estoque: Math.round(parseNumeroBR(formProduto.estoque)),
       porcao_g: porcaoProdutoG,
       kcal: parseNumeroBR(formProduto.kcal),
@@ -2194,6 +2238,18 @@ export default function AdminPage() {
 
           {aba === 'produtos' && (
             <section className="space-y-5">
+              <div className="rounded-xl border border-viva-verde/40 bg-green-50 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-black text-gray-900">Otimizacao segura do catalogo</p>
+                    <p className="mt-1 text-xs text-gray-600">Cria backup das referencias e arquivos WebP versionados. Nao altera as URLs exibidas antes da validacao.</p>
+                    {progressoOtimizacao && <p role="status" className="mt-2 text-xs font-bold text-viva-roxo">{progressoOtimizacao}</p>}
+                  </div>
+                  <button type="button" disabled={otimizandoCatalogo} onClick={prepararImagensCatalogo} className="rounded-xl bg-viva-roxo px-5 py-3 text-sm font-black text-white disabled:opacity-50">
+                    {otimizandoCatalogo ? 'Otimizando...' : 'Preparar imagens existentes'}
+                  </button>
+                </div>
+              </div>
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <input
                   type="search"

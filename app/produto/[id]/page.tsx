@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '../../../supabase';
 import Logo from '../../../components/Logo';
@@ -29,6 +30,8 @@ interface Produto {
   gorduras: number;
   porcao_g?: number;
   imagem_url?: string;
+  imagem_thumbnail_url?: string;
+  imagem_detalhe_url?: string;
   ativo: boolean;
 }
 
@@ -85,7 +88,7 @@ export default function ProdutoDetalhePage() {
         const [produtoRes, configRes] = await Promise.all([
           supabase
             .from('produtos')
-            .select('*')
+            .select('id,nome,descricao,preco,categoria,estoque,estoque_reservado,estoque_disponivel,kcal,proteinas,carboidratos,gorduras,porcao_g,imagem_url,imagem_thumbnail_url,imagem_detalhe_url,ativo,tipo_produto,plano_config')
             .eq('id', produtoId)
             .maybeSingle(),
           supabase
@@ -178,8 +181,15 @@ export default function ProdutoDetalhePage() {
 
       <main className="grid gap-6 p-4 md:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] md:p-6">
         <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
-          {produto.imagem_url ? (
-            <img src={produto.imagem_url} alt={produto.nome} className="h-80 w-full object-cover md:h-[520px]" />
+          {(produto.imagem_detalhe_url || produto.imagem_url) ? (
+            <Image
+              src={produto.imagem_detalhe_url || produto.imagem_url || ''}
+              alt={produto.nome}
+              width={1200}
+              height={1200}
+              sizes="(max-width: 767px) 100vw, 60vw"
+              className="h-80 w-full object-cover md:h-[520px]"
+            />
           ) : (
             <div className="flex h-80 w-full items-center justify-center bg-gradient-to-br from-green-50 to-green-100 text-5xl font-black text-viva-roxo md:h-[520px]">
               VL

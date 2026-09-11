@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
 import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, dataBrasilia, datasPlano, diaSemana, distribuirSabores, lerKitsCarrinho, moedaPlano, somarDias, validarEscolhaPlano } from '@/lib/planosMarmitas';
@@ -20,7 +21,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
     (async () => {
       try {
         const [produtos, configuracao, loja] = await Promise.all([
-          supabase.from('produtos').select('id,nome,imagem_url,descricao,ativo,preco').eq('ativo', true).eq('disponivel_kit', true).eq('tipo_produto', 'avulso').eq('categoria', 'Marmitas').order('nome'),
+          supabase.from('produtos').select('id,nome,imagem_url,imagem_thumbnail_url,descricao,ativo,preco').eq('ativo', true).eq('disponivel_kit', true).eq('tipo_produto', 'avulso').eq('categoria', 'Marmitas').order('nome'),
           supabase.from('app_config').select('valor').eq('chave', 'planos_config').single(),
           supabase.from('app_config').select('valor').eq('chave', 'loja_config').single(),
         ]);
@@ -73,7 +74,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
           const escolhido = escolha.sabores.find(item => item.id === s.id);
           return <article key={s.id} className={`min-w-0 overflow-hidden rounded-lg border bg-white ${escolhido ? 'border-viva-roxo' : 'border-gray-200'}`}>
             <label className="flex cursor-pointer gap-3 p-3">
-              {s.imagem_url && <img src={s.imagem_url} alt="" className="h-20 w-20 shrink-0 rounded object-cover" />}
+              {(s.imagem_thumbnail_url || s.imagem_url) && <Image src={s.imagem_thumbnail_url || s.imagem_url || ''} alt="" width={80} height={80} sizes="80px" loading="lazy" className="h-20 w-20 shrink-0 rounded object-cover" />}
               <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{s.nome}</span><input type="checkbox" aria-label={`Selecionar ${s.nome}`} checked={Boolean(escolhido)} onChange={() => selecionar(s.id)} className="mt-3 h-5 w-5 accent-viva-roxo" /></span>
             </label>
             {escolhido && <div className="flex items-center justify-between border-t p-3">

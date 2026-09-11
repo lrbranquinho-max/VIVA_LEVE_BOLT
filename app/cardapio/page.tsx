@@ -12,7 +12,7 @@ export default function PainelAdmin() {
       try {
         const { count, error } = await supabase
           .from('produtos')
-          .select('*', { count: 'exact', head: true });
+          .select('id', { count: 'exact', head: true });
 
         if (error) {
           setErroBanco(error.message);

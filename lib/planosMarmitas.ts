@@ -10,7 +10,7 @@ export interface PlanoConfig {
 export interface SaborPlano { id: number; nome?: string; quantidade: number }
 export interface EscolhaPlano { sabores: SaborPlano[]; primeira_data: string }
 export interface ProdutoPlano {
-  id: number; nome: string; descricao?: string | null; imagem_url?: string | null;
+  id: number; nome: string; descricao?: string | null; imagem_url?: string | null; imagem_thumbnail_url?: string | null; imagem_detalhe_url?: string | null;
   preco: number; ativo: boolean; tipo_produto?: 'avulso' | 'kit';
   disponivel_kit?: boolean; plano_config?: PlanoConfig | null; categoria?: string;
 }

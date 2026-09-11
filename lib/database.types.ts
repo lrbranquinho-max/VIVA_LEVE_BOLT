@@ -177,6 +177,8 @@ export type Database = {
           preco: number;
           categoria: string;
           imagem_url: string | null;
+          imagem_thumbnail_url: string | null;
+          imagem_detalhe_url: string | null;
           estoque: number;
           estoque_reservado: number;
           estoque_disponivel: number;
@@ -197,6 +199,8 @@ export type Database = {
           preco: number;
           categoria: string;
           imagem_url?: string | null;
+          imagem_thumbnail_url?: string | null;
+          imagem_detalhe_url?: string | null;
           estoque?: number;
           estoque_reservado?: number;
           kcal?: number | null;
@@ -216,6 +220,8 @@ export type Database = {
           preco?: number;
           categoria?: string;
           imagem_url?: string | null;
+          imagem_thumbnail_url?: string | null;
+          imagem_detalhe_url?: string | null;
           estoque?: number;
           estoque_reservado?: number;
           kcal?: number | null;

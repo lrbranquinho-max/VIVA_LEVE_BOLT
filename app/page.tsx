@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../supabase';
 import Logo from '../components/Logo';
@@ -43,6 +44,8 @@ interface Produto {
   gorduras: number;
   porcao_g?: number;
   imagem_url?: string;
+  imagem_thumbnail_url?: string;
+  imagem_detalhe_url?: string;
   ativo: boolean;
 }
 
@@ -317,7 +320,7 @@ export default function LojaCliente() {
         const [produtosRes, canaisRes, configRes, regioesRes] = await Promise.all([
           supabase
             .from('produtos')
-            .select('*')
+            .select('id,nome,descricao,preco,categoria,estoque,estoque_reservado,estoque_disponivel,kcal,proteinas,carboidratos,gorduras,porcao_g,imagem_url,imagem_thumbnail_url,imagem_detalhe_url,ativo,tipo_produto,disponivel_kit,plano_config')
             .eq('ativo', true)
             .order('categoria', { ascending: true }),
           supabase
@@ -580,7 +583,7 @@ export default function LojaCliente() {
 
     const { data, error } = await supabase
       .from('produtos')
-      .select('id,nome,descricao,imagem_url,preco,estoque,estoque_reservado,estoque_disponivel,ativo,tipo_produto,plano_config')
+      .select('id,nome,descricao,imagem_url,imagem_thumbnail_url,imagem_detalhe_url,preco,estoque,estoque_reservado,estoque_disponivel,ativo,tipo_produto,plano_config')
       .in('id', ids);
 
     if (error) throw new Error(error.message);
@@ -1115,8 +1118,16 @@ export default function LojaCliente() {
                       </span>
                     ) : null}
                     <Link href={`/produto/${item.id}`} className="flex w-full gap-4 p-4 text-left transition hover:bg-gray-50">
-                    {item.imagem_url ? (
-                      <img src={item.imagem_url} alt={item.nome} className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" />
+                    {(item.imagem_thumbnail_url || item.imagem_url) ? (
+                      <Image
+                        src={item.imagem_thumbnail_url || item.imagem_url || ''}
+                        alt={item.nome}
+                        width={80}
+                        height={80}
+                        sizes="80px"
+                        loading="lazy"
+                        className="h-20 w-20 flex-shrink-0 rounded-xl object-cover"
+                      />
                     ) : (
                       <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-green-50 to-green-100 text-lg font-black text-viva-roxo">
                         VL
