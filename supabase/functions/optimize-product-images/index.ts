@@ -3,6 +3,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const BUCKET = 'produtos-viva-leve';
 const BACKUP_TAG = 'storage-cdn-before-2026-09-11';
+const VARIANT_VERSION = 'v2';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -41,7 +42,7 @@ async function digestPrefix(buffer: ArrayBuffer) {
 async function renderVariant(baseUrl: string, path: string, width: number, maxBytes: number, qualities: number[]) {
   let selected: Uint8Array | null = null;
   for (const quality of qualities) {
-    const url = `${baseUrl}/storage/v1/render/image/public/${BUCKET}/${encodedPath(path)}?width=${width}&resize=contain&quality=${quality}`;
+    const url = `${baseUrl}/storage/v1/render/image/public/${BUCKET}/${encodedPath(path)}?width=${width}&height=${width}&resize=contain&quality=${quality}`;
     const response = await fetch(url, { headers: { Accept: 'image/webp' } });
     if (!response.ok) throw new Error(`Falha ao transformar ${path}: HTTP ${response.status}`);
     selected = new Uint8Array(await response.arrayBuffer());
@@ -78,7 +79,7 @@ Deno.serve(async request => {
     if (productsError) throw productsError;
 
     const { data: manifests, error: manifestsError } = await admin.from('produtos_imagens_variantes')
-      .select('produto_id,original_url,thumbnail_url,detalhe_url,original_bytes,thumbnail_bytes,detalhe_bytes,hash,preparado_em,aplicado_em');
+      .select('produto_id,original_url,thumbnail_url,detalhe_url,original_path,thumbnail_path,detalhe_path,original_bytes,thumbnail_bytes,detalhe_bytes,hash,preparado_em,aplicado_em');
     if (manifestsError) throw manifestsError;
     const byProduct = new Map((manifests || []).map(item => [Number(item.produto_id), item]));
 
@@ -88,10 +89,11 @@ Deno.serve(async request => {
 
     if (action === 'prepare') {
       const limit = Math.min(Math.max(Number(body.limit) || 3, 1), 5);
-      const pending = (products || []).filter(product => {
+      const allPending = (products || []).filter(product => {
         const manifest = byProduct.get(Number(product.id));
-        return !manifest || manifest.original_url !== product.imagem_url;
-      }).slice(0, limit);
+        return !manifest || manifest.original_url !== product.imagem_url || !manifest.thumbnail_path?.includes(`-${VARIANT_VERSION}-`);
+      });
+      const pending = allPending.slice(0, limit);
       const prepared = [];
 
       for (const product of pending) {
@@ -102,8 +104,8 @@ Deno.serve(async request => {
         const originalBuffer = await originalResponse.arrayBuffer();
         const hash = await digestPrefix(originalBuffer);
         const prefix = `produtos/versionados/${slug(product.nome)}-${hash}`;
-        const thumbnailPath = `${prefix}-thumb-480.webp`;
-        const detailPath = `${prefix}-detail-1200.webp`;
+        const thumbnailPath = `${prefix}-${VARIANT_VERSION}-thumb-480.webp`;
+        const detailPath = `${prefix}-${VARIANT_VERSION}-detail-1200.webp`;
         const [thumbnail, detail] = await Promise.all([
           renderVariant(supabaseUrl, originalPath, 480, 80 * 1024, [78, 68, 58, 48]),
           renderVariant(supabaseUrl, originalPath, 1200, 250 * 1024, [82, 72, 62, 52]),
@@ -146,7 +148,7 @@ Deno.serve(async request => {
         prepared.push(manifest);
       }
 
-      const remaining = Math.max((products?.length || 0) - (manifests?.length || 0) - prepared.length, 0);
+      const remaining = Math.max(allPending.length - prepared.length, 0);
       return json({ prepared, remaining });
     }
 
@@ -154,7 +156,7 @@ Deno.serve(async request => {
       if (body.confirmed !== true) return json({ error: 'Confirmacao explicita obrigatoria.' }, 400);
       const missing = (products || []).filter(product => {
         const manifest = byProduct.get(Number(product.id));
-        return !manifest || manifest.original_url !== product.imagem_url;
+        return !manifest || manifest.original_url !== product.imagem_url || !manifest.thumbnail_path?.includes(`-${VARIANT_VERSION}-`);
       });
       if (missing.length) return json({ error: 'Existem produtos sem variantes validadas.', missing: missing.map(item => item.id) }, 409);
 
@@ -176,4 +178,3 @@ Deno.serve(async request => {
     return json({ error: error instanceof Error ? error.message : 'Erro inesperado.' }, 500);
   }
 });
-
