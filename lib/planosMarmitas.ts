@@ -39,6 +39,9 @@ export function somarDias(data: string, dias: number) {
   date.setUTCDate(date.getUTCDate() + dias);
   return date.toISOString().slice(0, 10);
 }
+export function primeiraEntregaPadrao(now = new Date()) {
+  return somarDias(dataBrasilia(now), 2);
+}
 export function datasPlano(primeira: string, config: PlanoConfig) {
   return Array.from({ length: config.entregas }, (_, index) => somarDias(primeira, config.intervalo_dias * index));
 }

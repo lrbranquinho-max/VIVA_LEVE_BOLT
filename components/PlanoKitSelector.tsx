@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
-import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, dataBrasilia, datasPlano, diaSemana, distribuirSabores, lerKitsCarrinho, moedaPlano, somarDias, validarEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, dataBrasilia, datasPlano, diaSemana, distribuirSabores, lerKitsCarrinho, moedaPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano } from '@/lib/planosMarmitas';
 import { normalizarMeiosPagamento } from '@/lib/paymentConfig';
 
 export default function PlanoKitSelector({ produto, liberado }: { produto: ProdutoPlano; liberado: boolean }) {
@@ -33,7 +33,10 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
         const pagamentos = normalizarMeiosPagamento(loja.data.valor);
         setMeios([pagamentos.pix ? 'Pix' : '', pagamentos.mercado_pago ? 'Mercado Pago' : '', pagamentos.cielo ? 'Cartão' : ''].filter(Boolean));
         const anterior = lerKitsCarrinho()[produto.id];
-        if (anterior) setEscolha(anterior);
+        const padrao = primeiraEntregaPadrao();
+        setEscolha(anterior
+          ? { ...anterior, primeira_data: anterior.primeira_data >= padrao ? anterior.primeira_data : padrao }
+          : { sabores: [], primeira_data: padrao });
       } catch (error: any) { if (ativo) setErro(error.message); }
       finally { if (ativo) setCarregando(false); }
     })();
