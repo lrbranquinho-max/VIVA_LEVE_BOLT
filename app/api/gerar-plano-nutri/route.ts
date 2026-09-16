@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { premiumAccessDecision } from '@/lib/premium/access';
-import { generateObject } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { NutritionAiBridgeError, normalizeNutritionFallbackReason, requestNutritionAi } from '@/lib/nutritionAi';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 const DIAS_SEMANA = ['Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado', 'Domingo'];
 const NOTA_SALADA = 'Observação: Folhagens e saladas verdes (sem azeite e sem molho) são de consumo totalmente livre à vontade!';
@@ -688,14 +688,14 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
 }
 
 async function salvarPlanoGerado(supabase: any, requisicao: any, plano: any) {
-  const { error: insertError } = await supabase.from('planos_gerados').insert([{
+  const { error: insertError } = await supabase.from('planos_gerados').upsert([{
     user_id: requisicao.user_id,
     requisicao_id: requisicao.id,
     data_plano: new Date().toISOString().slice(0, 10),
     objetivo_estabelecido: plano.objetivo_estabelecido ?? requisicao.objetivo,
     kcal_diaria_meta: Number(plano.kcal_diaria_meta ?? 2000),
     plano_semanal: plano.dias ?? plano.plano_semanal ?? plano,
-  }]);
+  }], { onConflict: 'requisicao_id' });
 
   if (insertError) throw insertError;
 
@@ -748,6 +748,15 @@ REGRAS ESTRITAS:
 function montarPromptUsuario(contexto: any) {
   return `Gere o Plano Nutri com estes dados reais:
 ${JSON.stringify(contexto, null, 2)}`;
+}
+
+async function registrarFallbackInterno(supabase: any, requisicaoId: string, reason: string) {
+  const { error } = await supabase.rpc('registrar_fallback_plano_nutri_ai', {
+    p_requisicao_id: requisicaoId,
+    p_reason: reason,
+    p_result: 'FALLBACK_GENERATED',
+  });
+  if (error) console.error('Falha ao registrar fallback do Plano Nutri:', error.message);
 }
 
 export async function POST(request: NextRequest) {
@@ -857,50 +866,40 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      const fallback = gerarFallback(metaKcal, requisicao.objetivo, produtos ?? [], receitas ?? [], requisicao, perfilCliente);
-      if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
-        await salvarPlanoGerado(supabase, requisicao, fallback);
-        return NextResponse.json({ plano: fallback, status: 'concluido', aviso: 'OPENAI_API_KEY ausente; plano matematico salvo automaticamente.' });
-      }
-      await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', requisicaoId);
-      return NextResponse.json({ plano: fallback, aviso: 'OPENAI_API_KEY ausente; rascunho matematico gerado para revisao.' });
-    }
-
     const prompt = montarPromptUsuario(contexto);
-    const messages: any[] = requisicao.receita_url
-      ? [{
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image', image: requisicao.receita_url },
-          ],
-        }]
-      : [{ role: 'user', content: prompt }];
-
-    const { object } = await generateObject({
-      model: openai(process.env.OPENAI_MODEL || 'gpt-4o'),
-      schema: PlanoNutriSchema,
-      system: montarSystemPrompt(),
-      messages,
-      temperature: 0.15,
-      maxRetries: 2,
-    });
-
-    const plano = reforcarPlano(
-      substituirRefeicoesIncoerentes(adaptarParaApp(object, metaKcal), receitas ?? [], produtos ?? []),
-      metas,
-      receitas ?? [],
-    );
+    let plano: PlanoNutri;
+    let origem: 'ai' | 'fallback' = 'ai';
+    try {
+      const aiResult = await requestNutritionAi({
+        authorization,
+        requisicaoId,
+        system: montarSystemPrompt(),
+        prompt,
+        imageUrl: requisicao.receita_url,
+      });
+      if (aiResult.source !== 'ai' || !aiResult.plan) {
+        throw new NutritionAiBridgeError(aiResult.reason || 'OPENAI_UNAVAILABLE');
+      }
+      const object = PlanoNutriSchema.parse(aiResult.plan);
+      plano = reforcarPlano(
+        substituirRefeicoesIncoerentes(adaptarParaApp(object, metaKcal), receitas ?? [], produtos ?? []),
+        metas,
+        receitas ?? [],
+      );
+    } catch (aiError) {
+      origem = 'fallback';
+      const reason = normalizeNutritionFallbackReason(aiError);
+      await registrarFallbackInterno(supabase, requisicaoId, reason);
+      plano = gerarFallback(metaKcal, requisicao.objetivo, produtos ?? [], receitas ?? [], requisicao, perfilCliente);
+    }
 
     if (salvarAutomaticamente || (!isAdmin && modoAutomatico)) {
       await salvarPlanoGerado(supabase, requisicao, plano);
-      return NextResponse.json({ plano, status: 'concluido' });
+      return NextResponse.json({ plano, status: 'concluido', origem });
     }
 
     await supabase.from('planos_requisicoes').update({ status: 'em_revisao' }).eq('id', requisicaoId);
-    return NextResponse.json({ plano });
+    return NextResponse.json({ plano, origem, aviso: origem === 'fallback' ? 'Rascunho matemático gerado normalmente para revisão.' : undefined });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Erro ao gerar plano nutri.' }, { status: 500 });
   }

@@ -16,6 +16,21 @@ interface RequisicaoPlano {
   criado_em: string;
 }
 
+interface UsoIaSemana {
+  week_start: string;
+  budget_usd: number;
+  spent_usd: number;
+  reserved_usd: number;
+  ai_count: number;
+  fallback_count: number;
+  average_ai_cost_usd: number;
+}
+
+const USO_IA_VAZIO: UsoIaSemana = {
+  week_start: '', budget_usd: 1, spent_usd: 0, reserved_usd: 0,
+  ai_count: 0, fallback_count: 0, average_ai_cost_usd: 0,
+};
+
 function formatarData(valor?: string) {
   return valor ? new Date(valor).toLocaleString('pt-BR') : '-';
 }
@@ -42,10 +57,11 @@ export default function AdminPlanosNutriPage() {
   const [modoGeracao, setModoGeracao] = useState<'manual' | 'automatico'>('manual');
   const [salvandoModo, setSalvandoModo] = useState(false);
   const [toast, setToast] = useState('');
+  const [usoIa, setUsoIa] = useState<UsoIaSemana>(USO_IA_VAZIO);
 
   const carregar = useCallback(async () => {
     try {
-      const [{ data, error }, { data: configData }] = await Promise.all([
+      const [{ data, error }, { data: configData }, { data: usoIaData, error: usoIaError }] = await Promise.all([
         supabase
         .from('planos_requisicoes')
         .select('*')
@@ -56,9 +72,12 @@ export default function AdminPlanosNutriPage() {
           .select('valor')
           .eq('chave', 'plano_nutri_modo')
           .maybeSingle(),
+        supabase.rpc('resumo_plano_nutri_ai_semana'),
       ]);
       if (error) throw error;
+      if (usoIaError) throw usoIaError;
       setModoGeracao((configData?.valor as any)?.modo === 'automatico' ? 'automatico' : 'manual');
+      setUsoIa({ ...USO_IA_VAZIO, ...((usoIaData as UsoIaSemana | null) ?? {}) });
 
       const lista = (data ?? []) as RequisicaoPlano[];
       setRequisicoes(lista);
@@ -170,14 +189,14 @@ export default function AdminPlanosNutriPage() {
     setAprovando(true);
     try {
       const plano = JSON.parse(editorJson);
-      const { error: insertError } = await supabase.from('planos_gerados').insert([{
+      const { error: insertError } = await supabase.from('planos_gerados').upsert([{
         user_id: selecionada.user_id,
         requisicao_id: selecionada.id,
         data_plano: new Date().toISOString().slice(0, 10),
         objetivo_estabelecido: plano.objetivo_estabelecido ?? selecionada.objetivo,
         kcal_diaria_meta: calcularMetaPlano(plano),
         plano_semanal: plano.dias ?? plano.plano_semanal ?? plano,
-      }]);
+      }], { onConflict: 'requisicao_id' });
       if (insertError) throw insertError;
 
       const { error: updateError } = await supabase
@@ -220,6 +239,18 @@ export default function AdminPlanosNutriPage() {
             Atualizar
           </button>
         </header>
+
+        <section className="mb-6 rounded-xl border border-purple-100 bg-white p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">OpenAI · Plano alimentar</p>
+          <p className="mt-1 text-lg font-black text-viva-roxo">
+            Gasto IA na semana: US$ {Number(usoIa.spent_usd).toFixed(4)} / US$ {Number(usoIa.budget_usd).toFixed(2)}
+          </p>
+          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <p><b>{Number(usoIa.ai_count)}</b><span className="block text-xs text-gray-500">planos gerados por IA</span></p>
+            <p><b>{Number(usoIa.fallback_count)}</b><span className="block text-xs text-gray-500">planos por fallback</span></p>
+            <p><b>US$ {Number(usoIa.average_ai_cost_usd).toFixed(4)}</b><span className="block text-xs text-gray-500">custo médio por plano com IA</span></p>
+          </div>
+        </section>
 
         <section className="mb-6 rounded-xl bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
