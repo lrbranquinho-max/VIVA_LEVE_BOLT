@@ -20,6 +20,8 @@ const bridge = compile('lib/nutritionAi.ts');
 const route = fs.readFileSync(path.resolve(__dirname, '../app/api/gerar-plano-nutri/route.ts'), 'utf8');
 const edge = fs.readFileSync(path.resolve(__dirname, '../supabase/functions/generate-nutrition-plan-ai/index.ts'), 'utf8');
 const migration = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20260916120000_plano_nutri_ai_budget.sql'), 'utf8');
+const ownerRlsMigration = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20260917100000_restringir_rls_planos_nutri_ao_proprietario.sql'), 'utf8');
+const clientPage = fs.readFileSync(path.resolve(__dirname, '../app/dieta/page.tsx'), 'utf8');
 
 test('ponte Next usa Edge Function e nunca tenta ler OPENAI_API_KEY', () => {
   assert.match(route, /requestNutritionAi/);
@@ -56,4 +58,20 @@ test('ledger registra tokens, custo, resultado, origem, fallback e request id', 
     'input_tokens', 'output_tokens', 'estimated_cost_usd', 'generation_source',
     'fallback_reason', 'provider_request_id', 'called_at', 'result',
   ]) assert.match(migration, new RegExp(field));
+});
+
+test('usuario comum gera e salva o proprio plano no modo automatico', () => {
+  assert.match(clientPage, /modoAutomatico && requisicaoCriada\?\.id/);
+  assert.match(clientPage, /Authorization: `Bearer \$\{session\.access_token\}`/);
+  assert.match(clientPage, /salvarAutomaticamente: true/);
+  assert.match(route, /!isAdmin && \(!modoAutomatico \|\| requisicao\.user_id !== userId\)/);
+  assert.match(route, /salvarAutomaticamente \|\| \(!isAdmin && modoAutomatico\)/);
+  assert.match(edge, /requisicao\.user_id === authData\.user\.id/);
+});
+
+test('RLS do Plano Nutri limita usuario comum aos proprios registros', () => {
+  assert.match(ownerRlsMigration, /drop policy if exists "Acesso autenticado requisicoes"/);
+  assert.match(ownerRlsMigration, /drop policy if exists "Acesso autenticado planos gerados"/);
+  assert.match(ownerRlsMigration, /with check \(\(select auth\.uid\(\)\) = user_id\)/);
+  assert.match(ownerRlsMigration, /using \(\(select auth\.uid\(\)\) = user_id\)/);
 });
