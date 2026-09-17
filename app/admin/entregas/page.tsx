@@ -55,6 +55,15 @@ function formatarData(data?: string | null) {
   return data ? new Date(data).toLocaleString('pt-BR') : '-';
 }
 
+function pedidoAptoParaGestaoDeEntrega(pedido: Pedido) {
+  const status = String(pedido.status || '').trim().toLowerCase();
+  const pagamento = String(pedido.pagamento_status || '').trim().toLowerCase();
+  if (status.includes('cancelado')) return false;
+  if (['approved', 'paid', 'pago', 'balcao'].includes(pagamento)) return true;
+  if (pedido.plano_id && pedido.entrega_numero === 1 && pedido.meio_pagamento === 'voucher_presencial') return true;
+  return ['recebido', 'em preparo', 'pronta', 'saiu para entrega', 'entregue'].includes(status);
+}
+
 export default function AdminEntregasPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -82,7 +91,7 @@ export default function AdminEntregasPage() {
     setErro('');
     const [rolesRes, pedidosRes, historicoRes] = await Promise.all([
       supabase.from('admin_usuario_roles').select('email,role,nome,ativo,telefone,observacoes,user_id').eq('role', 'delivery').order('nome'),
-      supabase.from('pedidos').select('id,cliente_id,status,criado_em,updated_at,endereco_entrega,endereco,itens,pagamento_status,meio_pagamento,tipo_venda,cliente_nome_balcao,cliente_telefone_balcao,entregador_id,entrega_atribuida_em,saiu_entrega_em,entregue_em,entrega_metodo_confirmacao,entrega_observacoes,entrega_janela,plano_id,pedido_origem_id,entrega_prevista,entrega_numero').eq('somente_planos', false).neq('status','Cancelado').order('criado_em', { ascending: false }),
+      supabase.from('pedidos').select('id,cliente_id,status,criado_em,updated_at,endereco_entrega,endereco,itens,pagamento_status,meio_pagamento,tipo_venda,cliente_nome_balcao,cliente_telefone_balcao,entregador_id,entrega_atribuida_em,saiu_entrega_em,entregue_em,entrega_metodo_confirmacao,entrega_observacoes,entrega_janela,plano_id,pedido_origem_id,entrega_prevista,entrega_numero').eq('somente_planos', false).is('cancelado_admin_em', null).not('status', 'ilike', '%cancelado%').order('criado_em', { ascending: false }),
       supabase.from('entregas_historico').select('*').order('criado_em', { ascending: false }).limit(1000),
     ]);
     const falha = rolesRes.error || pedidosRes.error || historicoRes.error;
@@ -95,11 +104,12 @@ export default function AdminEntregasPage() {
       const mapa = new Map((data || []).map(p => [p.id, p]));
       listaPedidos.forEach(p => { const raiz = mapa.get(p.pedido_origem_id); if (raiz) { p.meio_pagamento = raiz.meio_pagamento; p.pagamento_status = raiz.pagamento_status; } });
     }
+    const pedidosAptos = listaPedidos.filter(pedidoAptoParaGestaoDeEntrega);
     setEntregadores((rolesRes.data ?? []) as Entregador[]);
-    setPedidos(listaPedidos);
+    setPedidos(pedidosAptos);
     setHistorico((historicoRes.data ?? []) as Historico[]);
 
-    const ids = Array.from(new Set(listaPedidos.map(item => item.cliente_id).filter(Boolean))) as string[];
+    const ids = Array.from(new Set(pedidosAptos.map(item => item.cliente_id).filter(Boolean))) as string[];
     if (!ids.length) { setPerfis({}); return; }
     const [pRes, cRes] = await Promise.all([
       supabase.from('perfis').select('id,nome,telefone').in('id', ids),
@@ -123,6 +133,21 @@ export default function AdminEntregasPage() {
     }
     iniciar();
   }, [carregar, router]);
+
+  useEffect(() => {
+    if (loading) return;
+    let ativo = true;
+    const channel = supabase
+      .channel(`admin-entregas-realtime-${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => {
+        if (ativo) carregar();
+      })
+      .subscribe();
+    return () => {
+      ativo = false;
+      supabase.removeChannel(channel);
+    };
+  }, [loading, carregar]);
 
   const nomeCliente = useCallback((pedido: Pedido) => {
     if (pedido.tipo_venda === 'balcao') return pedido.cliente_nome_balcao || 'Venda balcão';

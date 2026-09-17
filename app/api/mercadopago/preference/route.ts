@@ -243,9 +243,14 @@ export async function POST(request: NextRequest) {
     const telefonePagador = telefoneMercadoPago(payer?.telefone);
     const enderecoPagador = enderecoMercadoPago(payer?.endereco || pedido.endereco_entrega);
     const itensPreferencia = montarItensMercadoPago(pedido.itens, pedido);
+    const inicioVigencia = new Date();
+    const fimVigencia = new Date(inicioVigencia.getTime() + 3 * 24 * 60 * 60 * 1000);
 
     const body = {
       external_reference: pedidoId,
+      expires: true,
+      expiration_date_from: inicioVigencia.toISOString(),
+      expiration_date_to: fimVigencia.toISOString(),
       notification_url: `${baseUrl}/api/mercadopago/webhook`,
       auto_return: 'all',
       back_urls: backUrls,

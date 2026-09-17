@@ -323,6 +323,13 @@ function totalPedido(pedido: Pedido) {
   return Number(pedido.valor_total ?? pedido.total ?? 0);
 }
 
+function podeCancelarPedidoNaoPago(pedido: Pedido) {
+  const pagamento = String(pedido.pagamento_status || '').trim().toLowerCase();
+  const status = String(pedido.status || '').trim().toLowerCase();
+  const pago = ['approved', 'paid', 'pago', 'balcao'].includes(pagamento);
+  return !pago && ['pendente', 'aguardando pagamento', 'pagamento recusado'].includes(status);
+}
+
 function enderecoPedido(pedido: Pedido) {
   return pedido.endereco_entrega || pedido.endereco || 'Retirada no balcão';
 }
@@ -664,6 +671,8 @@ export default function AdminPage() {
   const [perfis, setPerfis] = useState<Record<string, PerfilCliente>>({});
   const [carregandoPedidos, setCarregandoPedidos] = useState(false);
   const [filtroStatus, setFiltroStatus] = useState('');
+  const [cancelamentoPedido, setCancelamentoPedido] = useState<{ pedido: Pedido; motivo: string } | null>(null);
+  const [cancelandoPedido, setCancelandoPedido] = useState(false);
 
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [carregandoProdutos, setCarregandoProdutos] = useState(false);
@@ -708,6 +717,8 @@ export default function AdminPage() {
         .from('pedidos')
         .select('*')
         .is('plano_id', null)
+        .is('cancelado_admin_em', null)
+        .not('status', 'ilike', '%cancelado%')
         .order('criado_em', { ascending: false });
 
       if (error) throw error;
@@ -1241,6 +1252,43 @@ export default function AdminPage() {
       toast(`Erro ao enviar imagem: ${err.message || 'verifique o bucket/policies do Storage.'}`, 'erro');
     } finally {
       setEnviandoImagemProduto(false);
+    }
+  };
+
+  const cancelarPedidoNaoPago = async () => {
+    if (!cancelamentoPedido) return;
+    const motivo = cancelamentoPedido.motivo.trim();
+    if (motivo.length < 3) {
+      toast('Informe o motivo do cancelamento.', 'erro');
+      return;
+    }
+
+    setCancelandoPedido(true);
+    try {
+      const { data: sessao } = await supabase.auth.getSession();
+      const token = sessao.session?.access_token;
+      if (!token) throw new Error('Sessão expirada. Entre novamente.');
+
+      const response = await fetch(`/api/admin/pedidos/${encodeURIComponent(String(cancelamentoPedido.pedido.id))}/cancelar`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ motivo }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Não foi possível cancelar o pedido.');
+
+      const pedidoId = cancelamentoPedido.pedido.id;
+      setPedidos(prev => prev.filter(item => item.id !== pedidoId));
+      setCancelamentoPedido(null);
+      toast(`Pedido #${pedidoId} cancelado e retirado das filas operacionais.`, 'sucesso');
+    } catch (err: any) {
+      toast(`Erro ao cancelar pedido: ${err.message}`, 'erro');
+      await carregarPedidos();
+    } finally {
+      setCancelandoPedido(false);
     }
   };
 
@@ -1807,6 +1855,14 @@ export default function AdminPage() {
                             {status}
                           </button>
                         ))}
+                        {podeCancelarPedidoNaoPago(pedido) && (
+                          <button
+                            onClick={() => setCancelamentoPedido({ pedido, motivo: '' })}
+                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 transition hover:border-red-500 hover:bg-red-100"
+                          >
+                            Cancelar pedido não pago
+                          </button>
+                        )}
                       </div>
                     </article>
                   );
@@ -2336,6 +2392,35 @@ export default function AdminPage() {
           onChange={setFormProduto}
           onUploadImagem={uploadImagemProduto}
         />
+      )}
+
+      {cancelamentoPedido && (
+        <div className="fixed inset-0 z-[100] flex items-end bg-black/55 md:items-center md:justify-center md:p-4">
+          <section role="dialog" aria-modal="true" aria-label="Cancelar pedido não pago" className="w-full rounded-t-2xl bg-white p-5 shadow-2xl md:max-w-lg md:rounded-2xl">
+            <h2 className="text-xl font-black text-gray-900">Cancelar pedido #{cancelamentoPedido.pedido.id}</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Esta ação mantém o histórico para auditoria, invalida a cobrança pendente quando possível e retira o pedido da gestão de pedidos e de entregas. Pedidos pagos não podem ser cancelados aqui.
+            </p>
+            <label className="mt-4 block text-xs font-black uppercase text-gray-500">
+              Motivo do cancelamento
+              <textarea
+                autoFocus
+                maxLength={500}
+                rows={4}
+                value={cancelamentoPedido.motivo}
+                onChange={e => setCancelamentoPedido({ ...cancelamentoPedido, motivo: e.target.value })}
+                placeholder="Ex.: cliente desistiu da compra e não efetuou o pagamento"
+                className="mt-1 w-full rounded-lg border border-gray-300 p-3 text-sm font-normal normal-case text-gray-900 outline-none focus:ring-2 focus:ring-red-500"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button disabled={cancelandoPedido} onClick={() => setCancelamentoPedido(null)} className="h-11 rounded-lg border px-4 text-sm font-black disabled:opacity-50">Voltar</button>
+              <button disabled={cancelandoPedido || cancelamentoPedido.motivo.trim().length < 3} onClick={cancelarPedidoNaoPago} className="h-11 rounded-lg bg-red-600 px-5 text-sm font-black text-white disabled:opacity-50">
+                {cancelandoPedido ? 'Cancelando...' : 'Confirmar cancelamento'}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );
