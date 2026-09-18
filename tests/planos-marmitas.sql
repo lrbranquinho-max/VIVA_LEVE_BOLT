@@ -68,7 +68,7 @@ begin
   if (select count(*) from public.pedidos where plano_id=plano)<>2 or (select entrega_prevista from public.pedidos where id=segunda)<>primeira_data+7 then raise exception 'FAIL agenda'; end if;
   if exists(select 1 from public.pedidos where plano_id=plano and (valor_total<>0 or pagamento_status<>'vinculado')) then raise exception 'FAIL cobrancas filhas'; end if;
   if exists(select 1 from public.produtos where id=any(sabores) and estoque<>100) then raise exception 'FAIL baixa antecipada'; end if;
-  if exists(select 1 from public.produtos where id=any(sabores) and estoque_reservado<>0) then raise exception 'FAIL reserva antes do pagamento'; end if;
+  if (select sum(estoque_reservado) from public.produtos where id=any(sabores))<>14 then raise exception 'FAIL voucher nao reservou ao confirmar pedido'; end if;
   if (select saldo from public.planos_marmitas_resumo where id=plano)<>14 then raise exception 'FAIL saldo inicial'; end if;
   falhou:=false; begin perform public.aplicar_credito_pedido(pedido::text,'QA',cliente,email_cliente); exception when others then falhou:=sqlerrm like 'Voucher presencial%'; end;
   if not falhou then raise exception 'FAIL combinacao voucher credito'; end if;

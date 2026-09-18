@@ -1715,7 +1715,7 @@ export default function AdminPage() {
                   <Link href="/admin/premium" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">Planos & Benefícios</Link>
                   <Link href="/admin/planos" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">Planos / Kits vendidos</Link>
                   <Link href="/admin/entregas" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
-                    Entregas
+                    Gerenciador de Entregas
                   </Link>
                   <Link href="/admin/financeiro" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Financeiro

@@ -13,6 +13,7 @@ export interface ProdutoPlano {
   id: number; nome: string; descricao?: string | null; imagem_url?: string | null; imagem_thumbnail_url?: string | null; imagem_detalhe_url?: string | null;
   preco: number; ativo: boolean; tipo_produto?: 'avulso' | 'kit';
   disponivel_kit?: boolean; plano_config?: PlanoConfig | null; categoria?: string;
+  estoque?: number; estoque_reservado?: number; estoque_disponivel?: number;
 }
 export interface PlanosConfig { dias: number[]; antecedencia_dias: number; bandeiras: Record<string, boolean> }
 export const DIAS_PLANO = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
@@ -38,6 +39,34 @@ export function somarDias(data: string, dias: number) {
   const date = new Date(`${data}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() + dias);
   return date.toISOString().slice(0, 10);
+}
+export function distribuirSaboresComEstoque(total: number, produtos: Array<Pick<ProdutoPlano, 'id' | 'estoque' | 'estoque_reservado' | 'estoque_disponivel'>>) {
+  if (!Number.isInteger(total) || !produtos.length || new Set(produtos.map(p => p.id)).size !== produtos.length) return [];
+  const limites = produtos.map(produto => Math.max(0, Number(produto.estoque_disponivel ?? (Number(produto.estoque || 0) - Number(produto.estoque_reservado || 0)))));
+  if (limites.some(limite => limite < 1) || limites.reduce((soma, limite) => soma + limite, 0) < total) return [];
+  const resultado = produtos.map(produto => ({ id: produto.id, quantidade: 1 }));
+  let restante = total - resultado.length;
+  while (restante > 0) {
+    let distribuiu = false;
+    for (let i = 0; i < resultado.length && restante > 0; i++) {
+      if (resultado[i].quantidade < limites[i]) {
+        resultado[i].quantidade++;
+        restante--;
+        distribuiu = true;
+      }
+    }
+    if (!distribuiu) return [];
+  }
+  return resultado;
+}
+export function validarEstoqueEscolhaPlano(sabores: SaborPlano[], produtos: Array<Pick<ProdutoPlano, 'id' | 'nome' | 'estoque' | 'estoque_reservado' | 'estoque_disponivel'>>) {
+  for (const sabor of sabores) {
+    const produto = produtos.find(item => item.id === sabor.id);
+    const disponivel = Number(produto?.estoque_disponivel ?? (Number(produto?.estoque || 0) - Number(produto?.estoque_reservado || 0)));
+    if (!produto || disponivel <= 0) return `${produto?.nome || 'Um sabor selecionado'} está esgotado.`;
+    if (sabor.quantidade > disponivel) return `Estoque insuficiente para ${produto.nome}. Disponível: ${disponivel}.`;
+  }
+  return '';
 }
 export function primeiraEntregaPadrao(now = new Date()) {
   return somarDias(dataBrasilia(now), 2);

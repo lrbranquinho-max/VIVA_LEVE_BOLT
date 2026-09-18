@@ -11,7 +11,7 @@ compiled.paths = Module._nodeModulePaths(path.dirname(file));
 compiled._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText, file);
-const { distribuirSabores, validarEscolhaPlano, datasPlano, dataBrasilia, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL } = compiled.exports;
+const { distribuirSabores, distribuirSaboresComEstoque, validarEscolhaPlano, validarEstoqueEscolhaPlano, datasPlano, dataBrasilia, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL } = compiled.exports;
 for (const [total, n, esperado] of [[24,3,[8,8,8]],[24,4,[6,6,6,6]],[24,5,[5,5,5,5,4]],[14,3,[5,5,4]],[14,4,[4,4,3,3]],[14,5,[3,3,3,3,2]]]) {
   test('distribuicao ' + total + '/' + n, () => {
     const result = distribuirSabores(total, Array.from({ length:n }, (_,i)=>i+1));
@@ -39,6 +39,20 @@ test('datas semanais preservam dia entre meses e anos', () => {
 test('virada do dia em Brasilia, independentemente do fuso do servidor', () => {
   assert.equal(dataBrasilia(new Date('2026-09-01T02:59:59Z')),'2026-08-31');
   assert.equal(dataBrasilia(new Date('2026-09-01T03:00:00Z')),'2026-09-01');
+});
+test('distribuicao do kit respeita estoque disponivel por sabor', () => {
+  const produtos = [{ id: 1, estoque_disponivel: 2 }, { id: 2, estoque_disponivel: 5 }, { id: 3, estoque_disponivel: 10 }];
+  const escolha = distribuirSaboresComEstoque(14, produtos);
+  assert.equal(escolha.reduce((s, i) => s + i.quantidade, 0), 14);
+  assert.deepEqual(escolha.map(i => i.quantidade), [2, 5, 7]);
+  assert.equal(distribuirSaboresComEstoque(18, produtos).length, 0);
+  assert.equal(distribuirSaboresComEstoque(3, [{ id: 1, estoque_disponivel: 0 }, ...produtos.slice(1)]).length, 0);
+});
+test('validacao identifica sabor esgotado ou quantidade acima do disponivel', () => {
+  const produtos = [{ id: 1, nome: 'A', estoque_disponivel: 0 }, { id: 2, nome: 'B', estoque_disponivel: 2 }];
+  assert.match(validarEstoqueEscolhaPlano([{ id: 1, quantidade: 1 }], produtos), /esgotado/);
+  assert.match(validarEstoqueEscolhaPlano([{ id: 2, quantidade: 3 }], produtos), /insuficiente/);
+  assert.equal(validarEstoqueEscolhaPlano([{ id: 2, quantidade: 2 }], produtos), '');
 });
 test('primeira entrega padrao fica sempre dois dias apos hoje em Brasilia', () => {
   assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T02:59:59Z')),'2026-09-02');

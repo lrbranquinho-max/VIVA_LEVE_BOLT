@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
-import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, dataBrasilia, datasPlano, diaSemana, distribuirSabores, lerKitsCarrinho, moedaPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, dataBrasilia, datasPlano, diaSemana, distribuirSaboresComEstoque, lerKitsCarrinho, moedaPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { normalizarMeiosPagamento } from '@/lib/paymentConfig';
 
 export default function PlanoKitSelector({ produto, liberado }: { produto: ProdutoPlano; liberado: boolean }) {
@@ -21,7 +21,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
     (async () => {
       try {
         const [produtos, configuracao, loja] = await Promise.all([
-          supabase.from('produtos').select('id,nome,imagem_url,imagem_thumbnail_url,descricao,ativo,preco').eq('ativo', true).eq('disponivel_kit', true).eq('tipo_produto', 'avulso').eq('categoria', 'Marmitas').order('nome'),
+          supabase.from('produtos').select('id,nome,imagem_url,imagem_thumbnail_url,descricao,ativo,preco,estoque,estoque_reservado,estoque_disponivel').eq('ativo', true).eq('disponivel_kit', true).eq('tipo_produto', 'avulso').eq('categoria', 'Marmitas').order('nome'),
           supabase.from('app_config').select('valor').eq('chave', 'planos_config').single(),
           supabase.from('app_config').select('valor').eq('chave', 'loja_config').single(),
         ]);
@@ -44,15 +44,21 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
   }, [produto.id]);
   if (!c) return <p role="alert">Plano sem configuração. Entre em contato com a loja.</p>;
   const total = escolha.sabores.reduce((sum, s) => sum + s.quantidade, 0);
-  const aviso = validarEscolhaPlano(c, escolha.sabores);
+  const aviso = validarEscolhaPlano(c, escolha.sabores) || validarEstoqueEscolhaPlano(escolha.sabores, sabores);
   const dataMinima = somarDias(dataBrasilia(), Math.max(config?.antecedencia_dias || 1, 1));
   const dataValida = escolha.primeira_data >= dataMinima && escolha.primeira_data <= somarDias(dataBrasilia(), 180) && (config?.dias || []).includes(diaSemana(escolha.primeira_data)) && diaSemana(escolha.primeira_data) !== 0;
   function selecionar(id: number) {
     setErro('');
     const ids = escolha.sabores.map(s => s.id);
     const selecionado = ids.includes(id);
+    const sabor = sabores.find(item => item.id === id);
+    const disponivel = Number(sabor?.estoque_disponivel ?? 0);
+    if (!selecionado && disponivel <= 0) { setErro(`${sabor?.nome || 'Este sabor'} está esgotado.`); return; }
     if (!selecionado && ids.length >= c!.sabores_max) { setErro(`Limite de ${c!.sabores_max} sabores. Desmarque um para trocar.`); return; }
-    setEscolha({ ...escolha, sabores: distribuirSabores(c!.total_marmitas, selecionado ? ids.filter(i => i !== id) : [...ids, id]) });
+    const novosIds = selecionado ? ids.filter(i => i !== id) : [...ids, id];
+    const distribuicao = distribuirSaboresComEstoque(c!.total_marmitas, novosIds.map(itemId => sabores.find(item => item.id === itemId)!).filter(Boolean));
+    if (novosIds.length && !distribuicao.length) { setErro('Os sabores selecionados não possuem estoque suficiente para completar o kit.'); return; }
+    setEscolha({ ...escolha, sabores: distribuicao });
   }
   function adicionar() {
     if (!liberado || aviso || !dataValida) return;
@@ -75,15 +81,17 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {sabores.map(s => {
           const escolhido = escolha.sabores.find(item => item.id === s.id);
-          return <article key={s.id} className={`min-w-0 overflow-hidden rounded-lg border bg-white ${escolhido ? 'border-viva-roxo' : 'border-gray-200'}`}>
-            <label className="flex cursor-pointer gap-3 p-3">
+          const disponivel = Math.max(0, Number(s.estoque_disponivel ?? 0));
+          const esgotado = disponivel <= 0;
+          return <article key={s.id} className={`min-w-0 overflow-hidden rounded-lg border bg-white ${escolhido ? 'border-viva-roxo' : 'border-gray-200'} ${esgotado ? 'opacity-60' : ''}`}>
+            <label className={`flex gap-3 p-3 ${esgotado && !escolhido ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
               {(s.imagem_thumbnail_url || s.imagem_url) && <Image src={s.imagem_thumbnail_url || s.imagem_url || ''} alt="" width={80} height={80} sizes="80px" loading="lazy" className="h-20 w-20 shrink-0 rounded object-cover" />}
-              <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{s.nome}</span><input type="checkbox" aria-label={`Selecionar ${s.nome}`} checked={Boolean(escolhido)} onChange={() => selecionar(s.id)} className="mt-3 h-5 w-5 accent-viva-roxo" /></span>
+              <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{s.nome}</span><span className={`mt-1 block text-xs font-black ${esgotado ? 'text-red-600' : 'text-emerald-700'}`}>{esgotado ? 'Esgotado' : `${disponivel} disponível(is)`}</span><input type="checkbox" aria-label={`Selecionar ${s.nome}`} checked={Boolean(escolhido)} disabled={esgotado && !escolhido} onChange={() => selecionar(s.id)} className="mt-3 h-5 w-5 accent-viva-roxo" /></span>
             </label>
             {escolhido && <div className="flex items-center justify-between border-t p-3">
               <button type="button" aria-label={`Diminuir ${s.nome}`} disabled={escolhido.quantidade <= 1} onClick={() => setEscolha({ ...escolha, sabores: escolha.sabores.map(i => i.id === s.id ? { ...i, quantidade: i.quantidade - 1 } : i) })} className="h-10 w-10 rounded border disabled:opacity-40">−</button>
-              <input aria-label={`Quantidade de ${s.nome}`} type="number" min="1" max={c.total_marmitas} value={escolhido.quantidade} onChange={event => setEscolha({ ...escolha, sabores: escolha.sabores.map(i => i.id === s.id ? { ...i, quantidade: Number(event.target.value) } : i) })} className="h-10 w-16 rounded border text-center font-bold" />
-              <button type="button" aria-label={`Aumentar ${s.nome}`} disabled={total >= c.total_marmitas} onClick={() => setEscolha({ ...escolha, sabores: escolha.sabores.map(i => i.id === s.id ? { ...i, quantidade: i.quantidade + 1 } : i) })} className="h-10 w-10 rounded bg-viva-verde disabled:opacity-40">+</button>
+              <input aria-label={`Quantidade de ${s.nome}`} type="number" min="1" max={Math.min(c.total_marmitas, disponivel)} value={escolhido.quantidade} onChange={event => { const quantidade = Math.max(1, Math.min(disponivel, Number(event.target.value) || 1)); setEscolha({ ...escolha, sabores: escolha.sabores.map(i => i.id === s.id ? { ...i, quantidade } : i) }); }} className="h-10 w-16 rounded border text-center font-bold" />
+              <button type="button" aria-label={`Aumentar ${s.nome}`} disabled={total >= c.total_marmitas || escolhido.quantidade >= disponivel} onClick={() => setEscolha({ ...escolha, sabores: escolha.sabores.map(i => i.id === s.id ? { ...i, quantidade: i.quantidade + 1 } : i) })} className="h-10 w-10 rounded bg-viva-verde disabled:opacity-40">+</button>
             </div>}
           </article>;
         })}

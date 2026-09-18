@@ -14,7 +14,7 @@ import VoucherBrandBadges from '../components/VoucherBrandBadges';
 import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
 import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
-import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, diaSemana, lerKitsCarrinho, validarEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, diaSemana, lerKitsCarrinho, validarEscolhaPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { ordenarProdutosLoja } from '@/lib/storeProducts';
 import LojaAccessTracker from '@/components/LojaAccessTracker';
 import { estoqueDisponivelProduto } from '@/lib/stock';
@@ -590,6 +590,12 @@ export default function LojaCliente() {
 
     const produtosAtualizados = (data ?? []) as Produto[];
     const mapa = new Map(produtosAtualizados.map(produto => [produto.id, produto]));
+    const idsSaboresKit = Array.from(new Set(ids.flatMap(id => kitsCarrinho[id]?.sabores.map(sabor => sabor.id) || [])));
+    const { data: saboresData, error: saboresError } = idsSaboresKit.length
+      ? await supabase.from('produtos').select('id,nome,estoque,estoque_reservado,estoque_disponivel,ativo,disponivel_kit,tipo_produto,categoria').in('id', idsSaboresKit)
+      : { data: [], error: null };
+    if (saboresError) throw new Error(saboresError.message);
+    const saboresAtuais = (saboresData || []) as Array<Produto & { disponivel_kit?: boolean }>;
     const carrinhoCorrigido = { ...carrinho };
     let erroEstoque = '';
 
@@ -601,6 +607,11 @@ export default function LojaCliente() {
         if (!produto.ativo || !produto.plano_config || !escolha) throw new Error('Configure novamente os sabores do plano.');
         const erroPlano = validarEscolhaPlano(produto.plano_config, escolha.sabores);
         if (erroPlano) throw new Error(erroPlano);
+        const saboresElegiveis = saboresAtuais.filter(sabor => sabor.ativo && sabor.disponivel_kit && sabor.tipo_produto === 'avulso' && sabor.categoria === 'Marmitas');
+        const erroSabores = escolha.sabores.some(sabor => !saboresElegiveis.some(produtoAtual => produtoAtual.id === sabor.id))
+          ? 'Um dos sabores escolhidos não está mais disponível para kits. Configure o plano novamente.'
+          : validarEstoqueEscolhaPlano(escolha.sabores, saboresElegiveis);
+        if (erroSabores) throw new Error(erroSabores);
         continue;
       }
       if (!produto || !produto.ativo || estoqueDisponivelProduto(produto) <= 0) {
