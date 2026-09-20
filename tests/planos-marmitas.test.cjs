@@ -11,7 +11,7 @@ compiled.paths = Module._nodeModulePaths(path.dirname(file));
 compiled._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText, file);
-const { distribuirSabores, distribuirSaboresComEstoque, validarEscolhaPlano, validarEstoqueEscolhaPlano, datasPlano, dataBrasilia, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL } = compiled.exports;
+const { distribuirSabores, distribuirSaboresComEstoque, validarEscolhaPlano, validarEstoqueEscolhaPlano, datasPlano, dataBrasilia, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL, opcoesEntregasPlano, configurarEntregasPlano, validarEntregasPlano } = compiled.exports;
 for (const [total, n, esperado] of [[24,3,[8,8,8]],[24,4,[6,6,6,6]],[24,5,[5,5,5,5,4]],[14,3,[5,5,4]],[14,4,[4,4,3,3]],[14,5,[3,3,3,3,2]]]) {
   test('distribuicao ' + total + '/' + n, () => {
     const result = distribuirSabores(total, Array.from({ length:n }, (_,i)=>i+1));
@@ -58,4 +58,18 @@ test('primeira entrega padrao fica sempre dois dias apos hoje em Brasilia', () =
   assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T02:59:59Z')),'2026-09-02');
   assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T03:00:00Z')),'2026-09-03');
   assert.equal(primeiraEntregaPadrao(new Date('2026-12-30T15:00:00Z')),'2027-01-01');
+});
+test('kit de 14 permite uma ou duas entregas e recalcula a quantidade por etapa', () => {
+  const config = { ...CONFIG_PLANO_INICIAL, total_marmitas: 14, entregas: 2, marmitas_por_entrega: 7 };
+  assert.deepEqual(opcoesEntregasPlano(config), [1, 2]);
+  assert.deepEqual(configurarEntregasPlano(config, 1), { ...config, entregas: 1, marmitas_por_entrega: 14 });
+  assert.equal(validarEntregasPlano(config, 1), '');
+  assert.notEqual(validarEntregasPlano(config, 4), '');
+});
+test('kit de 24 permite uma, duas ou quatro entregas', () => {
+  const config = { ...CONFIG_PLANO_INICIAL, total_marmitas: 24, entregas: 4, marmitas_por_entrega: 6 };
+  assert.deepEqual(opcoesEntregasPlano(config), [1, 2, 4]);
+  assert.equal(configurarEntregasPlano(config, 2).marmitas_por_entrega, 12);
+  assert.equal(validarEntregasPlano(config, 2), '');
+  assert.notEqual(validarEntregasPlano(config, 3), '');
 });

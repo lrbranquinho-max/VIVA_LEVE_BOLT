@@ -14,7 +14,7 @@ import VoucherBrandBadges from '../components/VoucherBrandBadges';
 import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
 import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
-import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, diaSemana, lerKitsCarrinho, validarEscolhaPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, configurarEntregasPlano, diaSemana, lerKitsCarrinho, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { ordenarProdutosLoja } from '@/lib/storeProducts';
 import LojaAccessTracker from '@/components/LojaAccessTracker';
 import { estoqueDisponivelProduto } from '@/lib/stock';
@@ -607,6 +607,8 @@ export default function LojaCliente() {
         if (!produto.ativo || !produto.plano_config || !escolha) throw new Error('Configure novamente os sabores do plano.');
         const erroPlano = validarEscolhaPlano(produto.plano_config, escolha.sabores);
         if (erroPlano) throw new Error(erroPlano);
+        const erroEntregas = validarEntregasPlano(produto.plano_config, escolha.entregas);
+        if (erroEntregas) throw new Error(erroEntregas);
         const saboresElegiveis = saboresAtuais.filter(sabor => sabor.ativo && sabor.disponivel_kit && sabor.tipo_produto === 'avulso' && sabor.categoria === 'Marmitas');
         const erroSabores = escolha.sabores.some(sabor => !saboresElegiveis.some(produtoAtual => produtoAtual.id === sabor.id))
           ? 'Um dos sabores escolhidos não está mais disponível para kits. Configure o plano novamente.'
@@ -1214,7 +1216,7 @@ export default function LojaCliente() {
                     if (!prod) return null;
                     return (
                       <div key={id} className="flex items-center justify-between border-b border-gray-100 py-2 text-sm">
-                        <span className="min-w-0 flex-1 font-medium text-gray-700">{prod.nome}{prod.tipo_produto === 'kit' && <><span className="mt-1 block text-xs text-viva-roxo">{prod.plano_config?.entregas} entregas · {prod.plano_config?.marmitas_por_entrega} por etapa{kitsCarrinho[prod.id]?.primeira_data ? ` · ${DIAS_PLANO[diaSemana(kitsCarrinho[prod.id].primeira_data)]}` : ''}</span><Link href={`/produto/${prod.id}`} className="text-xs underline">Conferir sabores e datas</Link></>}</span>
+                        <span className="min-w-0 flex-1 font-medium text-gray-700">{prod.nome}{prod.tipo_produto === 'kit' && prod.plano_config && (() => { const configuracao = configurarEntregasPlano(prod.plano_config, kitsCarrinho[prod.id]?.entregas); return <><span className="mt-1 block text-xs text-viva-roxo">{configuracao.entregas} {configuracao.entregas === 1 ? 'entrega' : 'entregas'} · {configuracao.marmitas_por_entrega} por etapa{kitsCarrinho[prod.id]?.primeira_data ? ` · ${DIAS_PLANO[diaSemana(kitsCarrinho[prod.id].primeira_data)]}` : ''}</span><Link href={`/produto/${prod.id}`} className="text-xs underline">Conferir sabores e datas</Link></>; })()}</span>
                         <div className="ml-2 flex items-center gap-2">
                           <button onClick={() => removerDoCarrinho(prod.id)} className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600 active:scale-90">-</button>
                           <span className="w-4 text-center font-bold">{qtd}</span>

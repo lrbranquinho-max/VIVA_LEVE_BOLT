@@ -8,7 +8,7 @@ export interface PlanoConfig {
   permite_voucher: boolean;
 }
 export interface SaborPlano { id: number; nome?: string; quantidade: number }
-export interface EscolhaPlano { sabores: SaborPlano[]; primeira_data: string }
+export interface EscolhaPlano { sabores: SaborPlano[]; primeira_data: string; entregas?: number }
 export interface ProdutoPlano {
   id: number; nome: string; descricao?: string | null; imagem_url?: string | null; imagem_thumbnail_url?: string | null; imagem_detalhe_url?: string | null;
   preco: number; ativo: boolean; tipo_produto?: 'avulso' | 'kit';
@@ -39,6 +39,19 @@ export function somarDias(data: string, dias: number) {
   const date = new Date(`${data}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() + dias);
   return date.toISOString().slice(0, 10);
+}
+export function opcoesEntregasPlano(config: PlanoConfig) {
+  if (config.total_marmitas === 14) return [1, 2];
+  if (config.total_marmitas === 24) return [1, 2, 4];
+  return [config.entregas];
+}
+export function configurarEntregasPlano(config: PlanoConfig, entregas?: number): PlanoConfig {
+  const escolhidas = entregas ?? config.entregas;
+  if (!opcoesEntregasPlano(config).includes(escolhidas) || config.total_marmitas % escolhidas !== 0) return config;
+  return { ...config, entregas: escolhidas, marmitas_por_entrega: config.total_marmitas / escolhidas };
+}
+export function validarEntregasPlano(config: PlanoConfig, entregas?: number) {
+  return opcoesEntregasPlano(config).includes(entregas ?? config.entregas) ? '' : 'Escolha uma quantidade válida de entregas para este kit.';
 }
 export function distribuirSaboresComEstoque(total: number, produtos: Array<Pick<ProdutoPlano, 'id' | 'estoque' | 'estoque_reservado' | 'estoque_disponivel'>>) {
   if (!Number.isInteger(total) || !produtos.length || new Set(produtos.map(p => p.id)).size !== produtos.length) return [];

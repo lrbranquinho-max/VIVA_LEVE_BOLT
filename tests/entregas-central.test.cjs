@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ler = arquivo => fs.readFileSync(path.resolve(__dirname, '..', arquivo), 'utf8');
 const migration = ler('supabase/migrations/20260918100000_kits_voucher_estoque_entregas_central.sql');
+const correction = ler('supabase/migrations/20260920120000_corrigir_entregas_e_escolha_parcelamento_kits.sql');
 const page = ler('app/admin/entregas/page.tsx');
 const loja = ler('app/page.tsx');
 
@@ -19,6 +20,13 @@ test('checkout e banco validam sabores do kit antes do pagamento', () => {
   assert.match(migration, /Estoque disponível insuficiente/);
 });
 test('gerenciador central oferece lista, calendario, filtros, cobranca e acoes auditaveis', () => {
-  for (const trecho of ['Gerenciador de Entregas', 'Calendário', 'Atrasadas', 'Cobrar na entrega', 'gerenciar_entrega_admin', 'Confirmar via admin', 'Somente atrasadas']) assert.match(page, new RegExp(trecho, 'i'));
-  assert.match(migration, /acao_admin_/);
+  for (const trecho of ['Gerenciador de Entregas', 'Calendário', 'Atrasadas', 'Cobrar na entrega', 'gerenciar_entrega_admin', 'Dar baixa via admin', 'Somente atrasadas']) assert.match(page, new RegExp(trecho, 'i'));
+  assert.match(correction, /'status_alterado'/);
+  assert.match(correction, /jsonb_build_object\('acao_admin'/);
+});
+test('baixa administrativa dispensa entregador e rota sem ignorar estoque e pagamento', () => {
+  assert.match(correction, /entrega_metodo_confirmacao='administrador'/);
+  assert.match(correction, /new\.status in \('Em Preparo','Pronta','Saiu para Entrega','Entregue'\)/);
+  assert.match(correction, /Confirme o pagamento na entrega antes de concluir/);
+  assert.doesNotMatch(correction, /v_pedido\.status<>'Saiu para Entrega'/);
 });

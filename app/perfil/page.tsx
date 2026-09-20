@@ -32,6 +32,7 @@ export default function Perfil() {
   const [enderecoUf, setEnderecoUf] = useState('');
   const [regioesAtivas, setRegioesAtivas] = useState(REGIOES_ATIVAS_FALLBACK);
   const [email, setEmail] = useState('');
+  const [admin, setAdmin] = useState(false);
   const ufsAtendidas = useMemo(() => Array.from(new Set(regioesAtivas.map(item => item.uf))).sort(), [regioesAtivas]);
   const regioesDaUf = useMemo(() => regioesAtivas.filter(item => !enderecoUf || item.uf === enderecoUf), [enderecoUf, regioesAtivas]);
 
@@ -42,7 +43,7 @@ export default function Perfil() {
 
       setEmail(user.email ?? '');
 
-      const [perfilResultado, clienteResultado, regioesResultado] = await Promise.all([
+      const [perfilResultado, clienteResultado, regioesResultado, adminResultado] = await Promise.all([
         supabase
           .from('perfis')
           .select('nome, telefone')
@@ -58,7 +59,9 @@ export default function Perfil() {
           .select('regiao, uf')
           .eq('status', 'ativa')
           .order('regiao'),
+        supabase.rpc('is_viva_leve_admin'),
       ]);
+      setAdmin(adminResultado.data === true);
 
       const perfil = perfilResultado.data;
 
@@ -277,6 +280,7 @@ export default function Perfil() {
 
         <Link href="/meu-plano" className="mt-4 flex min-h-[52px] items-center justify-between rounded-lg border border-purple-200 bg-purple-50 px-4 font-bold text-viva-roxo"><span>Meu Plano Dieta & Treino</span><span aria-hidden="true">→</span></Link>
         <Link href="/meus-planos" className="mt-3 flex min-h-[52px] items-center justify-between rounded-lg border border-purple-200 bg-purple-50 px-4 font-bold text-viva-roxo"><span>Meus Planos de Marmitas</span><span aria-hidden="true">→</span></Link>
+        {admin && <Link href="/admin" className="mt-3 flex min-h-[52px] items-center justify-between rounded-lg bg-viva-roxo px-4 font-bold text-white"><span>Acessar área administrativa</span><span aria-hidden="true">→</span></Link>}
 
         <button
           onClick={sair}

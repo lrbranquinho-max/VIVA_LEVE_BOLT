@@ -134,8 +134,29 @@ begin
   if (select sum(100-estoque) from public.produtos where id=any(sabores))<>14 then raise exception 'FAIL gateway debitou semanas futuras'; end if;
   if (select sum(estoque_reservado) from public.produtos where id=any(sabores))<>24 then raise exception 'FAIL gateway nao reservou kit'; end if;
   if not exists(select 1 from public.planos_marmitas where pedido_id=pedido and status='Ativo') then raise exception 'FAIL pagamento online'; end if;
+
+  -- A escolha do cliente vira snapshot do plano e a baixa administrativa não exige entregador/rota.
+  payload:=jsonb_set(carrinho,'{0,plano,entregas}','1'::jsonb);
+  result:=public.criar_pedido_com_planos(payload,'pix',null,null,gen_random_uuid());
+  pedido:=(result->>'id')::bigint;
+  select id into strict plano from public.planos_marmitas where pedido_id=pedido;
+  select id into strict primeira from public.pedidos where plano_id=plano;
+  if (select count(*) from public.pedidos where pedido_origem_id=pedido)<>1
+     or not exists(select 1 from public.planos_marmitas where id=plano and (configuracao->>'entregas')::int=1 and (configuracao->>'marmitas_por_entrega')::int=14)
+  then raise exception 'FAIL escolha entrega unica'; end if;
+  perform public.processar_pagamento_pedido_mp(pedido::text,'QA-admin-rollback','approved','Em Preparo');
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',admin_id,'email',email_admin,'role','authenticated')::text,true);
+  result:=public.gerenciar_entrega_admin(primeira,'preparar','QA sem entregador');
+  if not (result->>'ok')::boolean then raise exception 'FAIL acao admin historico'; end if;
+  result:=public.confirmar_entrega_pelo_admin(primeira,'Retirada pelo cliente');
+  if not (result->>'ok')::boolean
+     or not exists(select 1 from public.pedidos where id=primeira and status='Entregue' and entrega_metodo_confirmacao='administrador' and entregador_id is null and plano_estoque_baixado)
+  then raise exception 'FAIL baixa admin sem entregador'; end if;
+  if not exists(select 1 from public.entregas_historico where pedido_id=primeira and evento='status_alterado' and detalhes->>'acao_admin'='preparar')
+  then raise exception 'FAIL evento admin permitido'; end if;
   if has_table_privilege('authenticated','public.planos_marmitas','UPDATE') or has_table_privilege('anon','public.planos_marmitas','SELECT') then raise exception 'FAIL permissoes'; end if;
   -- A free mixed order consumes ordinary stock once, but never future kit stock.
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',cliente,'email',email_cliente,'role','authenticated')::text,true);
   update public.app_config set valor=valor||'{"cupom_dia_d_ativo":true,"cupom_dia_d_percentual":100}' where chave='loja_config';
   payload:=carrinho||jsonb_build_array(jsonb_build_object('id',sabores[6],'quantidade',2));
   idempotencia:=gen_random_uuid();
@@ -148,4 +169,4 @@ begin
   end;
 end $$;
 rollback;
-select 'PASS: kits 14/24, sabores, totais, agenda, preco servidor, idempotencia, voucher, reserva/baixa de estoque, saldo, auditoria e pagamento online. Dados revertidos.' as resultado;
+select 'PASS: kits 14/24, parcelamento escolhido, baixa admin sem entregador, sabores, totais, agenda, preco servidor, idempotencia, voucher, estoque, saldo e auditoria. Dados revertidos.' as resultado;
