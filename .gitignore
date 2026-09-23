@@ -27,6 +27,7 @@ yarn-error.log*
 dev-server*.log
 public/sw.js
 public/workbox-*.js
+public/worker-*.js
 
 # android local build caches/artifacts
 /android/caches/

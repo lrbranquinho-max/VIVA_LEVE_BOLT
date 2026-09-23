@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import AppDownloadPrompt from './AppDownloadPrompt';
 import Logo from './Logo';
 import { supabase } from '../supabase';
+import NotificationCenter from './NotificationCenter';
 
 interface CanalLoja {
   nome_rede: string;
@@ -171,6 +172,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto h-[100dvh] min-h-screen w-full overflow-y-auto bg-white shadow-none md:max-w-6xl md:shadow-2xl">
       <DesktopMenu canais={canais} />
+      <NotificationCenter />
       {children}
       <AppDownloadPrompt />
     </div>

@@ -19,7 +19,7 @@ export default function VoucherPlanoPagamento({ entregaId, valor, bandeira, onSa
     finally { setBusy(false); }
   }
   return <section className="border-l-4 border-amber-400 bg-amber-50 p-4">
-    <h3 className="text-sm font-black">Pagamento na entrega — Voucher {bandeira}</h3>
+    <h3 className="text-sm font-black">Pagamento na entrega — Cartão Alimentação {bandeira}</h3>
     <p className="mt-2 text-lg font-black">Cobrar total: {moedaPlano(valor)}</p>
     <label className="mt-3 block text-xs font-bold">Referência do comprovante / motivo da recusa<input maxLength={300} value={referencia} onChange={e => setReferencia(e.target.value)} className="mt-1 h-11 w-full rounded border bg-white px-3 text-sm" /></label>
     <div className="mt-3 flex flex-wrap gap-2"><button disabled={busy || referencia.trim().length < 3} onClick={() => registrar(true)} className="min-h-[44px] rounded bg-green-700 px-3 text-sm font-bold text-white disabled:opacity-40">Pagamento confirmado</button><button disabled={busy || referencia.trim().length < 3} onClick={() => registrar(false)} className="min-h-[44px] rounded border border-red-300 px-3 text-sm font-bold text-red-800 disabled:opacity-40">Registrar recusa</button></div>

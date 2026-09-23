@@ -7,6 +7,7 @@ const migration = ler('supabase/migrations/20260918100000_kits_voucher_estoque_e
 const correction = ler('supabase/migrations/20260920120000_corrigir_entregas_e_escolha_parcelamento_kits.sql');
 const page = ler('app/admin/entregas/page.tsx');
 const loja = ler('app/page.tsx');
+const current = ler('supabase/migrations/20260923135715_checkout_entregas_notificacoes.sql');
 
 test('voucher confirmado operacionalmente reserva estoque sem fingir pagamento', () => {
   assert.match(migration, /PAGAMENTO_NA_ENTREGA/);
@@ -29,4 +30,10 @@ test('baixa administrativa dispensa entregador e rota sem ignorar estoque e paga
   assert.match(correction, /new\.status in \('Em Preparo','Pronta','Saiu para Entrega','Entregue'\)/);
   assert.match(correction, /Confirme o pagamento na entrega antes de concluir/);
   assert.doesNotMatch(correction, /v_pedido\.status<>'Saiu para Entrega'/);
+});
+test('admin pode reagendar entrega aberta com auditoria', () => {
+  assert.match(page, /reagendar_entrega_admin/);
+  assert.match(current, /create or replace function public\.reagendar_entrega_admin/);
+  assert.match(current, /'acao_admin','reagendar'/);
+  assert.match(current, /'status_alterado'/);
 });

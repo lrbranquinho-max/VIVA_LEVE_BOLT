@@ -396,7 +396,7 @@ export default function MeusPedidos() {
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${badgeStatus(pedido.status)}`}>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${!isCancelado && !isFinalizado ? 'motion-safe:animate-pulse' : ''} ${badgeStatus(pedido.status)}`}>
                         {pedido.status}
                       </span>
                       <span className="text-base font-extrabold text-viva-roxo">

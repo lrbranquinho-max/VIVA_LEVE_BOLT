@@ -35,8 +35,8 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
         const anterior = lerKitsCarrinho()[produto.id];
         const padrao = primeiraEntregaPadrao();
         setEscolha(anterior
-          ? { ...anterior, entregas: anterior.entregas ?? c?.entregas, primeira_data: anterior.primeira_data >= padrao ? anterior.primeira_data : padrao }
-          : { sabores: [], primeira_data: padrao, entregas: c?.entregas });
+          ? { ...anterior, entregas: anterior.entregas ?? 1, primeira_data: anterior.primeira_data >= dataBrasilia() ? anterior.primeira_data : padrao }
+          : { sabores: [], primeira_data: padrao, entregas: 1 });
       } catch (error: any) { if (ativo) setErro(error.message); }
       finally { if (ativo) setCarregando(false); }
     })();
@@ -76,7 +76,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
       <h2 className="font-black text-viva-roxo">{c.intervalo_dias === 7 ? 'Entregas semanais' : `Entregas a cada ${c.intervalo_dias} dias`}</h2>
       <p className="mt-2 text-sm leading-relaxed">Seu plano será entregue em etapas para facilitar sua rotina e economizar espaço no freezer. Escolha o dia; a Viva Leve enviará posteriormente a programação do horário.</p>
       <p className="mt-3 font-bold">{c.total_marmitas} marmitas · escolha receber em {opcoesEntregas.join(', ')} {opcoesEntregas.length > 1 ? 'etapas' : 'etapa'}</p>
-      <p className="mt-2 text-xs">{meios.join(' · ')}{c.permite_voucher && config && Object.values(config.bandeiras).some(Boolean) ? ' · Voucher na primeira entrega' : ''}</p>
+      <p className="mt-2 text-xs">{meios.join(' · ')}{c.permite_voucher && config && Object.values(config.bandeiras).some(Boolean) ? ' · Cartão Alimentação na primeira entrega' : ''}</p>
     </div>
     {carregando ? <p role="status">Carregando sabores...</p> : <>
       <h2 className="font-black">Escolha de {c.sabores_min} a {c.sabores_max} sabores</h2>
@@ -104,8 +104,9 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
         <div className="mt-2 grid gap-2 sm:grid-cols-3">{opcoesEntregas.map(numero => <label key={numero} className={`flex min-h-[48px] cursor-pointer items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold ${configEscolhida.entregas === numero ? 'border-viva-roxo ring-2 ring-purple-100' : 'border-gray-200'}`}><input type="radio" name={`entregas-kit-${produto.id}`} checked={configEscolhida.entregas === numero} onChange={() => setEscolha({ ...escolha, entregas: numero })} className="h-4 w-4 accent-viva-roxo"/><span>{numero === 1 ? 'Tudo de uma vez' : `${numero} entregas`}<span className="block text-xs font-normal text-gray-500">{c.total_marmitas / numero} marmitas por entrega</span></span></label>)}</div>
       </fieldset>
       <label className="block text-sm font-bold">Data da primeira entrega
-        <input type="date" min={dataMinima} max={somarDias(dataBrasilia(), 180)} value={escolha.primeira_data} onChange={event => setEscolha({ ...escolha, primeira_data: event.target.value })} className="mt-2 h-12 w-full rounded-lg border bg-white px-3" />
+        <input type="date" min={dataMinima} max={somarDias(dataBrasilia(), 180)} value={escolha.primeira_data} onChange={event => { const novaData = event.target.value; if (novaData && diaSemana(novaData) !== 6) window.alert('Você ganhou frete grátis para entrega no sábado'); setEscolha({ ...escolha, primeira_data: novaData }); }} className="mt-2 h-12 w-full rounded-lg border bg-white px-3" />
       </label>
+      <p className="rounded-lg bg-emerald-50 p-3 text-xs font-bold text-emerald-800">Entregas de kits programadas para sábado têm frete grátis.</p>
       <p className="text-xs text-gray-600">Dias disponíveis: {(config?.dias || []).filter(d => d > 0 && d <= 6).map(d => DIAS_PLANO[d]).join(', ')}.</p>
       {escolha.primeira_data && !dataValida && <p role="alert" className="text-sm text-red-700">Escolha uma data disponível a partir de {dataMinima.split('-').reverse().join('/')}.</p>}
       <div className="border-t border-gray-200 bg-white py-4">

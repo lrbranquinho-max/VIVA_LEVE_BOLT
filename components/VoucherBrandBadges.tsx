@@ -17,7 +17,7 @@ export default function VoucherBrandBadges({ bandeiras, selected = false }: Vouc
   return (
     <span
       className="mt-2 flex flex-wrap items-center justify-center gap-1"
-      aria-label={`Bandeiras de voucher aceitas: ${habilitadas.map(({ nome }) => nome).join(', ')}`}
+      aria-label={`Bandeiras de Cartão Alimentação aceitas: ${habilitadas.map(({ nome }) => nome).join(', ')}`}
     >
       {habilitadas.map(({ nome, rotulo, classe }) => (
         <span

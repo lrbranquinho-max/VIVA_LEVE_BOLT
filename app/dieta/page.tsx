@@ -1262,8 +1262,9 @@ export default function Dieta() {
               </div>
             </div>
 
+            {solicitandoPlano && <div role="status" aria-live="polite" className="rounded-xl border border-purple-200 bg-purple-50 p-4 text-center"><span className="mx-auto block h-9 w-9 animate-spin rounded-full border-4 border-purple-200 border-t-viva-roxo" aria-hidden="true"/><p className="mt-3 text-sm font-bold text-viva-roxo">Aguarde alguns segundos. Seu Plano Nutri está sendo gerado.</p></div>}
             <button disabled={solicitandoPlano} className="w-full rounded-xl bg-viva-verde py-3 text-sm font-black text-viva-roxo shadow-sm disabled:opacity-60">
-              {solicitandoPlano ? 'Enviando...' : 'Solicitar plano em ate 24hs'}
+              {solicitandoPlano ? 'Gerando Plano Nutri...' : 'Solicitar Plano Nutri'}
             </button>
           </form>}
         </section>

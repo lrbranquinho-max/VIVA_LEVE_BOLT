@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const MENSAGEM_WHATSAPP = 'Olá! Vi no aplicativo da Viva Leve a proposta do plano mensal de marmitas e tenho interesse em conhecer mais sobre o pagamento por voucher.';
+const MENSAGEM_WHATSAPP = 'Olá! Vi no aplicativo da Viva Leve a proposta do plano mensal de marmitas e tenho interesse em conhecer mais sobre o pagamento com Cartão Alimentação.';
 
 interface Slide {
   eyebrow: string;
@@ -52,7 +52,7 @@ export default function StorePromotionalCarousel({ whatsappUrl }: { whatsappUrl?
     },
     {
       eyebrow: 'PLANO MENSAL',
-      title: 'Marmitas com pagamento por voucher',
+      title: 'Marmitas com Cartão Alimentação',
       description: 'Conheça as opções para vale alimentação ou refeição.',
       action: 'Falar com a Viva Leve',
       href: criarLinkWhatsApp(whatsappUrl),

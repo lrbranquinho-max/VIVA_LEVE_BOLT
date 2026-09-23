@@ -82,7 +82,10 @@ export function validarEstoqueEscolhaPlano(sabores: SaborPlano[], produtos: Arra
   return '';
 }
 export function primeiraEntregaPadrao(now = new Date()) {
-  return somarDias(dataBrasilia(now), 2);
+  const hoje = dataBrasilia(now);
+  const dia = diaSemana(hoje);
+  const diasAteSabado = dia === 6 ? 7 : (6 - dia + 7) % 7;
+  return somarDias(hoje, diasAteSabado || 7);
 }
 export function datasPlano(primeira: string, config: PlanoConfig) {
   return Array.from({ length: config.entregas }, (_, index) => somarDias(primeira, config.intervalo_dias * index));

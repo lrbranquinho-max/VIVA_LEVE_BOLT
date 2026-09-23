@@ -79,7 +79,6 @@ interface Toast {
   tipo: 'sucesso' | 'erro' | 'info';
 }
 
-const LIMITE_FRETE_GRATIS = 100;
 const LIMITE_DESCONTO_AUTOMATICO = 300;
 const DESCONTO_AUTOMATICO_PERCENTUAL = 10;
 const CARRINHO_STORAGE_KEY = 'viva-leve-carrinho';
@@ -191,9 +190,9 @@ export default function LojaCliente() {
     if (Object.keys(carrinho).length === 0) tentativaPlano.current = { assinatura: '', id: '' };
   }, [carrinho]);
   const temPlanos = Object.keys(carrinho).some(id => produtos.find(p => p.id === Number(id))?.tipo_produto === 'kit');
-  const voucherElegivel = Object.keys(carrinho).length > 0 && Object.keys(carrinho).every(id => {
+  const voucherElegivel = Object.keys(carrinho).some(id => {
     const p = produtos.find(item => item.id === Number(id));
-    return p?.tipo_produto === 'kit' && p.plano_config?.permite_voucher;
+    return p?.tipo_produto === 'kit';
   }) && Boolean(configPlanos && Object.values(configPlanos.bandeiras).some(Boolean));
 
   useEffect(() => {
@@ -447,7 +446,12 @@ export default function LojaCliente() {
   const descontoDiaDPercentual = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
   const descontoPercentual = Math.max(descontoCupomPercentual, descontoAutomaticoPercentual, descontoDiaDPercentual);
   const descontoValor = subtotalProdutos * (descontoPercentual / 100);
-  const valorFrete = subtotalProdutos > 0 && subtotalProdutos < LIMITE_FRETE_GRATIS ? lojaConfig.taxa_entrega_padrao : 0;
+  const freteGratisKitSabado = Object.keys(carrinho).length > 0 && Object.keys(carrinho).every(id => {
+    const produto = produtos.find(item => item.id === Number(id));
+    const escolha = kitsCarrinho[Number(id)];
+    return produto?.tipo_produto === 'kit' && Boolean(escolha?.primeira_data) && diaSemana(escolha.primeira_data) === 6;
+  });
+  const valorFrete = subtotalProdutos > 0 && !freteGratisKitSabado ? lojaConfig.taxa_entrega_padrao : 0;
   const totalPedidoFinal = Math.max(subtotalProdutos - descontoValor + valorFrete, 0);
   const creditoPrevisto = Math.min(Number(creditoValidado?.valorDisponivel || 0), totalPedidoFinal);
   const totalAposCredito = Math.max(totalPedidoFinal - creditoPrevisto, 0);
@@ -456,7 +460,8 @@ export default function LojaCliente() {
     const mensagens = [
       '🚚 Prazo de entrega: 24hs (amanhã).',
       `💸 Ganhe ${DESCONTO_AUTOMATICO_PERCENTUAL}% de desconto em compras acima de ${formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)}.`,
-      `📦 Frete Grátis nas compras acima de ${formatarMoedaBR(LIMITE_FRETE_GRATIS)}.`,
+      '📦 Kits com entrega programada para sábado têm frete grátis.',
+      '🛵 Pedidos avulsos têm cobrança de frete em qualquer valor.',
     ];
 
     if (lojaConfig.cupom_dia_d_ativo && lojaConfig.cupom_dia_d_percentual > 0) {
@@ -806,7 +811,7 @@ export default function LojaCliente() {
       }
       accessTokenAtual = session.access_token;
 
-      if (metodoPagamento === 'voucher_presencial' && (!voucherElegivel || !bandeiraPresencial || creditoValidado)) throw new Error('Voucher presencial exige planos elegíveis e não pode ser combinado com chave de crédito.');
+      if (metodoPagamento === 'voucher_presencial' && (!voucherElegivel || !bandeiraPresencial || creditoValidado)) throw new Error('Cartão Alimentação exige que a sacola contenha um kit e não pode ser combinado com chave de crédito.');
       if (totalAposCredito > 0 && metodoPagamento !== 'voucher_presencial' && !lojaConfig.meios_pagamento[metodoPagamento]) {
         throw new Error('Este meio de pagamento esta temporariamente indisponivel.');
       }
@@ -841,12 +846,14 @@ export default function LojaCliente() {
           preco: produto?.preco ?? 0,
           quantidade: qtd,
           subtotal: (produto?.preco ?? 0) * qtd,
+          tipo_produto: produto?.tipo_produto ?? 'avulso',
           ...(produto?.tipo_produto === 'kit' ? { plano: kitsCarrinho[Number(id)] } : {}),
         };
       });
 
       const subtotalValidado = listaItens.reduce((total, item) => total + item.subtotal, 0);
-      const freteValidado = subtotalValidado > 0 && subtotalValidado < LIMITE_FRETE_GRATIS ? lojaConfig.taxa_entrega_padrao : 0;
+      const freteGratisValidado = listaItens.length > 0 && listaItens.every(item => item.tipo_produto === 'kit' && item.plano?.primeira_data && diaSemana(item.plano.primeira_data) === 6);
+      const freteValidado = subtotalValidado > 0 && !freteGratisValidado ? lojaConfig.taxa_entrega_padrao : 0;
       const descontoAutomaticoValidado = subtotalValidado >= LIMITE_DESCONTO_AUTOMATICO ? DESCONTO_AUTOMATICO_PERCENTUAL : 0;
       const descontoCupomValidado = cupomSelecionado ? Number(cupomSelecionado.percentual_desconto) : 0;
       const descontoDiaDValidado = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
@@ -1228,7 +1235,7 @@ export default function LojaCliente() {
                   })}
 
                   <div className="rounded-xl bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
-                    Frete gratis em compras a partir de {formatarMoedaBR(LIMITE_FRETE_GRATIS)}. Compras acima de {formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)} ganham 10% de desconto.
+                    Pedidos avulsos sempre têm frete. Kits programados para sábado têm frete grátis. Compras acima de {formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)} ganham 10% de desconto.
                   </div>
 
                   {cupons.length > 0 && (
@@ -1380,13 +1387,13 @@ export default function LojaCliente() {
                         <MercadoPagoBrandBadges selected={metodoPagamento === 'mercado_pago'} />
                       </button>}
                       {voucherElegivel && <button type="button" onClick={() => { setMetodoPagamento('voucher_presencial'); setCreditoValidado(null); setChaveCredito(''); }} className={`rounded-xl border px-3 py-2.5 text-xs font-black ${metodoPagamento === 'voucher_presencial' ? 'border-viva-roxo bg-viva-roxo text-white' : 'border-purple-200 bg-white text-viva-roxo'}`}>
-                        <span className="block">Voucher — pagamento na primeira entrega</span>
+                        <span className="block">Cartão Alimentação — pagamento na primeira entrega</span>
                         <VoucherBrandBadges bandeiras={configPlanos?.bandeiras} selected={metodoPagamento === 'voucher_presencial'} />
                       </button>}
                     </div>
                   </div>}
 
-                  {metodoPagamento === 'voucher_presencial' && voucherElegivel && <section className="border-l-4 border-amber-400 bg-amber-50 p-4 text-sm"><p>O valor total do plano será pago presencialmente na primeira entrega por meio da maquininha.</p><label className="mt-3 block font-bold">Bandeira<select value={bandeiraPresencial} onChange={e => setBandeiraPresencial(e.target.value)} className="mt-1 h-11 w-full rounded-lg border bg-white px-3">{Object.entries(configPlanos?.bandeiras || {}).filter(([, ativo]) => ativo).map(([b]) => <option key={b}>{b}</option>)}</select></label><p className="mt-2 font-black">Total na primeira entrega: {formatarMoedaBR(totalPedidoFinal)}</p></section>}
+                  {metodoPagamento === 'voucher_presencial' && voucherElegivel && <section className="border-l-4 border-amber-400 bg-amber-50 p-4 text-sm"><p>O valor total da sacola será pago com Cartão Alimentação, presencialmente na primeira entrega do kit.</p><label className="mt-3 block font-bold">Bandeira<select value={bandeiraPresencial} onChange={e => setBandeiraPresencial(e.target.value)} className="mt-1 h-11 w-full rounded-lg border bg-white px-3">{Object.entries(configPlanos?.bandeiras || {}).filter(([, ativo]) => ativo).map(([b]) => <option key={b}>{b}</option>)}</select></label><p className="mt-2 font-black">Total na primeira entrega: {formatarMoedaBR(totalPedidoFinal)}</p></section>}
                   {totalAposCredito > 0 && !voucherElegivel && !lojaConfig.meios_pagamento.pix && !(lojaConfig.meios_pagamento.cielo && cieloDisponivel) && !lojaConfig.meios_pagamento.mercado_pago && (
                     <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
                       Nenhum meio de pagamento esta disponivel no momento.

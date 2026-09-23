@@ -1,5 +1,5 @@
 export const MEIOS_PAGAMENTO_LABELS: Record<string, string> = {
-  voucher_presencial: 'Voucher na primeira entrega',
+  voucher_presencial: 'Cartão Alimentação na primeira entrega',
   pix: 'Pix',
   credito: 'Chave de Crédito',
   mercado_pago_debito: 'Mercado Pago (Débito)',

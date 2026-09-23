@@ -54,10 +54,11 @@ test('validacao identifica sabor esgotado ou quantidade acima do disponivel', ()
   assert.match(validarEstoqueEscolhaPlano([{ id: 2, quantidade: 3 }], produtos), /insuficiente/);
   assert.equal(validarEstoqueEscolhaPlano([{ id: 2, quantidade: 2 }], produtos), '');
 });
-test('primeira entrega padrao fica sempre dois dias apos hoje em Brasilia', () => {
-  assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T02:59:59Z')),'2026-09-02');
-  assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T03:00:00Z')),'2026-09-03');
-  assert.equal(primeiraEntregaPadrao(new Date('2026-12-30T15:00:00Z')),'2027-01-01');
+test('primeira entrega padrao fica no proximo sabado no horario de Brasilia', () => {
+  assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T02:59:59Z')),'2026-09-05');
+  assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T03:00:00Z')),'2026-09-05');
+  assert.equal(primeiraEntregaPadrao(new Date('2026-12-30T15:00:00Z')),'2027-01-02');
+  assert.equal(primeiraEntregaPadrao(new Date('2026-09-05T15:00:00Z')),'2026-09-12');
 });
 test('kit de 14 permite uma ou duas entregas e recalcula a quantidade por etapa', () => {
   const config = { ...CONFIG_PLANO_INICIAL, total_marmitas: 14, entregas: 2, marmitas_por_entrega: 7 };

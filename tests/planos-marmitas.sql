@@ -32,9 +32,9 @@ begin
   cfg:='{"total_marmitas":14,"entregas":2,"marmitas_por_entrega":7,"intervalo_dias":7,"sabores_min":3,"sabores_max":5,"permite_voucher":true}';
   insert into public.produtos(nome,preco,categoria,ativo,tipo_produto,plano_config) values('Kit QA',200,'Marmitas',true,'kit',cfg) returning id into kit;
   insert into public.produtos(nome,preco,categoria,ativo,tipo_produto,plano_config) values('Kit24 QA',299,'Marmitas',true,'kit',cfg||'{"total_marmitas":24,"entregas":4,"marmitas_por_entrega":6}') returning id into kit24;
-  primeira_data:=(now() at time zone 'America/Sao_Paulo')::date+2;
-  if extract(dow from primeira_data)=0 then primeira_data:=primeira_data+1; end if;
-  carrinho:=jsonb_build_array(jsonb_build_object('id',kit,'quantidade',1,'preco',0.01,'plano',jsonb_build_object('primeira_data',primeira_data,'sabores',jsonb_build_array(
+  primeira_data:=(now() at time zone 'America/Sao_Paulo')::date+((6-extract(dow from (now() at time zone 'America/Sao_Paulo')::date)::int+7)%7);
+  if primeira_data=(now() at time zone 'America/Sao_Paulo')::date then primeira_data:=primeira_data+7; end if;
+  carrinho:=jsonb_build_array(jsonb_build_object('id',kit,'quantidade',1,'preco',0.01,'plano',jsonb_build_object('entregas',2,'primeira_data',primeira_data,'sabores',jsonb_build_array(
     jsonb_build_object('id',sabores[1],'quantidade',5),jsonb_build_object('id',sabores[2],'quantidade',5),jsonb_build_object('id',sabores[3],'quantidade',4)))));
 
   payload:=jsonb_set(carrinho,'{0,plano,sabores}',jsonb_build_array(jsonb_build_object('id',sabores[1],'quantidade',7),jsonb_build_object('id',sabores[2],'quantidade',7)));
@@ -53,11 +53,6 @@ begin
   payload:=jsonb_set(carrinho,'{0,plano,primeira_data}',to_jsonb((primeira_data+(7-extract(dow from primeira_data)::int))::text));
   falhou:=false; begin perform public.criar_pedido_com_planos(payload,'pix',null,null,gen_random_uuid()); exception when others then falhou:=true; end;
   if not falhou then raise exception 'FAIL domingo'; end if;
-  update public.produtos set plano_config=plano_config||'{"permite_voucher":false}' where id=kit;
-  falhou:=false; begin perform public.criar_pedido_com_planos(carrinho,'voucher_presencial','Alelo',null,gen_random_uuid()); exception when others then falhou:=true; end;
-  if not falhou then raise exception 'FAIL voucher nao permitido'; end if;
-  update public.produtos set plano_config=plano_config||'{"permite_voucher":true}' where id=kit;
-
   result:=public.criar_pedido_com_planos(carrinho,'voucher_presencial','Alelo',null,idempotencia);
   pedido:=(result->>'id')::bigint;
   if (result->>'valor_total')::numeric<>200 then raise exception 'FAIL preco manipulado'; end if;
@@ -109,7 +104,7 @@ begin
   if not (result->>'ok')::boolean or (select saldo from public.planos_marmitas_resumo where id=plano)<>7 then raise exception 'FAIL saldo entrega'; end if;
   if (public.confirmar_entrega_pelo_cliente(primeira)->>'ok')::boolean then raise exception 'FAIL entrega duplicada'; end if;
   perform set_config('request.jwt.claims',jsonb_build_object('sub',admin_id,'email',email_admin,'role','authenticated')::text,true);
-  perform public.gerenciar_plano_marmitas(plano,'reprogramar',segunda,primeira_data+8,'QA nova data');
+  perform public.gerenciar_plano_marmitas(plano,'reprogramar',segunda,primeira_data+9,'QA nova data');
   if (select entrega_prevista from public.pedidos where id=primeira)<>primeira_data then raise exception 'FAIL reprogramacao alterou outra semana'; end if;
   perform public.gerenciar_plano_marmitas(plano,'preparar',segunda);
   if (select sum(estoque_reservado) from public.produtos where id=any(sabores))<>0 then raise exception 'FAIL consumo reserva voucher'; end if;
@@ -126,7 +121,7 @@ begin
   if not exists(select 1 from public.planos_marmitas_resumo where id=plano and saldo=0 and entregues=14 and status='Concluído') then raise exception 'FAIL conclusao'; end if;
   if (select count(*) from public.planos_marmitas_historico where plano_id=plano)<8 then raise exception 'FAIL auditoria'; end if;
 
-  payload:=jsonb_set(jsonb_set(carrinho,'{0,id}',to_jsonb(kit24)),'{0,plano,sabores}',jsonb_build_array(jsonb_build_object('id',sabores[1],'quantidade',8),jsonb_build_object('id',sabores[2],'quantidade',8),jsonb_build_object('id',sabores[3],'quantidade',8)));
+  payload:=jsonb_set(jsonb_set(jsonb_set(carrinho,'{0,id}',to_jsonb(kit24)),'{0,plano,entregas}','4'::jsonb),'{0,plano,sabores}',jsonb_build_array(jsonb_build_object('id',sabores[1],'quantidade',8),jsonb_build_object('id',sabores[2],'quantidade',8),jsonb_build_object('id',sabores[3],'quantidade',8)));
   result:=public.criar_pedido_com_planos(payload,'pix',null,null,gen_random_uuid());
   pedido:=(result->>'id')::bigint;
   if (select count(*) from public.pedidos where pedido_origem_id=pedido)<>4 then raise exception 'FAIL mensal'; end if;
@@ -135,8 +130,8 @@ begin
   if (select sum(estoque_reservado) from public.produtos where id=any(sabores))<>24 then raise exception 'FAIL gateway nao reservou kit'; end if;
   if not exists(select 1 from public.planos_marmitas where pedido_id=pedido and status='Ativo') then raise exception 'FAIL pagamento online'; end if;
 
-  -- A escolha do cliente vira snapshot do plano e a baixa administrativa não exige entregador/rota.
-  payload:=jsonb_set(carrinho,'{0,plano,entregas}','1'::jsonb);
+  -- Sem escolha explícita, kits 14/24 usam tudo de uma vez por padrão.
+  payload:=jsonb_set(carrinho,'{0,plano}',(carrinho->0->'plano')-'entregas');
   result:=public.criar_pedido_com_planos(payload,'pix',null,null,gen_random_uuid());
   pedido:=(result->>'id')::bigint;
   select id into strict plano from public.planos_marmitas where pedido_id=pedido;
@@ -155,15 +150,20 @@ begin
   if not exists(select 1 from public.entregas_historico where pedido_id=primeira and evento='status_alterado' and detalhes->>'acao_admin'='preparar')
   then raise exception 'FAIL evento admin permitido'; end if;
   if has_table_privilege('authenticated','public.planos_marmitas','UPDATE') or has_table_privilege('anon','public.planos_marmitas','SELECT') then raise exception 'FAIL permissoes'; end if;
-  -- A free mixed order consumes ordinary stock once, but never future kit stock.
+  -- Sacola mista mantém Cartão Alimentação, cobra frete e baixa o avulso só na confirmação.
   perform set_config('request.jwt.claims',jsonb_build_object('sub',cliente,'email',email_cliente,'role','authenticated')::text,true);
-  update public.app_config set valor=valor||'{"cupom_dia_d_ativo":true,"cupom_dia_d_percentual":100}' where chave='loja_config';
+  update public.app_config set valor=valor||'{"cupom_dia_d_ativo":false,"taxa_entrega_padrao":10}' where chave='loja_config';
   payload:=carrinho||jsonb_build_array(jsonb_build_object('id',sabores[6],'quantidade',2));
   idempotencia:=gen_random_uuid();
-  result:=public.criar_pedido_com_planos(payload,'credito',null,null,idempotencia);
-  if (result->>'valor_total')::numeric<>0 or (select estoque from public.produtos where id=sabores[6])<>98 then raise exception 'FAIL estoque pedido isento'; end if;
-  perform public.criar_pedido_com_planos(payload,'credito',null,null,idempotencia);
-  if (select estoque from public.produtos where id=sabores[6])<>98 then raise exception 'FAIL estoque isento duplicado'; end if;
+  result:=public.criar_pedido_com_planos(payload,'voucher_presencial','Alelo',null,idempotencia);
+  pedido:=(result->>'id')::bigint;
+  if (result->>'valor_total')::numeric<>250 or (select valor_frete from public.pedidos where id=pedido)<>10 or (select estoque from public.produtos where id=sabores[6])<>100 then raise exception 'FAIL frete ou baixa antecipada da sacola mista'; end if;
+  select id into strict primeira from public.pedidos where pedido_origem_id=pedido and entrega_numero=1;
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',admin_id,'email',email_admin,'role','authenticated')::text,true);
+  perform public.registrar_voucher_plano(primeira,true,'QA misto');
+  if (select estoque from public.produtos where id=sabores[6])<>98 then raise exception 'FAIL baixa avulso no Cartão Alimentação'; end if;
+  falhou:=false; begin perform public.registrar_voucher_plano(primeira,true,'QA duplicado'); exception when others then falhou:=true; end;
+  if not falhou or (select estoque from public.produtos where id=sabores[6])<>98 then raise exception 'FAIL idempotencia baixa avulso'; end if;
   raise exception using errcode='PZ001',message='QA_ROLLBACK';
   exception when sqlstate 'PZ001' then null;
   end;

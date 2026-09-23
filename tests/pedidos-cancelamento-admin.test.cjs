@@ -10,6 +10,7 @@ const admin = ler('app/admin/page.tsx');
 const entregas = ler('app/admin/entregas/page.tsx');
 const api = ler('app/api/admin/pedidos/[id]/cancelar/route.ts');
 const preference = ler('app/api/mercadopago/preference/route.ts');
+const current = ler('supabase/migrations/20260923135715_checkout_entregas_notificacoes.sql');
 
 test('cancelamento é lógico, auditável e restrito a administradores', () => {
   assert.match(migration, /cancelado_admin_em timestamptz/i);
@@ -28,11 +29,18 @@ test('cancelamento libera crédito reservado e aciona o fluxo já existente dos 
 });
 
 test('admin e entregas escondem cancelados e entregas rejeitam pedidos sem pagamento', () => {
-  assert.match(admin, /Cancelar pedido não pago/);
+  assert.match(admin, /Cancelar pedido/);
   assert.match(admin, /\.is\('cancelado_admin_em', null\)/);
   assert.match(entregas, /pedidoAptoParaGestaoDeEntrega/);
   assert.match(entregas, /\.filter\(pedidoAptoParaGestaoDeEntrega\)/);
   assert.match(entregas, /\.is\('cancelado_admin_em', null\)/);
+});
+
+test('pedido raiz de Cartão Alimentação pendente pode ser cancelado e propaga às entregas', () => {
+  assert.match(current, /checkout_idempotencia is not null and v\.meio_pagamento='voucher_presencial'/);
+  assert.match(current, /Cancele o pedido principal, não uma entrega do kit/);
+  assert.match(admin, /kitCartaoAlimentacao/);
+  assert.match(admin, /cancela as entregas abertas do kit/i);
 });
 
 test('rota server-side invalida pagamento ou preferência sem expor credenciais', () => {

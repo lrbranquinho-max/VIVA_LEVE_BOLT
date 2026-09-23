@@ -327,7 +327,8 @@ function podeCancelarPedidoNaoPago(pedido: Pedido) {
   const pagamento = String(pedido.pagamento_status || '').trim().toLowerCase();
   const status = String(pedido.status || '').trim().toLowerCase();
   const pago = ['approved', 'paid', 'pago', 'balcao'].includes(pagamento);
-  return !pago && ['pendente', 'aguardando pagamento', 'pagamento recusado'].includes(status);
+  const kitCartaoAlimentacao = Boolean(pedido.checkout_idempotencia) && pedido.meio_pagamento === 'voucher_presencial';
+  return !pago && status !== 'cancelado' && (kitCartaoAlimentacao || ['pendente', 'aguardando pagamento', 'pagamento recusado'].includes(status));
 }
 
 function enderecoPedido(pedido: Pedido) {
@@ -513,7 +514,7 @@ function ModalProduto({
           </div>
           {form.tipo_produto === 'kit' ? <fieldset className="grid gap-3 border-y py-4 sm:grid-cols-2"><legend className="font-black text-viva-roxo">Configuração do plano</legend>
             {([['total_marmitas', 'Total de marmitas'], ['entregas', 'Quantidade de entregas'], ['marmitas_por_entrega', 'Marmitas por entrega'], ['intervalo_dias', 'Intervalo das entregas (dias, múltiplo de 7)'], ['sabores_min', 'Mínimo de sabores'], ['sabores_max', 'Máximo de sabores']] as const).map(([key, label]) => <label key={key} className="text-xs font-bold">{label}<input required type="number" min={key === 'intervalo_dias' ? 7 : 1} step={key === 'intervalo_dias' ? 7 : 1} value={form.plano_config[key]} onChange={e => onChange({ ...form, plano_config: { ...form.plano_config, [key]: Number(e.target.value) } })} className="mt-1 h-11 w-full rounded-lg border px-3 text-sm" /></label>)}
-            <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2"><input type="checkbox" checked={form.plano_config.permite_voucher} onChange={e => onChange({ ...form, plano_config: { ...form.plano_config, permite_voucher: e.target.checked } })} />Permite voucher presencial na primeira entrega</label>
+            <label className="flex items-center gap-2 text-sm font-bold sm:col-span-2"><input type="checkbox" checked={form.plano_config.permite_voucher} onChange={e => onChange({ ...form, plano_config: { ...form.plano_config, permite_voucher: e.target.checked } })} />Permite Cartão Alimentação na primeira entrega</label>
           </fieldset> : form.categoria === 'Marmitas' && <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.disponivel_kit} onChange={e => onChange({ ...form, disponivel_kit: e.target.checked })} />Disponível para Kits/Planos</label>}
           <div className="grid gap-4 md:grid-cols-2">
             <label className="md:col-span-2">
@@ -1717,6 +1718,9 @@ export default function AdminPage() {
                   <Link href="/admin/entregas" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Gerenciador de Entregas
                   </Link>
+                  <Link href="/admin/notificacoes" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Notificações
+                  </Link>
                   <Link href="/admin/financeiro" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Financeiro
                   </Link>
@@ -1860,7 +1864,7 @@ export default function AdminPage() {
                             onClick={() => setCancelamentoPedido({ pedido, motivo: '' })}
                             className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 transition hover:border-red-500 hover:bg-red-100"
                           >
-                            Cancelar pedido não pago
+                            Cancelar pedido
                           </button>
                         )}
                       </div>
@@ -2158,7 +2162,7 @@ export default function AdminPage() {
                       placeholder="10,00"
                       className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-gray-900"
                     />
-                    <span className="mt-1 block text-xs text-gray-400">Aplicada em compras abaixo do limite de frete gratis.</span>
+                    <span className="mt-1 block text-xs text-gray-400">Aplicada em pedidos avulsos e em kits fora do sábado.</span>
                   </label>
 
                   <label>
@@ -2396,10 +2400,10 @@ export default function AdminPage() {
 
       {cancelamentoPedido && (
         <div className="fixed inset-0 z-[100] flex items-end bg-black/55 md:items-center md:justify-center md:p-4">
-          <section role="dialog" aria-modal="true" aria-label="Cancelar pedido não pago" className="w-full rounded-t-2xl bg-white p-5 shadow-2xl md:max-w-lg md:rounded-2xl">
+          <section role="dialog" aria-modal="true" aria-label="Cancelar pedido" className="w-full rounded-t-2xl bg-white p-5 shadow-2xl md:max-w-lg md:rounded-2xl">
             <h2 className="text-xl font-black text-gray-900">Cancelar pedido #{cancelamentoPedido.pedido.id}</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Esta ação mantém o histórico para auditoria, invalida a cobrança pendente quando possível e retira o pedido da gestão de pedidos e de entregas. Pedidos pagos não podem ser cancelados aqui.
+              Esta ação mantém o histórico para auditoria, invalida a cobrança pendente quando possível, cancela as entregas abertas do kit e libera as reservas de estoque. Também pode ser usada para kits com Cartão Alimentação ainda não pago. Pedidos já pagos não podem ser cancelados aqui.
             </p>
             <label className="mt-4 block text-xs font-black uppercase text-gray-500">
               Motivo do cancelamento
