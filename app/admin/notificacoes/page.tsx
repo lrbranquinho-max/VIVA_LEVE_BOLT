@@ -24,6 +24,8 @@ interface EntregaLog {
   usuarios_inbox: number;
   push_enviados: number;
   push_falhos: number;
+  fcm_enviados: number;
+  fcm_falhos: number;
 }
 
 const DIAS = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
@@ -56,7 +58,7 @@ export default function AdminNotificacoesPage() {
     if (!admin) { router.replace('/'); return; }
     const [agenda, entregas] = await Promise.all([
       supabase.from('notification_schedules').select('id,titulo,mensagem,tipo,dia_semana,hora,agendada_para,ativa,ultima_execucao_em').order('criado_em', { ascending: false }),
-      supabase.from('notification_deliveries').select('id,schedule_id,executada_em,usuarios_inbox,push_enviados,push_falhos').order('executada_em', { ascending: false }).limit(20),
+      supabase.from('notification_deliveries').select('id,schedule_id,executada_em,usuarios_inbox,push_enviados,push_falhos,fcm_enviados,fcm_falhos').order('executada_em', { ascending: false }).limit(20),
     ]);
     if (agenda.error) setErro(agenda.error.message); else setAgendamentos((agenda.data || []) as Agendamento[]);
     if (!entregas.error) setLogs((entregas.data || []) as EntregaLog[]);
@@ -115,7 +117,7 @@ export default function AdminNotificacoesPage() {
 
       <section className="mt-6 rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">Programações</h2>{carregando ? <p className="mt-4 text-sm text-gray-500">Carregando...</p> : <div className="mt-4 grid gap-3">{agendamentos.map(item => <article key={item.id} className="rounded-xl border p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black">{item.titulo}</h3><p className="mt-1 text-sm text-gray-700">{item.mensagem}</p><p className="mt-2 text-xs font-bold text-gray-500">{item.tipo === 'semanal' ? `${DIAS[item.dia_semana || 0]} às ${(item.hora || '').slice(0, 5)}` : new Date(item.agendada_para!).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} · {item.ativa ? 'Ativa' : 'Inativa'}</p></div><div className="flex gap-2"><button type="button" onClick={() => editar(item)} className="rounded-lg border px-3 py-2 text-xs font-black">Editar</button><button type="button" onClick={() => alternar(item)} className={`rounded-lg px-3 py-2 text-xs font-black text-white ${item.ativa ? 'bg-gray-700' : 'bg-emerald-600'}`}>{item.ativa ? 'Desativar' : 'Ativar'}</button></div></div></article>)}{!agendamentos.length && <p className="text-sm text-gray-500">Nenhuma notificação programada.</p>}</div>}</section>
 
-      <section className="mt-6 rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">Últimos disparos</h2><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[600px] text-left text-sm"><thead><tr className="border-b text-xs uppercase text-gray-500"><th className="p-2">Data</th><th className="p-2">Caixa de entrada</th><th className="p-2">Push enviados</th><th className="p-2">Falhas Push</th></tr></thead><tbody>{logs.map(log => <tr key={log.id} className="border-b"><td className="p-2">{new Date(log.executada_em).toLocaleString('pt-BR')}</td><td className="p-2">{log.usuarios_inbox}</td><td className="p-2">{log.push_enviados}</td><td className="p-2">{log.push_falhos}</td></tr>)}</tbody></table>{!logs.length && <p className="py-4 text-sm text-gray-500">Nenhum disparo registrado.</p>}</div></section>
+      <section className="mt-6 rounded-2xl border bg-white p-5"><h2 className="text-xl font-black">Últimos disparos</h2><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead><tr className="border-b text-xs uppercase text-gray-500"><th className="p-2">Data</th><th className="p-2">Caixa de entrada</th><th className="p-2">Web Push</th><th className="p-2">Falhas Web</th><th className="p-2">Aplicativo</th><th className="p-2">Falhas App</th></tr></thead><tbody>{logs.map(log => <tr key={log.id} className="border-b"><td className="p-2">{new Date(log.executada_em).toLocaleString('pt-BR')}</td><td className="p-2">{log.usuarios_inbox}</td><td className="p-2">{log.push_enviados}</td><td className="p-2">{log.push_falhos}</td><td className="p-2">{log.fcm_enviados}</td><td className="p-2">{log.fcm_falhos}</td></tr>)}</tbody></table>{!logs.length && <p className="py-4 text-sm text-gray-500">Nenhum disparo registrado.</p>}</div></section>
     </div>
   </main>;
 }

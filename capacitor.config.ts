@@ -9,6 +9,11 @@ const config: CapacitorConfig = {
     cleartext: false,
     allowNavigation: ['vivalevedf.com.br', 'www.vivalevedf.com.br'],
   },
+  plugins: {
+    PushNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert'],
+    },
+  },
 };
 
 export default config;

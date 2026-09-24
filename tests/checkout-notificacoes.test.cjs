@@ -12,6 +12,11 @@ const migration = ler('supabase/migrations/20260923135715_checkout_entregas_noti
 const edge = ler('supabase/functions/dispatch-notifications/index.ts');
 const worker = ler('worker/index.ts');
 const admin = ler('app/admin/notificacoes/page.tsx');
+const packageJson = ler('package.json');
+const capacitorConfig = ler('capacitor.config.ts');
+const nativeMigration = ler('supabase/migrations/20260923175012_notificacoes_push_nativas_android.sql');
+const notificationCenter = ler('components/NotificationCenter.tsx');
+const androidPlugins = ler('android/app/capacitor.build.gradle');
 
 test('frete grátis fica restrito a sacola exclusiva de kits programados para sábado', () => {
   assert.match(loja, /freteGratisKitSabado/);
@@ -50,6 +55,23 @@ test('PWA recebe push e abre uma rota existente', () => {
   assert.match(worker, /showNotification/);
   assert.match(worker, /addEventListener\('notificationclick'/);
   assert.match(edge, /url: '\/'/);
+});
+
+test('aplicativo Android usa o plugin nativo do Capacitor e registra token FCM no Supabase', () => {
+  assert.match(packageJson, /@capacitor\/push-notifications/);
+  assert.match(androidPlugins, /capacitor-push-notifications/);
+  assert.match(capacitorConfig, /PushNotifications/);
+  assert.match(notificationCenter, /Capacitor\.isNativePlatform/);
+  assert.match(notificationCenter, /salvar_push_token_nativo/);
+  assert.match(nativeMigration, /create table if not exists public\.native_push_tokens/);
+  assert.match(nativeMigration, /enable row level security/);
+});
+
+test('envio FCM usa HTTP v1 e credencial somente no secret da Edge Function', () => {
+  assert.match(edge, /FIREBASE_SERVICE_ACCOUNT_JSON/);
+  assert.match(edge, /fcm\.googleapis\.com\/v1\/projects/);
+  assert.match(edge, /firebase\.messaging/);
+  assert.doesNotMatch(edge, /private_key\s*[:=]\s*['"][^-]/);
 });
 
 test('pedidos ativos pulsam e Plano Nutri informa o processamento', () => {

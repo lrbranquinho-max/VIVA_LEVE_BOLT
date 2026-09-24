@@ -17,6 +17,7 @@
     "@capacitor/android": "^7.6.6",
     "@capacitor/cli": "^7.6.6",
     "@capacitor/core": "^7.6.6",
+    "@capacitor/push-notifications": "7.0.7",
     "@ducanh2912/next-pwa": "^9.7.2",
     "@supabase/supabase-js": "^2.106.2",
     "@types/node": "20.6.2",
