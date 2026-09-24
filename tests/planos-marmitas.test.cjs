@@ -11,7 +11,7 @@ compiled.paths = Module._nodeModulePaths(path.dirname(file));
 compiled._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText, file);
-const { distribuirSabores, distribuirSaboresComEstoque, validarEscolhaPlano, validarEstoqueEscolhaPlano, datasPlano, dataBrasilia, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL, opcoesEntregasPlano, configurarEntregasPlano, validarEntregasPlano } = compiled.exports;
+const { distribuirSabores, distribuirSaboresComEstoque, distribuirSelecaoParcialComEstoque, validarEscolhaPlano, validarEstoqueEscolhaPlano, datasPlano, dataBrasilia, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL, opcoesEntregasPlano, configurarEntregasPlano, validarEntregasPlano } = compiled.exports;
 for (const [total, n, esperado] of [[24,3,[8,8,8]],[24,4,[6,6,6,6]],[24,5,[5,5,5,5,4]],[14,3,[5,5,4]],[14,4,[4,4,3,3]],[14,5,[3,3,3,3,2]]]) {
   test('distribuicao ' + total + '/' + n, () => {
     const result = distribuirSabores(total, Array.from({ length:n }, (_,i)=>i+1));
@@ -47,6 +47,17 @@ test('distribuicao do kit respeita estoque disponivel por sabor', () => {
   assert.deepEqual(escolha.map(i => i.quantidade), [2, 5, 7]);
   assert.equal(distribuirSaboresComEstoque(18, produtos).length, 0);
   assert.equal(distribuirSaboresComEstoque(3, [{ id: 1, estoque_disponivel: 0 }, ...produtos.slice(1)]).length, 0);
+});
+test('selecao progressiva permite marcar sabor mesmo sem estoque para completar o kit sozinho', () => {
+  const produtos = [{ id: 1, estoque_disponivel: 12 }, { id: 2, estoque_disponivel: 8 }, { id: 3, estoque_disponivel: 4 }];
+  const primeiro = distribuirSelecaoParcialComEstoque(14, produtos.slice(0, 1));
+  assert.deepEqual(primeiro, [{ id: 1, quantidade: 12 }]);
+  const dois = distribuirSelecaoParcialComEstoque(14, produtos.slice(0, 2));
+  assert.equal(dois.reduce((soma, item) => soma + item.quantidade, 0), 14);
+  assert.deepEqual(dois, [{ id: 1, quantidade: 7 }, { id: 2, quantidade: 7 }]);
+  const tres = distribuirSelecaoParcialComEstoque(24, produtos);
+  assert.equal(tres.reduce((soma, item) => soma + item.quantidade, 0), 24);
+  assert.deepEqual(tres, [{ id: 1, quantidade: 12 }, { id: 2, quantidade: 8 }, { id: 3, quantidade: 4 }]);
 });
 test('validacao identifica sabor esgotado ou quantidade acima do disponivel', () => {
   const produtos = [{ id: 1, nome: 'A', estoque_disponivel: 0 }, { id: 2, nome: 'B', estoque_disponivel: 2 }];

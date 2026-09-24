@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
-import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, datasPlano, diaSemana, distribuirSaboresComEstoque, lerKitsCarrinho, moedaPlano, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, datasPlano, diaSemana, distribuirSelecaoParcialComEstoque, lerKitsCarrinho, moedaPlano, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { normalizarMeiosPagamento } from '@/lib/paymentConfig';
 
 export default function PlanoKitSelector({ produto, liberado }: { produto: ProdutoPlano; liberado: boolean }) {
@@ -51,16 +51,18 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
   const dataValida = escolha.primeira_data >= dataMinima && escolha.primeira_data <= somarDias(dataBrasilia(), 180) && (config?.dias || []).includes(diaSemana(escolha.primeira_data)) && diaSemana(escolha.primeira_data) !== 0;
   function selecionar(id: number) {
     setErro('');
-    const ids = escolha.sabores.map(s => s.id);
-    const selecionado = ids.includes(id);
     const sabor = sabores.find(item => item.id === id);
     const disponivel = Number(sabor?.estoque_disponivel ?? 0);
-    if (!selecionado && disponivel <= 0) { setErro(`${sabor?.nome || 'Este sabor'} está esgotado.`); return; }
-    if (!selecionado && ids.length >= c!.sabores_max) { setErro(`Limite de ${c!.sabores_max} sabores. Desmarque um para trocar.`); return; }
-    const novosIds = selecionado ? ids.filter(i => i !== id) : [...ids, id];
-    const distribuicao = distribuirSaboresComEstoque(c!.total_marmitas, novosIds.map(itemId => sabores.find(item => item.id === itemId)!).filter(Boolean));
-    if (novosIds.length && !distribuicao.length) { setErro('Os sabores selecionados não possuem estoque suficiente para completar o kit.'); return; }
-    setEscolha({ ...escolha, sabores: distribuicao });
+    setEscolha(atual => {
+      const ids = atual.sabores.map(s => s.id);
+      const selecionado = ids.includes(id);
+      if (!selecionado && disponivel <= 0) { setErro(`${sabor?.nome || 'Este sabor'} está esgotado.`); return atual; }
+      if (!selecionado && ids.length >= c!.sabores_max) { setErro(`Limite de ${c!.sabores_max} sabores. Desmarque um para trocar.`); return atual; }
+      const novosIds = selecionado ? ids.filter(i => i !== id) : [...ids, id];
+      const produtosSelecionados = novosIds.map(itemId => sabores.find(item => item.id === itemId)!).filter(Boolean);
+      const distribuicao = distribuirSelecaoParcialComEstoque(c!.total_marmitas, produtosSelecionados);
+      return { ...atual, sabores: distribuicao };
+    });
   }
   function adicionar() {
     if (!liberado || aviso || !dataValida) return;
@@ -80,6 +82,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
     </div>
     {carregando ? <p role="status">Carregando sabores...</p> : <>
       <h2 className="font-black">Escolha de {c.sabores_min} a {c.sabores_max} sabores</h2>
+      {erro && <p role="alert" aria-live="assertive" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{erro}</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {sabores.map(s => {
           const escolhido = escolha.sabores.find(item => item.id === s.id);
@@ -120,6 +123,5 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
         <button type="button" onClick={adicionar} disabled={!liberado || Boolean(aviso) || !dataValida} className="mt-3 min-h-[48px] w-full rounded-lg bg-viva-verde px-3 py-2 text-sm font-black text-viva-roxo disabled:opacity-40">{liberado ? 'Adicionar Plano ao Carrinho' : 'Disponível em 01/09'}</button>
       </div>
     </>}
-    {erro && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{erro}</p>}
   </section>;
 }

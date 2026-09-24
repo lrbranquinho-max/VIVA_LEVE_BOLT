@@ -72,6 +72,27 @@ export function distribuirSaboresComEstoque(total: number, produtos: Array<Pick<
   }
   return resultado;
 }
+export function distribuirSelecaoParcialComEstoque(total: number, produtos: Array<Pick<ProdutoPlano, 'id' | 'estoque' | 'estoque_reservado' | 'estoque_disponivel'>>) {
+  if (!Number.isInteger(total) || !produtos.length || new Set(produtos.map(p => p.id)).size !== produtos.length) return [];
+  const limites = produtos.map(produto => Math.max(0, Number(produto.estoque_disponivel ?? (Number(produto.estoque || 0) - Number(produto.estoque_reservado || 0)))));
+  if (limites.some(limite => limite < 1)) return [];
+  const alvo = Math.min(total, limites.reduce((soma, limite) => soma + limite, 0));
+  if (alvo < produtos.length) return [];
+  const resultado = produtos.map(produto => ({ id: produto.id, quantidade: 1 }));
+  let restante = alvo - resultado.length;
+  while (restante > 0) {
+    let distribuiu = false;
+    for (let i = 0; i < resultado.length && restante > 0; i++) {
+      if (resultado[i].quantidade < limites[i]) {
+        resultado[i].quantidade++;
+        restante--;
+        distribuiu = true;
+      }
+    }
+    if (!distribuiu) break;
+  }
+  return resultado;
+}
 export function validarEstoqueEscolhaPlano(sabores: SaborPlano[], produtos: Array<Pick<ProdutoPlano, 'id' | 'nome' | 'estoque' | 'estoque_reservado' | 'estoque_disponivel'>>) {
   for (const sabor of sabores) {
     const produto = produtos.find(item => item.id === sabor.id);
