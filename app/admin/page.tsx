@@ -1721,6 +1721,9 @@ export default function AdminPage() {
                   <Link href="/admin/notificacoes" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Notificações
                   </Link>
+                  <Link href="/admin/cupons" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Cupons de desconto
+                  </Link>
                   <Link href="/admin/financeiro" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Financeiro
                   </Link>
