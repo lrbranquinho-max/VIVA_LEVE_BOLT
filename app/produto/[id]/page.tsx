@@ -12,6 +12,7 @@ import { useStoreLaunch } from '../../../hooks/useStoreLaunch';
 import PlanoKitSelector from '@/components/PlanoKitSelector';
 import { PlanoConfig } from '@/lib/planosMarmitas';
 import { estoqueDisponivelProduto } from '@/lib/stock';
+import { valoresNutricionaisParaExibicao } from '@/lib/storeProducts';
 
 interface Produto {
   tipo_produto?: 'avulso' | 'kit';
@@ -115,6 +116,7 @@ export default function ProdutoDetalhePage() {
 
   const estoqueDisponivel = estoqueDisponivelProduto(produto);
   const total = useMemo(() => Number(produto?.preco ?? 0) * quantidade, [produto?.preco, quantidade]);
+  const nutricao = valoresNutricionaisParaExibicao(produto);
 
   const adicionarAoCarrinho = () => {
     if (!produto) return;
@@ -221,6 +223,7 @@ export default function ProdutoDetalhePage() {
           {produto.tipo_produto === 'kit' ? <PlanoKitSelector produto={produto} liberado={vendasLiberadas} /> : <>
           <div className="rounded-2xl bg-white p-5 shadow-sm">
             <h2 className="text-xs font-black uppercase tracking-wider text-gray-400">Informacoes nutricionais</h2>
+            {nutricao.referentePorcaoTotal && <p className="mt-1 text-xs font-semibold text-gray-500">Valores referentes à porção total de {formatarNumeroBR(produto.porcao_g || 0, 0)}g.</p>}
             <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs md:grid-cols-5">
               <div className="rounded-xl bg-gray-50 p-3">
                 <p className="font-black text-gray-400">Porcao</p>
@@ -228,19 +231,19 @@ export default function ProdutoDetalhePage() {
               </div>
               <div className="rounded-xl bg-gray-50 p-3">
                 <p className="font-black text-gray-400">Kcal</p>
-                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(produto.kcal, 0)}</p>
+                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(nutricao.kcal, 0)}</p>
               </div>
               <div className="rounded-xl bg-gray-50 p-3">
                 <p className="font-black text-gray-400">Prot.</p>
-                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(produto.proteinas)}g</p>
+                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(nutricao.proteinas)}g</p>
               </div>
               <div className="rounded-xl bg-gray-50 p-3">
                 <p className="font-black text-gray-400">Carb.</p>
-                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(produto.carboidratos)}g</p>
+                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(nutricao.carboidratos)}g</p>
               </div>
               <div className="rounded-xl bg-gray-50 p-3">
                 <p className="font-black text-gray-400">Gord.</p>
-                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(produto.gorduras)}g</p>
+                <p className="mt-1 font-black text-gray-800">{formatarNumeroBR(nutricao.gorduras)}g</p>
               </div>
             </div>
           </div>

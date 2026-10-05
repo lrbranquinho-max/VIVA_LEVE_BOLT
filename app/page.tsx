@@ -15,7 +15,7 @@ import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/payment
 import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
 import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, configurarEntregasPlano, diaSemana, lerKitsCarrinho, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
-import { ordenarProdutosLoja } from '@/lib/storeProducts';
+import { ordenarProdutosLoja, valoresNutricionaisParaExibicao } from '@/lib/storeProducts';
 import LojaAccessTracker from '@/components/LojaAccessTracker';
 import { estoqueDisponivelProduto } from '@/lib/stock';
 
@@ -1126,6 +1126,7 @@ export default function LojaCliente() {
               <h3 className="mb-2 mt-3 text-xs font-bold uppercase tracking-widest text-gray-400">{cat || 'Outros'}</h3>
               <div className="space-y-3 md:grid md:grid-cols-2 md:gap-4 md:space-y-0 lg:grid-cols-3">
                 {produtos.filter(p => p.categoria === cat).map(item => {
+                  const nutricao = valoresNutricionaisParaExibicao(item);
                   return (
                   <div key={item.id} className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
                     {!vendasLiberadas ? (
@@ -1162,12 +1163,12 @@ export default function LojaCliente() {
                         {(item.kcal > 0 || item.proteinas > 0 || item.carboidratos > 0 || item.gorduras > 0 || item.porcao_g) && (
                           <>
                           <p className="mt-1 text-[10px] text-gray-400">
-                            {item.porcao_g ? <><strong className="font-black text-gray-600">porcao</strong> {formatarNumeroBR(item.porcao_g, 0)}g · </> : ''}
-                            {formatarNumeroBR(item.kcal, 0)} kcal · {formatarNumeroBR(item.proteinas)}g prot · {formatarNumeroBR(item.carboidratos)}g carb · {formatarNumeroBR(item.gorduras)}g gord
+                            {item.porcao_g ? <><strong className="font-black text-gray-600">{nutricao.referentePorcaoTotal ? 'porção total' : 'porção'}</strong> {formatarNumeroBR(item.porcao_g, 0)}g · </> : ''}
+                            {formatarNumeroBR(nutricao.kcal, 0)} kcal · {formatarNumeroBR(nutricao.proteinas)}g prot · {formatarNumeroBR(nutricao.carboidratos)}g carb · {formatarNumeroBR(nutricao.gorduras)}g gord
                           </p>
                           <p className="hidden">
                             {item.porcao_g ? `${formatarNumeroBR(item.porcao_g, 0)}g porcao · ` : ''}
-                            {formatarNumeroBR(item.kcal, 0)} kcal · {formatarNumeroBR(item.proteinas)}g prot · {formatarNumeroBR(item.carboidratos)}g carb · {formatarNumeroBR(item.gorduras)}g gord
+                            {formatarNumeroBR(nutricao.kcal, 0)} kcal · {formatarNumeroBR(nutricao.proteinas)}g prot · {formatarNumeroBR(nutricao.carboidratos)}g carb · {formatarNumeroBR(nutricao.gorduras)}g gord
                           </p>
                           </>
                         )}
