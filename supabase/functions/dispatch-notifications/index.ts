@@ -46,15 +46,65 @@ async function accessTokenFirebase(serviceAccountRaw: string) {
   return fcmCache.token;
 }
 
-async function enviarFirebase(serviceAccountRaw: string, projectId: string, token: string, titulo: string, mensagem: string) {
+async function enviarFirebase(serviceAccountRaw: string, projectId: string, token: string, titulo: string, mensagem: string, url = '/') {
   const accessToken = await accessTokenFirebase(serviceAccountRaw);
   const resposta = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: { token, notification: { title: titulo, body: mensagem }, data: { url: '/' }, android: { priority: 'normal', notification: { channel_id: 'viva_leve_avisos', sound: 'default' } } } }),
+    body: JSON.stringify({ message: { token, notification: { title: titulo, body: mensagem }, data: { url }, android: { priority: 'normal', notification: { channel_id: 'viva_leve_avisos', sound: 'default' } } } }),
   });
   const corpo = await resposta.json().catch(() => ({}));
   return { ok: resposta.ok, invalido: resposta.status === 404 || JSON.stringify(corpo).includes('UNREGISTERED') };
+}
+
+async function enviarParaUsuarios(
+  admin: ReturnType<typeof createClient>,
+  usuarios: string[],
+  titulo: string,
+  mensagem: string,
+  url: string,
+  tag: string,
+  firebaseServiceAccount?: string,
+  firebaseProjectId?: string,
+  todosUsuarios = false,
+) {
+  const ids = Array.from(new Set(usuarios.filter(Boolean)));
+  if (!ids.length) return { enviados: 0, falhos: 0, fcmEnviados: 0, fcmFalhos: 0, dispositivos: 0, nativos: 0 };
+  let subscriptionsQuery = admin.from('push_subscriptions').select('id,user_id,endpoint,p256dh,auth').eq('ativo', true).limit(10000);
+  let nativeTokensQuery = admin.from('native_push_tokens').select('id,user_id,token,plataforma').eq('ativo', true).limit(10000);
+  if (!todosUsuarios) {
+    subscriptionsQuery = subscriptionsQuery.in('user_id', ids);
+    nativeTokensQuery = nativeTokensQuery.in('user_id', ids);
+  }
+  const [{ data: subscriptions }, { data: nativeTokens }] = await Promise.all([subscriptionsQuery, nativeTokensQuery]);
+  let enviados = 0; let falhos = 0; let fcmEnviados = 0; let fcmFalhos = 0;
+  const invalidos: string[] = []; const nativosInvalidos: string[] = [];
+  const payload = JSON.stringify({ title: titulo, body: mensagem, icon: '/icon-192x192.png', badge: '/icon-192x192.png', url, tag });
+  for (let index = 0; index < (subscriptions || []).length; index += 25) {
+    await Promise.all((subscriptions || []).slice(index, index + 25).map(async subscription => {
+      try {
+        await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload, { TTL: 24 * 60 * 60, urgency: 'normal' });
+        enviados += 1;
+      } catch (error: any) {
+        falhos += 1;
+        if ([404, 410].includes(Number(error?.statusCode))) invalidos.push(subscription.id);
+      }
+    }));
+  }
+  if (firebaseServiceAccount && firebaseProjectId) {
+    for (let index = 0; index < (nativeTokens || []).length; index += 25) {
+      await Promise.all((nativeTokens || []).slice(index, index + 25).map(async dispositivo => {
+        try {
+          const resultado = await enviarFirebase(firebaseServiceAccount, firebaseProjectId, dispositivo.token, titulo, mensagem, url);
+          if (resultado.ok) fcmEnviados += 1;
+          else { fcmFalhos += 1; if (resultado.invalido) nativosInvalidos.push(dispositivo.id); }
+        } catch { fcmFalhos += 1; }
+      }));
+    }
+  }
+  if (invalidos.length) await admin.from('push_subscriptions').update({ ativo: false, atualizado_em: new Date().toISOString() }).in('id', invalidos);
+  if (nativosInvalidos.length) await admin.from('native_push_tokens').update({ ativo: false, atualizado_em: new Date().toISOString() }).in('id', nativosInvalidos);
+  return { enviados, falhos, fcmEnviados, fcmFalhos, dispositivos: subscriptions?.length || 0, nativos: nativeTokens?.length || 0 };
 }
 
 Deno.serve(async request => {
@@ -91,17 +141,38 @@ Deno.serve(async request => {
   if (request.method === 'GET') return json({ publicKey: config?.vapid_public, nativePushConfigured: Boolean(firebaseServiceAccount && firebaseProjectId) });
   if (!config?.cron_secret || request.headers.get('x-cron-secret') !== config.cron_secret) return json({ error: 'Não autorizado.' }, 401);
 
+  webpush.setVapidDetails('mailto:contato@vivalevedf.com.br', config.vapid_public!, config.vapid_private!);
+  const body = await request.json().catch(() => ({})) as { tipo?: string; pedido_id?: number };
+  if (body.tipo === 'novo_pedido') {
+    const pedidoId = Number(body.pedido_id);
+    if (!Number.isSafeInteger(pedidoId) || pedidoId <= 0) return json({ error: 'Pedido inválido.' }, 400);
+    const [{ data: pedido, error: pedidoError }, { data: roles, error: rolesError }] = await Promise.all([
+      admin.from('pedidos').select('id,valor_total,plano_id,pedido_origem_id').eq('id', pedidoId).maybeSingle(),
+      admin.from('admin_usuario_roles').select('user_id').eq('role', 'admin').eq('ativo', true).not('user_id', 'is', null),
+    ]);
+    if (pedidoError || rolesError) return json({ error: 'Não foi possível preparar a notificação administrativa.' }, 500);
+    if (!pedido || pedido.plano_id || pedido.pedido_origem_id) return json({ ok: true, processed: 0 });
+    const admins = Array.from(new Set((roles || []).map(role => role.user_id).filter(Boolean))) as string[];
+    if (!admins.length) return json({ ok: true, processed: 0, admins: 0 });
+    const titulo = 'Novo pedido recebido';
+    const mensagem = `Pedido #${pedido.id} no valor de ${Number(pedido.valor_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Acesse a Gestão de Pedidos.`;
+    const referenciaData = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const { data: inbox, error: inboxError } = await admin.from('notification_inbox').upsert(admins.map(userId => ({ pedido_id: pedido.id, user_id: userId, titulo, mensagem, referencia_data: referenciaData, url: '/admin' })), { onConflict: 'pedido_id,user_id', ignoreDuplicates: true }).select('id,user_id');
+    if (inboxError) return json({ error: 'Não foi possível registrar a notificação administrativa.' }, 500);
+    const novosAdmins = (inbox || []).map(item => item.user_id);
+    if (!novosAdmins.length) return json({ ok: true, processed: 0 });
+    const envio = await enviarParaUsuarios(admin, novosAdmins, titulo, mensagem, '/admin', `viva-leve-pedido-${pedido.id}`, firebaseServiceAccount, firebaseProjectId);
+    await admin.from('notification_deliveries').insert({ pedido_id: pedido.id, usuarios_inbox: novosAdmins.length, push_enviados: envio.enviados, push_falhos: envio.falhos, fcm_enviados: envio.fcmEnviados, fcm_falhos: envio.fcmFalhos, detalhes: { tipo: 'novo_pedido', subscriptions: envio.dispositivos, native_tokens: envio.nativos } });
+    return json({ ok: true, processed: 1, admins: novosAdmins.length });
+  }
+
   const { data: schedules, error: claimError } = await admin.rpc('claim_due_notification_schedules');
   if (claimError) return json({ error: claimError.message }, 500);
   if (!schedules?.length) return json({ ok: true, processed: 0 });
 
-  webpush.setVapidDetails('mailto:contato@vivalevedf.com.br', config.vapid_public!, config.vapid_private!);
-
-  const [{ data: perfis }, { data: clientes }, { data: subscriptions }, { data: nativeTokens }] = await Promise.all([
+  const [{ data: perfis }, { data: clientes }] = await Promise.all([
     admin.from('perfis').select('id').limit(10000),
     admin.from('perfis_clientes').select('id').limit(10000),
-    admin.from('push_subscriptions').select('id,user_id,endpoint,p256dh,auth').eq('ativo', true).limit(10000),
-    admin.from('native_push_tokens').select('id,user_id,token,plataforma').eq('ativo', true).limit(10000),
   ]);
   const usuarios = Array.from(new Set([...(perfis || []), ...(clientes || [])].map(item => item.id)));
 
@@ -112,6 +183,7 @@ Deno.serve(async request => {
       titulo: schedule.titulo,
       mensagem: schedule.mensagem,
       referencia_data: schedule.referencia_data,
+      url: '/',
     }));
     let inboxCount = 0;
     if (inbox.length) {
@@ -119,58 +191,15 @@ Deno.serve(async request => {
       inboxCount = data?.length || 0;
     }
 
-    let enviados = 0;
-    let falhos = 0;
-    let fcmEnviados = 0;
-    let fcmFalhos = 0;
-    const invalidos: string[] = [];
-    const nativosInvalidos: string[] = [];
-    const payload = JSON.stringify({
-      title: schedule.titulo,
-      body: schedule.mensagem,
-      icon: '/icon-192x192.png',
-      badge: '/icon-192x192.png',
-      url: '/',
-      tag: `viva-leve-${schedule.id}-${schedule.referencia_data}`,
-    });
-
-    for (let index = 0; index < (subscriptions || []).length; index += 25) {
-      const lote = (subscriptions || []).slice(index, index + 25);
-      await Promise.all(lote.map(async subscription => {
-        try {
-          await webpush.sendNotification({
-            endpoint: subscription.endpoint,
-            keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-          }, payload, { TTL: 24 * 60 * 60, urgency: 'normal' });
-          enviados += 1;
-        } catch (error: any) {
-          falhos += 1;
-          if ([404, 410].includes(Number(error?.statusCode))) invalidos.push(subscription.id);
-        }
-      }));
-    }
-    if (firebaseServiceAccount && firebaseProjectId) {
-      for (let index = 0; index < (nativeTokens || []).length; index += 25) {
-        const lote = (nativeTokens || []).slice(index, index + 25);
-        await Promise.all(lote.map(async dispositivo => {
-          try {
-            const resultado = await enviarFirebase(firebaseServiceAccount, firebaseProjectId!, dispositivo.token, schedule.titulo, schedule.mensagem);
-            if (resultado.ok) fcmEnviados += 1;
-            else { fcmFalhos += 1; if (resultado.invalido) nativosInvalidos.push(dispositivo.id); }
-          } catch { fcmFalhos += 1; }
-        }));
-      }
-    }
-    if (invalidos.length) await admin.from('push_subscriptions').update({ ativo: false, atualizado_em: new Date().toISOString() }).in('id', invalidos);
-    if (nativosInvalidos.length) await admin.from('native_push_tokens').update({ ativo: false, atualizado_em: new Date().toISOString() }).in('id', nativosInvalidos);
+    const envio = await enviarParaUsuarios(admin, usuarios, schedule.titulo, schedule.mensagem, '/', `viva-leve-${schedule.id}-${schedule.referencia_data}`, firebaseServiceAccount, firebaseProjectId, true);
     await admin.from('notification_deliveries').insert({
       schedule_id: schedule.id,
       usuarios_inbox: inboxCount,
-      push_enviados: enviados,
-      push_falhos: falhos,
-      fcm_enviados: fcmEnviados,
-      fcm_falhos: fcmFalhos,
-      detalhes: { subscriptions: subscriptions?.length || 0, native_tokens: nativeTokens?.length || 0, invalidated: invalidos.length, native_invalidated: nativosInvalidos.length, fcm_configured: Boolean(firebaseServiceAccount && firebaseProjectId) },
+      push_enviados: envio.enviados,
+      push_falhos: envio.falhos,
+      fcm_enviados: envio.fcmEnviados,
+      fcm_falhos: envio.fcmFalhos,
+      detalhes: { subscriptions: envio.dispositivos, native_tokens: envio.nativos, fcm_configured: Boolean(firebaseServiceAccount && firebaseProjectId) },
     });
   }
 

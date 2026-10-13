@@ -30,6 +30,10 @@ interface Pedido {
   endereco?: string;
   valor_total: number;
   total?: number;
+  subtotal_produtos?: number;
+  valor_frete?: number;
+  desconto_percentual?: number;
+  desconto_valor?: number;
   status: string;
   pagamento_status?: string | null;
   mercado_pago_status_detail?: string | null;
@@ -179,6 +183,8 @@ interface ExercicioCatalogo {
 }
 
 const STATUS_FLUXO = ['Pendente', 'Aguardando Pagamento', 'Recebido', 'Em Preparo', 'Saiu para Entrega', 'Entregue'];
+const PEDIDOS_ADMIN_DIAS = 30;
+const CAMPOS_PEDIDOS_ADMIN = 'id,cliente_id,endereco_entrega,endereco,valor_total,total,subtotal_produtos,valor_frete,desconto_percentual,desconto_valor,status,pagamento_status,mercado_pago_status_detail,meio_pagamento,cielo_return_code,cielo_return_message,itens,criado_em,created_at,tipo_venda,cliente_nome_balcao,cliente_telefone_balcao,observacoes_balcao,somente_planos,checkout_idempotencia,cancelado_admin_em,plano_id';
 const CATEGORIAS = ['Marmitas', 'Lanches Rápidos', 'Proteínas', 'Suplementos', 'Caldos', 'Naturais', 'Moda Fitness', 'Sua Dieta'];
 const PRODUTOS_IMAGE_BUCKETS = [
   process.env.NEXT_PUBLIC_SUPABASE_PRODUTOS_BUCKET,
@@ -321,6 +327,17 @@ function dataPedido(pedido: Pedido) {
 
 function totalPedido(pedido: Pedido) {
   return Number(pedido.valor_total ?? pedido.total ?? 0);
+}
+
+function subtotalPedido(pedido: Pedido) {
+  const cadastrado = Number(pedido.subtotal_produtos);
+  if (Number.isFinite(cadastrado) && cadastrado > 0) return cadastrado;
+  const calculado = (pedido.itens ?? []).reduce((total, item) => total + Number(item.subtotal ?? item.preco * item.quantidade), 0);
+  return calculado > 0 ? calculado : Math.max(totalPedido(pedido) - Number(pedido.valor_frete ?? 0) + Number(pedido.desconto_valor ?? 0), 0);
+}
+
+function inicioPeriodoPedidos(dias = PEDIDOS_ADMIN_DIAS) {
+  return new Date(Date.now() - dias * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function podeCancelarPedidoNaoPago(pedido: Pedido) {
@@ -716,10 +733,11 @@ export default function AdminPage() {
     try {
       const { data, error } = await supabase
         .from('pedidos')
-        .select('*')
+        .select(CAMPOS_PEDIDOS_ADMIN)
         .is('plano_id', null)
         .is('cancelado_admin_em', null)
         .not('status', 'ilike', '%cancelado%')
+        .gte('criado_em', inicioPeriodoPedidos())
         .order('criado_em', { ascending: false });
 
       if (error) throw error;
@@ -1784,7 +1802,10 @@ export default function AdminPage() {
                     <option value="">Todos os status</option>
                     {STATUS_FLUXO.map(status => <option key={status} value={status}>{status}</option>)}
                   </select>
-                  {carregandoPedidos && <span className="text-xs font-semibold text-gray-400">Carregando pedidos...</span>}
+                  <div className="text-right text-xs font-semibold text-gray-500">
+                    <p>Período consultado: últimos {PEDIDOS_ADMIN_DIAS} dias</p>
+                    {carregandoPedidos && <p className="text-gray-400">Carregando pedidos...</p>}
+                  </div>
                 </div>
               </div>
 
@@ -1842,9 +1863,11 @@ export default function AdminPage() {
                             <span className="font-bold text-gray-900">{formatarMoedaBR(item.subtotal ?? item.preco * item.quantidade)}</span>
                           </div>
                         ))}
-                        <div className="flex justify-between pt-2 text-lg font-black">
-                          <span>Total</span>
-                          <span>{formatarMoedaBR(totalPedido(pedido))}</span>
+                        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-gray-100 pt-3 sm:grid-cols-4">
+                          <div className="rounded-lg bg-gray-50 p-2"><p className="text-[10px] font-black uppercase text-gray-400">Valor pedido</p><p className="mt-1 font-black text-gray-900">{formatarMoedaBR(subtotalPedido(pedido))}</p></div>
+                          <div className="rounded-lg bg-gray-50 p-2"><p className="text-[10px] font-black uppercase text-gray-400">Frete</p><p className="mt-1 font-black text-gray-900">{formatarMoedaBR(pedido.valor_frete ?? 0)}</p></div>
+                          <div className="rounded-lg bg-green-50 p-2"><p className="text-[10px] font-black uppercase text-green-700">Desconto{Number(pedido.desconto_percentual ?? 0) > 0 ? ` (${formatarNumeroBR(pedido.desconto_percentual ?? 0, 2)}%)` : ''}</p><p className="mt-1 font-black text-green-800">- {formatarMoedaBR(pedido.desconto_valor ?? 0)}</p></div>
+                          <div className="rounded-lg bg-purple-50 p-2"><p className="text-[10px] font-black uppercase text-viva-roxo">Total pago</p><p className="mt-1 text-lg font-black text-viva-roxo">{formatarMoedaBR(totalPedido(pedido))}</p></div>
                         </div>
                       </div>
 

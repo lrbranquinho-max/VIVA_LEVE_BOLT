@@ -10,6 +10,7 @@ interface Notificacao {
   mensagem: string;
   criada_em: string;
   lida_em: string | null;
+  url?: string | null;
 }
 
 function chaveAplicacao(valor: string) {
@@ -28,7 +29,7 @@ export default function NotificationCenter() {
   const [mensagem, setMensagem] = useState('');
 
   const carregar = useCallback(async (id: string) => {
-    const { data } = await supabase.from('notification_inbox').select('id,titulo,mensagem,criada_em,lida_em').eq('user_id', id).order('criada_em', { ascending: false }).limit(30);
+    const { data } = await supabase.from('notification_inbox').select('id,titulo,mensagem,criada_em,lida_em,url').eq('user_id', id).order('criada_em', { ascending: false }).limit(30);
     setItens((data || []) as Notificacao[]);
   }, []);
 
@@ -46,7 +47,7 @@ export default function NotificationCenter() {
         setPushAtivo(ativo);
         if (ativo) registrarPushNativo(data.user.id, false).catch(() => undefined);
         const { PushNotifications } = await import('@capacitor/push-notifications');
-        acaoNativa = await PushNotifications.addListener('pushNotificationActionPerformed', () => { window.location.href = '/'; });
+        acaoNativa = await PushNotifications.addListener('pushNotificationActionPerformed', acao => { window.location.href = String(acao.notification.data?.url || '/'); });
         canal = supabase.channel(`notificacoes-${data.user.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notification_inbox', filter: `user_id=eq.${data.user.id}` }, () => carregar(data.user!.id)).subscribe();
         return;
       } else if ('serviceWorker' in navigator && 'PushManager' in window) {
@@ -137,7 +138,7 @@ export default function NotificationCenter() {
     {aberto && <section className="absolute right-0 top-13 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border bg-white shadow-2xl">
       <header className="flex items-center justify-between border-b p-4"><div><h2 className="font-black">Notificações</h2><p className="text-xs text-gray-500">Avisos da Viva Leve</p></div><button type="button" onClick={() => setAberto(false)} className="h-9 w-9 rounded-full bg-gray-100">×</button></header>
       <div className="border-b bg-purple-50 p-3"><button type="button" disabled={busy || pushAtivo} onClick={ativarPush} className="w-full rounded-lg bg-viva-roxo px-3 py-2 text-xs font-black text-white disabled:opacity-60">{pushAtivo ? `Notificações ativadas ${pushNativo ? 'no aplicativo' : 'neste dispositivo'}` : busy ? 'Ativando...' : `Ativar notificações ${pushNativo ? 'no aplicativo' : 'neste dispositivo'}`}</button>{mensagem && <p role="status" className="mt-2 text-xs text-gray-700">{mensagem}</p>}</div>
-      <div className="max-h-[55vh] overflow-y-auto">{itens.map(item => <article key={item.id} className={`border-b p-4 ${item.lida_em ? 'bg-white' : 'bg-emerald-50'}`}><div className="flex items-start justify-between gap-2"><h3 className="text-sm font-black">{item.titulo}</h3>{!item.lida_em && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-600"/>}</div><p className="mt-1 text-sm text-gray-700">{item.mensagem}</p><time className="mt-2 block text-[10px] text-gray-400">{new Date(item.criada_em).toLocaleString('pt-BR')}</time></article>)}{!itens.length && <p className="p-6 text-center text-sm text-gray-400">Nenhuma notificação recebida.</p>}</div>
+      <div className="max-h-[55vh] overflow-y-auto">{itens.map(item => <article key={item.id} className={`border-b ${item.lida_em ? 'bg-white' : 'bg-emerald-50'}`}><button type="button" onClick={() => { if (item.url) window.location.href = item.url; }} className="w-full p-4 text-left"><div className="flex items-start justify-between gap-2"><h3 className="text-sm font-black">{item.titulo}</h3>{!item.lida_em && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-600"/>}</div><p className="mt-1 text-sm text-gray-700">{item.mensagem}</p><time className="mt-2 block text-[10px] text-gray-400">{new Date(item.criada_em).toLocaleString('pt-BR')}</time></button></article>)}{!itens.length && <p className="p-6 text-center text-sm text-gray-400">Nenhuma notificação recebida.</p>}</div>
       {naoLidas > 0 && <footer className="p-3"><button type="button" onClick={marcarComoLidas} className="w-full rounded-lg border px-3 py-2 text-xs font-black text-viva-roxo">Marcar todas como lidas</button></footer>}
     </section>}
   </div>;

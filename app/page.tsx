@@ -79,8 +79,6 @@ interface Toast {
   tipo: 'sucesso' | 'erro' | 'info';
 }
 
-const LIMITE_DESCONTO_AUTOMATICO = 300;
-const DESCONTO_AUTOMATICO_PERCENTUAL = 10;
 const CARRINHO_STORAGE_KEY = 'viva-leve-carrinho';
 const LOJA_CONFIG_PADRAO = {
   cupom_boas_vindas_percentual: 30,
@@ -442,9 +440,8 @@ export default function LojaCliente() {
 
   const cupomSelecionado = cupons.find(cupom => cupom.id === cupomSelecionadoId);
   const descontoCupomPercentual = Number(cupomSelecionado?.percentual_desconto ?? 0);
-  const descontoAutomaticoPercentual = subtotalProdutos >= LIMITE_DESCONTO_AUTOMATICO ? DESCONTO_AUTOMATICO_PERCENTUAL : 0;
   const descontoDiaDPercentual = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
-  const descontoPercentual = Math.max(descontoCupomPercentual, descontoAutomaticoPercentual, descontoDiaDPercentual);
+  const descontoPercentual = Math.max(descontoCupomPercentual, descontoDiaDPercentual);
   const descontoValor = subtotalProdutos * (descontoPercentual / 100);
   const freteGratisKitSabado = Object.keys(carrinho).length > 0 && Object.keys(carrinho).every(id => {
     const produto = produtos.find(item => item.id === Number(id));
@@ -459,7 +456,6 @@ export default function LojaCliente() {
   const mensagensPromocionais = useMemo(() => {
     const mensagens = [
       '🚚 Prazo de entrega: 24hs (amanhã).',
-      `💸 Ganhe ${DESCONTO_AUTOMATICO_PERCENTUAL}% de desconto em compras acima de ${formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)}.`,
       '📦 Kits com entrega programada para sábado têm frete grátis.',
       '🛵 Pedidos avulsos têm cobrança de frete em qualquer valor.',
     ];
@@ -854,10 +850,9 @@ export default function LojaCliente() {
       const subtotalValidado = listaItens.reduce((total, item) => total + item.subtotal, 0);
       const freteGratisValidado = listaItens.length > 0 && listaItens.every(item => item.tipo_produto === 'kit' && item.plano?.primeira_data && diaSemana(item.plano.primeira_data) === 6);
       const freteValidado = subtotalValidado > 0 && !freteGratisValidado ? lojaConfig.taxa_entrega_padrao : 0;
-      const descontoAutomaticoValidado = subtotalValidado >= LIMITE_DESCONTO_AUTOMATICO ? DESCONTO_AUTOMATICO_PERCENTUAL : 0;
       const descontoCupomValidado = cupomSelecionado ? Number(cupomSelecionado.percentual_desconto) : 0;
       const descontoDiaDValidado = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
-      const descontoPercentualValidado = Math.max(descontoAutomaticoValidado, descontoCupomValidado, descontoDiaDValidado);
+      const descontoPercentualValidado = Math.max(descontoCupomValidado, descontoDiaDValidado);
       const descontoValorValidado = subtotalValidado * (descontoPercentualValidado / 100);
       let valorTotal = Math.max(subtotalValidado - descontoValorValidado + freteValidado, 0);
       const assinaturaPlano = JSON.stringify([user.id, listaItens, metodoPagamento, bandeiraPresencial, cupomSelecionado?.id]);
@@ -1235,9 +1230,9 @@ export default function LojaCliente() {
                     );
                   })}
 
-                  <div className="rounded-xl bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
-                    Pedidos avulsos sempre têm frete. Kits programados para sábado têm frete grátis. Compras acima de {formatarMoedaBR(LIMITE_DESCONTO_AUTOMATICO)} ganham 10% de desconto.
-                  </div>
+                  {temPlanos && <div className="rounded-xl bg-viva-verde/20 p-3 text-center text-xs font-black text-viva-roxo">
+                    Kits programados para entrega aos sábados têm frete grátis.
+                  </div>}
 
                   {cupons.length > 0 && (
                     <div className="rounded-xl border border-purple-100 bg-purple-50 p-3">
