@@ -19,10 +19,15 @@ const eventProperties = z.object({
   content_name: z.union([z.string().max(500), z.array(z.string().max(500)).max(100)]).optional(),
   content_type: z.literal('product').optional(), quantity: z.number().int().nonnegative().max(10_000).optional(),
   num_items: z.number().int().nonnegative().max(10_000).optional(), payment_method: z.string().max(100).optional(),
+  original_price: z.number().finite().nonnegative().max(1_000_000).optional(),
+  discount_percent: z.number().finite().min(0).max(100).optional(),
+  final_price: z.number().finite().nonnegative().max(1_000_000).optional(),
+  discount_campaign: z.string().max(100).optional(), discount_coupon_id: z.string().uuid().optional(),
+  has_discount: z.boolean().optional(),
 }).strict();
 const schema = z.object({
   eventId: z.string().uuid(),
-  eventName: z.enum(['store_visit', 'product_view', 'add_to_cart', 'checkout_started', 'payment_started', 'purchase', 'whatsapp_click', 'instagram_click']),
+  eventName: z.enum(['store_visit', 'product_impression', 'product_click', 'product_view', 'add_to_cart', 'checkout_started', 'payment_started', 'purchase', 'whatsapp_click', 'instagram_click']),
   sessaoId: z.string().uuid(), firstTouch: attribution, lastTouch: attribution,
   metaConsent: z.boolean(), produtoId: z.number().int().positive().optional(), pedidoId: z.number().int().positive().optional(),
   pagina: z.string().max(2000).optional(), propriedades: eventProperties.default({}),

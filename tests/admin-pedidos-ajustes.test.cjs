@@ -29,7 +29,8 @@ test('loja remove desconto automático por valor e limita aviso da sacola aos ki
   assert.doesNotMatch(loja, /LIMITE_DESCONTO_AUTOMATICO|DESCONTO_AUTOMATICO_PERCENTUAL|descontoAutomatico/);
   assert.doesNotMatch(loja, /Compras acima de/);
   assert.match(loja, /\{temPlanos && <div[\s\S]{0,250}Kits programados para entrega aos sábados têm frete grátis\./);
-  assert.match(loja, /Math\.max\(descontoCupomPercentual, descontoDiaDPercentual\)/);
+  assert.match(loja, /resolveStoreDiscount\(cupomSelecionado, lojaConfig\)/);
+  assert.match(loja, /cupomEfetivoId/);
 });
 
 test('banco elimina frete grátis por valor e aceita somente cupom ou Dia D', () => {

@@ -14,6 +14,9 @@ import { PlanoConfig } from '@/lib/planosMarmitas';
 import { estoqueDisponivelProduto } from '@/lib/stock';
 import { valoresNutricionaisParaExibicao } from '@/lib/storeProducts';
 import { registrarEventoLoja } from '@/lib/storeAnalytics';
+import { useStoreDiscount } from '@/hooks/useStoreDiscount';
+import DiscountPrice from '@/components/DiscountPrice';
+import { discountAnalyticsProperties } from '@/lib/storeDiscounts';
 
 interface Produto {
   tipo_produto?: 'avulso' | 'kit';
@@ -46,13 +49,6 @@ function formatarNumeroBR(valor: number | string, casas = 1) {
   });
 }
 
-function formatarMoedaBR(valor: number | string) {
-  return Number(valor || 0).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  });
-}
-
 function lerCarrinho(): Record<number, number> {
   try {
     return JSON.parse(localStorage.getItem(CARRINHO_STORAGE_KEY) || '{}');
@@ -74,6 +70,7 @@ export default function ProdutoDetalhePage() {
   const [carregando, setCarregando] = useState(true);
   const [toast, setToast] = useState('');
   const [dataLiberacaoVendas, setDataLiberacaoVendas] = useState(DEFAULT_STORE_LAUNCH_AT);
+  const { benefit: beneficioDisponivel, loaded: descontoCarregado } = useStoreDiscount();
   const { vendasLiberadas, dataLiberacaoCurta } = useStoreLaunch({ data_liberacao_vendas: dataLiberacaoVendas });
 
   const mostrarToast = useCallback((texto: string) => {
@@ -120,9 +117,10 @@ export default function ProdutoDetalhePage() {
   const nutricao = valoresNutricionaisParaExibicao(produto);
 
   useEffect(() => {
-    if (!produto) return;
-    void registrarEventoLoja('product_view', { value: Number(produto.preco), currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product' }, { produtoId: produto.id, dedupeKey: `product-view-${produto.id}` });
-  }, [produto]);
+    if (!produto || !descontoCarregado) return;
+    const precos = discountAnalyticsProperties(Number(produto.preco), beneficioDisponivel);
+    void registrarEventoLoja('product_view', { value: precos.final_price, currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', ...precos }, { produtoId: produto.id, dedupeKey: `product-view-${produto.id}` });
+  }, [beneficioDisponivel, descontoCarregado, produto]);
 
   const adicionarAoCarrinho = () => {
     if (!produto) return;
@@ -145,7 +143,8 @@ export default function ProdutoDetalhePage() {
     }
 
     salvarCarrinho({ ...carrinho, [produto.id]: proximaQuantidade });
-    void registrarEventoLoja('add_to_cart', { value: Number(produto.preco) * quantidade, currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: quantidade, num_items: quantidade }, { produtoId: produto.id });
+    const precos = discountAnalyticsProperties(Number(produto.preco) * quantidade, beneficioDisponivel);
+    void registrarEventoLoja('add_to_cart', { value: precos.final_price, currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: quantidade, num_items: quantidade, ...precos }, { produtoId: produto.id });
     mostrarToast('Produto adicionado a sacola.');
     window.setTimeout(() => router.push('/'), 600);
   };
@@ -210,7 +209,7 @@ export default function ProdutoDetalhePage() {
           <div className="rounded-2xl bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wider text-viva-roxo">{produto.categoria || 'Produto'}</p>
             <h1 className="mt-2 text-2xl font-black leading-tight text-gray-900">{produto.nome}</h1>
-            <p className="mt-3 text-2xl font-black text-viva-roxo">{formatarMoedaBR(produto.preco)}</p>
+            <div className="mt-3"><DiscountPrice price={Number(produto.preco)} benefit={beneficioDisponivel} /></div>
             {!vendasLiberadas ? (
               <span className="mt-3 inline-flex rounded-md bg-viva-roxo px-3 py-1.5 text-xs font-black text-viva-verde shadow-sm">
                 Disponível a partir de {dataLiberacaoCurta}
@@ -227,7 +226,7 @@ export default function ProdutoDetalhePage() {
             </p>
           </div>
 
-          {produto.tipo_produto === 'kit' ? <PlanoKitSelector produto={produto} liberado={vendasLiberadas} /> : <>
+          {produto.tipo_produto === 'kit' ? <PlanoKitSelector produto={produto} liberado={vendasLiberadas} discountBenefit={beneficioDisponivel} /> : <>
           <div className="rounded-2xl bg-white p-5 shadow-sm">
             <h2 className="text-xs font-black uppercase tracking-wider text-gray-400">Informacoes nutricionais</h2>
             {nutricao.referentePorcaoTotal && <p className="mt-1 text-xs font-semibold text-gray-500">Valores referentes à porção total de {formatarNumeroBR(produto.porcao_g || 0, 0)}g.</p>}
@@ -259,7 +258,7 @@ export default function ProdutoDetalhePage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase tracking-wider text-gray-400">Quantidade</p>
-                <p className="mt-1 text-lg font-black text-gray-900">Total: {formatarMoedaBR(total)}</p>
+                <div className="mt-1"><DiscountPrice price={total} benefit={beneficioDisponivel} compact /></div>
               </div>
               <div className="flex items-center gap-3">
                 <button type="button" onClick={() => setQuantidade(prev => Math.max(prev - 1, 1))} className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-lg font-black text-gray-600">-</button>

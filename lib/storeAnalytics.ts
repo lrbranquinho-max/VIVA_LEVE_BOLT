@@ -3,7 +3,7 @@
 import { supabase } from '@/supabase';
 
 export type StoreEventName =
-  | 'store_visit' | 'product_view' | 'add_to_cart' | 'checkout_started'
+  | 'store_visit' | 'product_impression' | 'product_click' | 'product_view' | 'add_to_cart' | 'checkout_started'
   | 'payment_started' | 'purchase' | 'whatsapp_click' | 'instagram_click';
 
 export type Attribution = {
@@ -16,7 +16,8 @@ type Session = { id: string; createdAt: number; lastSeenAt: number; firstTouch: 
 type EventProperties = {
   value?: number; currency?: 'BRL'; content_ids?: Array<string | number>;
   content_name?: string | string[]; content_type?: 'product'; quantity?: number;
-  num_items?: number; [key: string]: unknown;
+  num_items?: number; original_price?: number; discount_percent?: number; final_price?: number;
+  discount_campaign?: string; discount_coupon_id?: string; has_discount?: boolean; [key: string]: unknown;
 };
 
 const SESSION_KEY = 'viva-leve-analytics-session-v1';

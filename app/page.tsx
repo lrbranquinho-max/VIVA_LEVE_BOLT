@@ -19,6 +19,9 @@ import { ordenarProdutosLoja, valoresNutricionaisParaExibicao } from '@/lib/stor
 import LojaAccessTracker from '@/components/LojaAccessTracker';
 import { estoqueDisponivelProduto } from '@/lib/stock';
 import { registrarEventoLoja, registrarPurchaseConfirmado, vincularPedidoAnalytics } from '@/lib/storeAnalytics';
+import DiscountPrice from '@/components/DiscountPrice';
+import DiscountProductImpression from '@/components/DiscountProductImpression';
+import { bestStoreCoupon, calculateDiscountedPrice, calculateDiscountValue, discountAnalyticsProperties, resolveStoreDiscount } from '@/lib/storeDiscounts';
 
 declare global {
   interface Window {
@@ -289,8 +292,9 @@ export default function LojaCliente() {
 
     if (error) return;
     const lista = (data ?? []) as CupomDesconto[];
+    const melhorCupom = bestStoreCoupon(lista);
     setCupons(lista);
-    setCupomSelecionadoId(lista[0]?.id ?? '');
+    setCupomSelecionadoId(melhorCupom?.id ?? '');
   }, []);
 
   const carregarLojaConfig = useCallback(async () => {
@@ -440,17 +444,16 @@ export default function LojaCliente() {
   }, 0), [carrinho, produtos]);
 
   const cupomSelecionado = cupons.find(cupom => cupom.id === cupomSelecionadoId);
-  const descontoCupomPercentual = Number(cupomSelecionado?.percentual_desconto ?? 0);
-  const descontoDiaDPercentual = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
-  const descontoPercentual = Math.max(descontoCupomPercentual, descontoDiaDPercentual);
-  const descontoValor = subtotalProdutos * (descontoPercentual / 100);
+  const beneficioDisponivel = resolveStoreDiscount(cupomSelecionado, lojaConfig);
+  const descontoPercentual = beneficioDisponivel?.percent ?? 0;
+  const descontoValor = calculateDiscountValue(subtotalProdutos, descontoPercentual);
   const freteGratisKitSabado = Object.keys(carrinho).length > 0 && Object.keys(carrinho).every(id => {
     const produto = produtos.find(item => item.id === Number(id));
     const escolha = kitsCarrinho[Number(id)];
     return produto?.tipo_produto === 'kit' && Boolean(escolha?.primeira_data) && diaSemana(escolha.primeira_data) === 6;
   });
   const valorFrete = subtotalProdutos > 0 && !freteGratisKitSabado ? lojaConfig.taxa_entrega_padrao : 0;
-  const totalPedidoFinal = Math.max(subtotalProdutos - descontoValor + valorFrete, 0);
+  const totalPedidoFinal = Math.max(calculateDiscountedPrice(subtotalProdutos, descontoPercentual) + valorFrete, 0);
   const creditoPrevisto = Math.min(Number(creditoValidado?.valorDisponivel || 0), totalPedidoFinal);
   const totalAposCredito = Math.max(totalPedidoFinal - creditoPrevisto, 0);
   const totalItens = Object.values(carrinho).reduce((a, b) => a + b, 0);
@@ -561,7 +564,8 @@ export default function LojaCliente() {
 
     setCarrinho(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     adicionarToast(`${produto.nome} adicionado!`, 'sucesso');
-    void registrarEventoLoja('add_to_cart', { value: Number(produto.preco), currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: 1, num_items: 1 }, { produtoId: produto.id });
+    const precos = discountAnalyticsProperties(Number(produto.preco), beneficioDisponivel);
+    void registrarEventoLoja('add_to_cart', { value: precos.final_price, currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: 1, num_items: 1, ...precos }, { produtoId: produto.id });
   };
 
   const removerDoCarrinho = (id: number) => {
@@ -794,6 +798,7 @@ export default function LojaCliente() {
     void registrarEventoLoja('checkout_started', {
       value: Number(totalPedidoFinal), currency: 'BRL', content_ids: Object.keys(carrinho).map(Number),
       content_name: Object.keys(carrinho).map(id => produtos.find(item => item.id === Number(id))?.nome || 'Produto'), content_type: 'product', num_items: totalItens,
+      ...discountAnalyticsProperties(subtotalProdutos, beneficioDisponivel),
     }, { dedupeKey: `checkout-${JSON.stringify(carrinho)}` });
 
     setEnviando(true);
@@ -854,22 +859,42 @@ export default function LojaCliente() {
         };
       });
 
+      const [cuponsAtuaisRes, configAtualRes] = await Promise.all([
+        supabase.from('cupons_desconto').select('id, percentual_desconto, data_validade')
+          .eq('cliente_id', user.id).eq('status', 'aberto').gte('data_validade', new Date().toISOString()),
+        supabase.from('app_config').select('valor').eq('chave', 'loja_config').maybeSingle(),
+      ]);
+      if (cuponsAtuaisRes.error) throw new Error('Não foi possível validar o cupom antes do pagamento. Tente novamente.');
+      if (configAtualRes.error || !configAtualRes.data?.valor) throw new Error('Não foi possível validar as condições comerciais. Tente novamente.');
+      const cuponsAtuais = (cuponsAtuaisRes.data ?? []) as CupomDesconto[];
+      const cupomValidado = cuponsAtuais.find(cupom => cupom.id === cupomSelecionadoId) ?? null;
+      if (cupomSelecionadoId && !cupomValidado) {
+        setCupons(cuponsAtuais);
+        setCupomSelecionadoId(bestStoreCoupon(cuponsAtuais)?.id ?? '');
+        throw new Error('O cupom selecionado expirou ou não está mais disponível. Revise a sacola antes de pagar.');
+      }
+      const configValidada = normalizarLojaConfig(configAtualRes.data.valor);
+      const beneficioValidado = resolveStoreDiscount(cupomValidado, configValidada);
+      const cupomEfetivoId = beneficioValidado?.source === 'user_coupon' ? beneficioValidado.couponId : null;
+      setLojaConfig(configValidada);
+      setCupons(cuponsAtuais);
+
       const subtotalValidado = listaItens.reduce((total, item) => total + item.subtotal, 0);
       const freteGratisValidado = listaItens.length > 0 && listaItens.every(item => item.tipo_produto === 'kit' && item.plano?.primeira_data && diaSemana(item.plano.primeira_data) === 6);
-      const freteValidado = subtotalValidado > 0 && !freteGratisValidado ? lojaConfig.taxa_entrega_padrao : 0;
-      const descontoCupomValidado = cupomSelecionado ? Number(cupomSelecionado.percentual_desconto) : 0;
-      const descontoDiaDValidado = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
-      const descontoPercentualValidado = Math.max(descontoCupomValidado, descontoDiaDValidado);
-      const descontoValorValidado = subtotalValidado * (descontoPercentualValidado / 100);
-      let valorTotal = Math.max(subtotalValidado - descontoValorValidado + freteValidado, 0);
-      const assinaturaPlano = JSON.stringify([user.id, listaItens, metodoPagamento, bandeiraPresencial, cupomSelecionado?.id]);
+      const freteValidado = subtotalValidado > 0 && !freteGratisValidado ? configValidada.taxa_entrega_padrao : 0;
+      const descontoPercentualValidado = beneficioValidado?.percent ?? 0;
+      const descontoValorValidado = calculateDiscountValue(subtotalValidado, descontoPercentualValidado);
+      let valorTotal = Math.max(calculateDiscountedPrice(subtotalValidado, descontoPercentualValidado) + freteValidado, 0);
+      const creditoPrevistoValidado = Math.min(Number(creditoValidado?.valorDisponivel || 0), valorTotal);
+      const totalAposCreditoValidado = Math.max(valorTotal - creditoPrevistoValidado, 0);
+      const assinaturaPlano = JSON.stringify([user.id, listaItens, metodoPagamento, bandeiraPresencial, cupomEfetivoId]);
       if (tentativaPlano.current.assinatura !== assinaturaPlano) tentativaPlano.current = { assinatura: assinaturaPlano, id: crypto.randomUUID() };
 
       const { data: pedidoCriado, error: errPedido } = temPlanos ? await supabase.rpc('criar_pedido_com_planos', {
         p_itens: listaItens,
-        p_metodo: totalAposCredito <= 0 ? 'credito' : metodoPagamento,
+        p_metodo: totalAposCreditoValidado <= 0 ? 'credito' : metodoPagamento,
         p_bandeira: metodoPagamento === 'voucher_presencial' ? bandeiraPresencial : null,
-        p_cupom_id: cupomSelecionado?.id ?? null,
+        p_cupom_id: cupomEfetivoId,
         p_idempotencia: tentativaPlano.current.id,
       }) : await supabase
         .from('pedidos')
@@ -880,7 +905,7 @@ export default function LojaCliente() {
           valor_frete: freteValidado,
           desconto_percentual: descontoPercentualValidado,
           desconto_valor: descontoValorValidado,
-          cupom_id: cupomSelecionado?.id ?? null,
+          cupom_id: cupomEfetivoId,
           valor_total: valorTotal,
           itens: listaItens,
           status: 'Aguardando Pagamento',
@@ -892,7 +917,15 @@ export default function LojaCliente() {
       if (!pedidoCriado?.id) throw new Error('O banco não retornou o identificador do pedido.');
       pedidoIdCriado = pedidoCriado.id;
       await vincularPedidoAnalytics(pedidoCriado.id);
-      if (temPlanos) valorTotal = Number(pedidoCriado.valor_total);
+      const { data: financeiroConfirmado, error: financeiroError } = await supabase.from('pedidos')
+        .select('valor_total,subtotal_produtos,valor_frete,desconto_percentual,desconto_valor,cupom_id')
+        .eq('id', pedidoCriado.id).maybeSingle();
+      if (financeiroError || !financeiroConfirmado) throw new Error('O pedido foi criado, mas não foi possível confirmar o valor final. Nenhum pagamento foi iniciado.');
+      valorTotal = Number(financeiroConfirmado.valor_total ?? 0);
+      const totalEsperado = Math.max(calculateDiscountedPrice(subtotalValidado, descontoPercentualValidado) + freteValidado, 0);
+      if (Math.abs(valorTotal - totalEsperado) > 0.01 || Number(financeiroConfirmado.desconto_percentual ?? 0) !== descontoPercentualValidado) {
+        throw new Error('As condições comerciais foram atualizadas durante a compra. Nenhum pagamento foi iniciado; revise a sacola e tente novamente.');
+      }
       if (temPlanos && valorTotal === 0) {
         setCarrinho({}); setVerCarrinho(false);
         adicionarToast('Plano confirmado!', 'sucesso');
@@ -972,7 +1005,11 @@ export default function LojaCliente() {
       const pagamento = await respostaPagamento.json();
       if (!respostaPagamento.ok) throw new Error(pagamento.error || 'Erro ao iniciar pagamento.');
       pagamentoIniciado = true;
-      void registrarEventoLoja('payment_started', { value: Number(valorTotal), currency: 'BRL', content_ids: listaItens.map(item => item.id), content_name: listaItens.map(item => item.nome), content_type: 'product', num_items: listaItens.reduce((sum, item) => sum + item.quantidade, 0), payment_method: metodoPagamento }, { pedidoId: pedidoCriado.id, dedupeKey: `payment-${pedidoCriado.id}` });
+      void registrarEventoLoja('payment_started', {
+        value: Number(valorTotal), currency: 'BRL', content_ids: listaItens.map(item => item.id), content_name: listaItens.map(item => item.nome),
+        content_type: 'product', num_items: listaItens.reduce((sum, item) => sum + item.quantidade, 0), payment_method: metodoPagamento,
+        ...discountAnalyticsProperties(subtotalValidado, beneficioValidado),
+      }, { pedidoId: pedidoCriado.id, dedupeKey: `payment-${pedidoCriado.id}` });
 
       if (metodoPagamento === 'pix') {
         setPixGerado({
@@ -1133,8 +1170,14 @@ export default function LojaCliente() {
               <div className="space-y-3 md:grid md:grid-cols-2 md:gap-4 md:space-y-0 lg:grid-cols-3">
                 {produtos.filter(p => p.categoria === cat).map(item => {
                   const nutricao = valoresNutricionaisParaExibicao(item);
+                  const precosCatalogo = discountAnalyticsProperties(Number(item.preco), beneficioDisponivel);
+                  const registrarCliqueProduto = () => void registrarEventoLoja('product_click', {
+                    value: precosCatalogo.final_price, currency: 'BRL', content_ids: [item.id], content_name: item.nome, content_type: 'product',
+                    ...precosCatalogo,
+                  }, { produtoId: item.id });
                   return (
                   <div key={item.id} className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                    <DiscountProductImpression product={item} benefit={beneficioDisponivel} />
                     {!vendasLiberadas ? (
                       <span className="absolute right-3 top-3 z-10 rounded-md bg-viva-roxo px-2.5 py-1 text-[10px] font-black text-viva-verde shadow-sm">
                         Disponível a partir de {dataLiberacaoCurta}
@@ -1144,7 +1187,7 @@ export default function LojaCliente() {
                         ESGOTADO
                       </span>
                     ) : null}
-                    <Link href={`/produto/${item.id}`} className="flex w-full gap-4 p-4 text-left transition hover:bg-gray-50">
+                    <Link href={`/produto/${item.id}`} onClick={registrarCliqueProduto} className="flex w-full gap-4 p-4 text-left transition hover:bg-gray-50">
                     {(item.imagem_thumbnail_url || item.imagem_url) ? (
                       <Image
                         src={item.imagem_thumbnail_url || item.imagem_url || ''}
@@ -1181,7 +1224,7 @@ export default function LojaCliente() {
                       </div>
 
                       <div className="mt-2 flex items-center justify-between gap-2">
-                        <p className="text-base font-extrabold text-viva-roxo">{formatarMoedaBR(item.preco)}</p>
+                        <DiscountPrice price={Number(item.preco)} benefit={beneficioDisponivel} compact />
                         <span className="text-xs font-black text-viva-roxo">Ver detalhes</span>
                       </div>
                     </div>
@@ -1189,7 +1232,7 @@ export default function LojaCliente() {
 
                     <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
                       <p className="text-xs font-semibold text-gray-400">Detalhes em tela propria</p>
-                      {item.tipo_produto === 'kit' ? <Link href={`/produto/${item.id}`} className="rounded-lg bg-viva-verde px-3 py-2 text-xs font-black text-viva-roxo">Escolher sabores</Link> : carrinho[item.id] ? (
+                      {item.tipo_produto === 'kit' ? <Link href={`/produto/${item.id}`} onClick={registrarCliqueProduto} className="rounded-lg bg-viva-verde px-3 py-2 text-xs font-black text-viva-roxo">Escolher sabores</Link> : carrinho[item.id] ? (
                         <div className="flex items-center gap-2">
                           <button onClick={() => removerDoCarrinho(item.id)} className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600 transition active:scale-90">-</button>
                           <span className="w-4 text-center text-sm font-bold text-gray-800">{carrinho[item.id]}</span>

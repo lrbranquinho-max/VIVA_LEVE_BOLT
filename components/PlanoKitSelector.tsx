@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
-import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, datasPlano, diaSemana, distribuirSelecaoParcialComEstoque, lerKitsCarrinho, moedaPlano, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, datasPlano, diaSemana, distribuirSelecaoParcialComEstoque, lerKitsCarrinho, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { normalizarMeiosPagamento } from '@/lib/paymentConfig';
 import { registrarEventoLoja } from '@/lib/storeAnalytics';
+import { discountAnalyticsProperties, StoreDiscountBenefit } from '@/lib/storeDiscounts';
+import DiscountPrice from '@/components/DiscountPrice';
 
-export default function PlanoKitSelector({ produto, liberado }: { produto: ProdutoPlano; liberado: boolean }) {
+export default function PlanoKitSelector({ produto, liberado, discountBenefit = null }: { produto: ProdutoPlano; liberado: boolean; discountBenefit?: StoreDiscountBenefit | null }) {
   const router = useRouter();
   const [sabores, setSabores] = useState<ProdutoPlano[]>([]);
   const [config, setConfig] = useState<PlanosConfig | null>(null);
@@ -71,7 +73,8 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
       const carrinho = JSON.parse(localStorage.getItem('viva-leve-carrinho') || '{}');
       localStorage.setItem(KITS_CARRINHO_KEY, JSON.stringify({ ...lerKitsCarrinho(), [produto.id]: escolha }));
       localStorage.setItem('viva-leve-carrinho', JSON.stringify({ ...carrinho, [produto.id]: 1 }));
-      void registrarEventoLoja('add_to_cart', { value: Number(produto.preco), currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: 1, num_items: 1 }, { produtoId: produto.id });
+      const precos = discountAnalyticsProperties(Number(produto.preco), discountBenefit);
+      void registrarEventoLoja('add_to_cart', { value: precos.final_price, currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: 1, num_items: 1, ...precos }, { produtoId: produto.id });
       router.push('/?sacola=1');
     } catch { setErro('Não foi possível salvar a sacola neste dispositivo.'); }
   }
@@ -120,7 +123,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
         {dataValida && <><p className="mt-3 text-sm font-bold">{configEscolhida.entregas} {configEscolhida.entregas === 1 ? 'entrega' : 'entregas'} · {configEscolhida.marmitas_por_entrega} marmitas por entrega · {DIAS_PLANO[diaSemana(escolha.primeira_data)]}</p><p className="mt-1 text-xs text-gray-600">{datasPlano(escolha.primeira_data, configEscolhida).map(d => d.split('-').reverse().join('/')).join(' · ')}</p></>}
       </div>
       <div className="sticky bottom-20 z-10 rounded-lg border border-purple-200 bg-white p-4 shadow-lg md:bottom-3">
-        <div className="flex justify-between gap-3 font-black"><span aria-live="polite">{total} de {c.total_marmitas} marmitas</span><span>{moedaPlano(produto.preco)}</span></div>
+        <div className="flex items-start justify-between gap-3 font-black"><span aria-live="polite">{total} de {c.total_marmitas} marmitas</span><DiscountPrice price={Number(produto.preco)} benefit={discountBenefit} compact /></div>
         {aviso && <p className="mt-2 text-xs text-amber-800">{aviso}</p>}
         <button type="button" onClick={adicionar} disabled={!liberado || Boolean(aviso) || !dataValida} className="mt-3 min-h-[48px] w-full rounded-lg bg-viva-verde px-3 py-2 text-sm font-black text-viva-roxo disabled:opacity-40">{liberado ? 'Adicionar Plano ao Carrinho' : 'Disponível em 01/09'}</button>
       </div>
