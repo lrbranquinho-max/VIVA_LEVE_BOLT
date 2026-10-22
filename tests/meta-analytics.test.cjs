@@ -43,6 +43,16 @@ test('CAPI usa uma versão Graph suportada explícita e validada', () => {
   const edge = read('supabase/functions/meta-conversions/index.ts');
   assert.match(edge, /\|\| 'v26\.0'/);
   assert.match(edge, /validGraphVersion/);
+  assert.match(edge, /graph_version: validGraphVersion \? version : 'invalid'/);
+});
+
+test('CAPI normaliza campos Meta e nunca devolve valores dos secrets', () => {
+  const edge = read('supabase/functions/meta-conversions/index.ts');
+  assert.match(edge, /data\.content_ids\.map\(String\)/);
+  assert.match(edge, /data\.content_name\.join\(', '\)/);
+  assert.match(edge, /delete data\.meta_consent/);
+  assert.match(edge, /pixel_id: Boolean\(pixelId\)/);
+  assert.match(edge, /capi_access_token: Boolean\(accessToken\)/);
 });
 
 test('eventos exigidos e atribuição estão cobertos', () => {

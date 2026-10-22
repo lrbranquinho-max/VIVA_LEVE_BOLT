@@ -19,6 +19,8 @@ import { ordenarProdutosLoja, valoresNutricionaisParaExibicao } from '@/lib/stor
 import LojaAccessTracker from '@/components/LojaAccessTracker';
 import { estoqueDisponivelProduto } from '@/lib/stock';
 import { registrarEventoLoja, registrarPurchaseConfirmado, vincularPedidoAnalytics } from '@/lib/storeAnalytics';
+import DiscountPrice from '@/components/DiscountPrice';
+import { resolveCatalogCouponPreview } from '@/lib/storeDiscounts';
 
 declare global {
   interface Window {
@@ -440,6 +442,7 @@ export default function LojaCliente() {
   }, 0), [carrinho, produtos]);
 
   const cupomSelecionado = cupons.find(cupom => cupom.id === cupomSelecionadoId);
+  const beneficioVisualCatalogo = resolveCatalogCouponPreview(cupons[0]);
   const descontoCupomPercentual = Number(cupomSelecionado?.percentual_desconto ?? 0);
   const descontoDiaDPercentual = lojaConfig.cupom_dia_d_ativo ? Number(lojaConfig.cupom_dia_d_percentual || 0) : 0;
   const descontoPercentual = Math.max(descontoCupomPercentual, descontoDiaDPercentual);
@@ -1181,7 +1184,7 @@ export default function LojaCliente() {
                       </div>
 
                       <div className="mt-2 flex items-center justify-between gap-2">
-                        <p className="text-base font-extrabold text-viva-roxo">{formatarMoedaBR(item.preco)}</p>
+                        <DiscountPrice price={Number(item.preco)} benefit={beneficioVisualCatalogo} compact />
                         <span className="text-xs font-black text-viva-roxo">Ver detalhes</span>
                       </div>
                     </div>

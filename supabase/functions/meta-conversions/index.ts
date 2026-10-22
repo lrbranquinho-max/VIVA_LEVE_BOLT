@@ -3,6 +3,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const META_EVENT: Record<string, string> = { store_visit: 'PageView', product_view: 'ViewContent', add_to_cart: 'AddToCart', checkout_started: 'InitiateCheckout', purchase: 'Purchase' };
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SITE_URL = 'https://www.vivalevedf.com.br';
 
 function normalize(value: string, phone = false) {
   const result = value.trim().toLowerCase();
@@ -14,6 +16,21 @@ async function sha256(value?: string | null, phone = false) {
   if (!value) return undefined;
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalize(value, phone)));
   return Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function sourceUrl(page?: string | null, landingPage?: string | null) {
+  const value = page || landingPage;
+  if (!value) return undefined;
+  if (/^https:\/\//i.test(value)) return value;
+  return `${SITE_URL}${value.startsWith('/') ? value : `/${value}`}`;
+}
+
+function customData(properties: Record<string, unknown> | null | undefined) {
+  const data = { ...(properties || {}) };
+  delete data.meta_consent;
+  if (Array.isArray(data.content_ids)) data.content_ids = data.content_ids.map(String);
+  if (Array.isArray(data.content_name)) data.content_name = data.content_name.join(', ');
+  return data;
 }
 
 Deno.serve(async request => {
@@ -28,11 +45,12 @@ Deno.serve(async request => {
   if (bearer !== serviceKey && (!cronSecret || request.headers.get('x-cron-secret') !== cronSecret)) return json({ error: 'Não autorizado.' }, 401);
 
   const body = await request.json().catch(() => ({})) as { event_id?: string; drain?: boolean; client_user_agent?: string; client_ip_address?: string };
-  const pixelId = Deno.env.get('META_PIXEL_ID');
-  const accessToken = Deno.env.get('META_CAPI_ACCESS_TOKEN');
+  if (body.event_id && !UUID_PATTERN.test(body.event_id)) return json({ error: 'Evento inválido.' }, 400);
+  const pixelId = Deno.env.get('META_PIXEL_ID')?.trim();
+  const accessToken = Deno.env.get('META_CAPI_ACCESS_TOKEN')?.trim();
   const version = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v26.0';
   const validGraphVersion = /^v\d+\.\d+$/.test(version);
-  const testCode = Deno.env.get('META_TEST_EVENT_CODE');
+  const testCode = Deno.env.get('META_TEST_EVENT_CODE')?.trim();
   let ids = body.event_id ? [body.event_id] : [];
   if (body.drain || !ids.length) {
     const retryStatuses = pixelId && accessToken && validGraphVersion ? ['pending', 'waiting_configuration', 'error'] : ['pending', 'error'];
@@ -67,8 +85,8 @@ Deno.serve(async request => {
     Object.keys(userData).forEach(key => userData[key] === undefined && delete userData[key]);
     const payload: Record<string, unknown> = { data: [{
       event_name: META_EVENT[event.event_name], event_time: Math.floor(new Date(event.ocorrido_em).getTime() / 1000), event_id: event.event_id,
-      action_source: 'website', event_source_url: event.pagina ? `https://www.vivalevedf.com.br${event.pagina}` : access?.landing_page,
-      user_data: userData, custom_data: event.propriedades,
+      action_source: 'website', event_source_url: sourceUrl(event.pagina, access?.landing_page),
+      user_data: userData, custom_data: customData(event.propriedades),
     }] };
     if (testCode) payload.test_event_code = testCode;
     try {
@@ -87,5 +105,11 @@ Deno.serve(async request => {
       await admin.from('meta_capi_entregas').update({ status: 'error', tentativas: Number(existing?.tentativas || 0) + 1, ultimo_erro: error instanceof Error ? error.message.slice(0, 500) : 'NETWORK_ERROR', atualizado_em: new Date().toISOString() }).eq('event_id', eventId);
     }
   }
-  return json({ ok: true, processed: ids.length, sent, skipped, errors });
+  return json({
+    ok: true, processed: ids.length, sent, skipped, errors,
+    configuration: {
+      pixel_id: Boolean(pixelId), capi_access_token: Boolean(accessToken),
+      graph_version: validGraphVersion ? version : 'invalid', test_event_code: Boolean(testCode),
+    },
+  });
 });
