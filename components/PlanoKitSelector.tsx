@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
 import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, datasPlano, diaSemana, distribuirSelecaoParcialComEstoque, lerKitsCarrinho, moedaPlano, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { normalizarMeiosPagamento } from '@/lib/paymentConfig';
+import { registrarEventoLoja } from '@/lib/storeAnalytics';
 
 export default function PlanoKitSelector({ produto, liberado }: { produto: ProdutoPlano; liberado: boolean }) {
   const router = useRouter();
@@ -70,6 +71,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
       const carrinho = JSON.parse(localStorage.getItem('viva-leve-carrinho') || '{}');
       localStorage.setItem(KITS_CARRINHO_KEY, JSON.stringify({ ...lerKitsCarrinho(), [produto.id]: escolha }));
       localStorage.setItem('viva-leve-carrinho', JSON.stringify({ ...carrinho, [produto.id]: 1 }));
+      void registrarEventoLoja('add_to_cart', { value: Number(produto.preco), currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: 1, num_items: 1 }, { produtoId: produto.id });
       router.push('/?sacola=1');
     } catch { setErro('Não foi possível salvar a sacola neste dispositivo.'); }
   }

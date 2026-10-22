@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { registrarEventoLoja } from '@/lib/storeAnalytics';
 
 const MENSAGEM_WHATSAPP = 'Olá! Vi no aplicativo da Viva Leve a proposta do plano mensal de marmitas e tenho interesse em conhecer mais sobre o pagamento com Cartão Alimentação.';
 
@@ -119,7 +120,7 @@ export default function StorePromotionalCarousel({ whatsappUrl }: { whatsappUrl?
           return (
             <article key={slide.eyebrow} className={`w-full shrink-0 snap-start ${slide.className}`}>
               {slide.external ? (
-                <a href={slide.href} target="_blank" rel="noreferrer" className="block">
+                <a href={slide.href} target="_blank" rel="noreferrer" className="block" onClick={() => void registrarEventoLoja('whatsapp_click')}>
                   {conteudo}
                 </a>
               ) : (

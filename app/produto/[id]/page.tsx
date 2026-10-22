@@ -13,6 +13,7 @@ import PlanoKitSelector from '@/components/PlanoKitSelector';
 import { PlanoConfig } from '@/lib/planosMarmitas';
 import { estoqueDisponivelProduto } from '@/lib/stock';
 import { valoresNutricionaisParaExibicao } from '@/lib/storeProducts';
+import { registrarEventoLoja } from '@/lib/storeAnalytics';
 
 interface Produto {
   tipo_produto?: 'avulso' | 'kit';
@@ -118,6 +119,11 @@ export default function ProdutoDetalhePage() {
   const total = useMemo(() => Number(produto?.preco ?? 0) * quantidade, [produto?.preco, quantidade]);
   const nutricao = valoresNutricionaisParaExibicao(produto);
 
+  useEffect(() => {
+    if (!produto) return;
+    void registrarEventoLoja('product_view', { value: Number(produto.preco), currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product' }, { produtoId: produto.id, dedupeKey: `product-view-${produto.id}` });
+  }, [produto]);
+
   const adicionarAoCarrinho = () => {
     if (!produto) return;
     if (!vendasLiberadas) {
@@ -139,6 +145,7 @@ export default function ProdutoDetalhePage() {
     }
 
     salvarCarrinho({ ...carrinho, [produto.id]: proximaQuantidade });
+    void registrarEventoLoja('add_to_cart', { value: Number(produto.preco) * quantidade, currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: quantidade, num_items: quantidade }, { produtoId: produto.id });
     mostrarToast('Produto adicionado a sacola.');
     window.setTimeout(() => router.push('/'), 600);
   };
