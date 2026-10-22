@@ -30,11 +30,12 @@ Deno.serve(async request => {
   const body = await request.json().catch(() => ({})) as { event_id?: string; drain?: boolean; client_user_agent?: string; client_ip_address?: string };
   const pixelId = Deno.env.get('META_PIXEL_ID');
   const accessToken = Deno.env.get('META_CAPI_ACCESS_TOKEN');
-  const version = Deno.env.get('META_GRAPH_VERSION');
+  const version = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v26.0';
+  const validGraphVersion = /^v\d+\.\d+$/.test(version);
   const testCode = Deno.env.get('META_TEST_EVENT_CODE');
   let ids = body.event_id ? [body.event_id] : [];
   if (body.drain || !ids.length) {
-    const retryStatuses = pixelId && accessToken && version ? ['pending', 'waiting_configuration', 'error'] : ['pending', 'error'];
+    const retryStatuses = pixelId && accessToken && validGraphVersion ? ['pending', 'waiting_configuration', 'error'] : ['pending', 'error'];
     const { data } = await admin.from('meta_capi_entregas').select('event_id').in('status', retryStatuses).lt('tentativas', 6).order('atualizado_em').limit(50);
     ids = (data || []).map(item => item.event_id);
   }
@@ -48,8 +49,9 @@ Deno.serve(async request => {
     const consent = event.propriedades?.meta_consent === true;
     await admin.from('meta_capi_entregas').upsert({ event_id: eventId, status: consent ? 'processing' : 'skipped_no_consent', atualizado_em: new Date().toISOString() }, { onConflict: 'event_id' });
     if (!consent) { skipped += 1; continue; }
-    if (!pixelId || !accessToken || !version) {
-      await admin.from('meta_capi_entregas').update({ status: 'waiting_configuration', ultimo_erro: 'META_CREDENTIALS_NOT_CONFIGURED', atualizado_em: new Date().toISOString() }).eq('event_id', eventId);
+    if (!pixelId || !accessToken || !validGraphVersion) {
+      const reason = validGraphVersion ? 'META_CREDENTIALS_NOT_CONFIGURED' : 'META_GRAPH_VERSION_INVALID';
+      await admin.from('meta_capi_entregas').update({ status: 'waiting_configuration', ultimo_erro: reason, atualizado_em: new Date().toISOString() }).eq('event_id', eventId);
       skipped += 1; continue;
     }
     const [{ data: access }, { data: profile }] = await Promise.all([

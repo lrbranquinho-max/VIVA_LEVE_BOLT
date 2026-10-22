@@ -29,6 +29,22 @@ test('token CAPI nunca faz parte do bundle público', () => {
   assert.match(read('supabase/functions/meta-conversions/index.ts'), /Deno\.env\.get\('META_CAPI_ACCESS_TOKEN'\)/);
 });
 
+test('fbp e fbc só são coletados com consentimento e são filtrados no servidor', () => {
+  const client = read('lib/storeAnalytics.ts');
+  const api = read('app/api/analytics/event/route.ts');
+  assert.match(client, /includeMetaIdentifiers \? cookieSafe\('_fbc'\)/);
+  assert.match(client, /includeMetaIdentifiers \? fbp \|\| cookieSafe\('_fbp'\)/);
+  assert.match(client, /withoutMetaIdentifiers/);
+  assert.match(api, /attributionAllowedForConsent/);
+  assert.match(api, /const \{ fbc: _fbc, fbp: _fbp/);
+});
+
+test('CAPI usa uma versão Graph suportada explícita e validada', () => {
+  const edge = read('supabase/functions/meta-conversions/index.ts');
+  assert.match(edge, /\|\| 'v26\.0'/);
+  assert.match(edge, /validGraphVersion/);
+});
+
 test('eventos exigidos e atribuição estão cobertos', () => {
   const client = read('lib/storeAnalytics.ts');
   for (const name of ['PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Purchase']) assert.match(client, new RegExp(name));

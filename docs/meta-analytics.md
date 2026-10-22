@@ -16,9 +16,11 @@ O funil interno funciona sem credenciais da Meta. Para ativar Pixel/CAPI, config
 - Vercel: `NEXT_PUBLIC_META_PIXEL_ID` (o ID numérico é público e não é uma credencial);
 - Supabase Edge Function: `META_PIXEL_ID` e `META_CAPI_ACCESS_TOKEN`;
 - opcional durante homologação: `META_TEST_EVENT_CODE`;
-- Supabase Edge Function: `META_GRAPH_VERSION`, usando a versão já validada pelo Marketing Manager.
+- Supabase Edge Function: `META_GRAPH_VERSION=v26.0` (opcional; a função usa `v26.0` por padrão). Esta é a versão corrente suportada validada em 22/10/2026; revise o changelog da Meta antes de uma futura troca.
 
 Nunca coloque `META_CAPI_ACCESS_TOKEN` no frontend, `.env.example`, banco ou Git. O Pixel e a CAPI só recebem dados após consentimento. E-mail, telefone e ID do usuário são normalizados e enviados apenas como SHA-256.
+
+`fbp` e `fbc` só são lidos, criados e persistidos depois da aceitação. Ao recusar, valores eventualmente gravados por uma versão anterior são removidos da sessão first/last touch. UTMs, `fbclid`, referrer e landing page continuam disponíveis exclusivamente para o funil interno, sem carregar o Pixel nem enviar CAPI.
 
 Implante `meta-conversions` com verificação JWT desativada no gateway (`supabase functions deploy meta-conversions --no-verify-jwt`), pois a função aplica autenticação própria: service role para o backend Next.js e `x-cron-secret` vindo do Vault para banco/cron.
 

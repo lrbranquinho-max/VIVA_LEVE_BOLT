@@ -51,3 +51,33 @@ test('view diária atribui receita à campanha do pedido', async () => {
   assert.equal(row.pagamentos_aprovados, 1);
   assert.equal(Number(row.faturamento), 49.9);
 });
+
+test('Mercado Pago cartão, Pix, Cielo e crédito geram exatamente um Purchase somente após approved', async () => {
+  const scenarios = [
+    { method: 'mercado_pago', amount: 61.25 },
+    { method: 'pix', amount: 72.5 },
+    { method: 'cielo_alelo', amount: 83.75 },
+    { method: 'credito', amount: 94, storedAmount: 0, creditOriginal: 94 },
+  ];
+
+  for (const scenario of scenarios) {
+    const order = (await db.query(`
+      insert into pedidos(cliente_id,itens,pagamento_status,valor_total,credito_valor_original,meio_pagamento)
+      values($1,'[{"id":"9","nome":"Kit","quantidade":1}]','pending',$2,$3,$4)
+      returning id
+    `, [userId, scenario.storedAmount ?? scenario.amount, scenario.creditOriginal ?? null, scenario.method])).rows[0];
+
+    await db.query("update pedidos set pagamento_status='rejected' where id=$1", [order.id]);
+    assert.equal((await db.query("select count(*)::int n from loja_eventos where pedido_id=$1 and event_name='purchase'", [order.id])).rows[0].n, 0, `${scenario.method}: rejected`);
+    await db.query("update pedidos set pagamento_status='pending' where id=$1", [order.id]);
+    assert.equal((await db.query("select count(*)::int n from loja_eventos where pedido_id=$1 and event_name='purchase'", [order.id])).rows[0].n, 0, `${scenario.method}: pending`);
+    await db.query("update pedidos set pagamento_status='approved', pago_em=now() where id=$1", [order.id]);
+    await db.query("update pedidos set pagamento_status='approved', updated_at=now() where id=$1", [order.id]);
+
+    const events = (await db.query("select propriedades from loja_eventos where pedido_id=$1 and event_name='purchase'", [order.id])).rows;
+    assert.equal(events.length, 1, `${scenario.method}: exactly once`);
+    assert.equal(Number(events[0].propriedades.value), scenario.amount, `${scenario.method}: paid value`);
+    assert.equal(events[0].propriedades.currency, 'BRL', `${scenario.method}: currency`);
+    assert.equal(events[0].propriedades.payment_method, scenario.method, `${scenario.method}: payment method`);
+  }
+});

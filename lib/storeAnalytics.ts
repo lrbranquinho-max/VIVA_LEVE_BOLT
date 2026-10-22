@@ -38,14 +38,19 @@ function cookie(name: string) {
   return document.cookie.split('; ').find(item => item.startsWith(`${name}=`))?.slice(name.length + 1);
 }
 
-export function attributionFromUrl(url: URL, referrer = '', fbp?: string): Attribution {
+function withoutMetaIdentifiers(touch: Attribution): Attribution {
+  const { fbc: _fbc, fbp: _fbp, ...safeTouch } = touch;
+  return safeTouch;
+}
+
+export function attributionFromUrl(url: URL, referrer = '', fbp?: string, includeMetaIdentifiers = false): Attribution {
   const value = (name: string) => url.searchParams.get(name)?.trim() || undefined;
   const fbclid = value('fbclid');
   return {
     utm_source: value('utm_source'), utm_medium: value('utm_medium'), utm_campaign: value('utm_campaign'),
     utm_content: value('utm_content'), utm_term: value('utm_term'), fbclid,
-    fbc: cookieSafe('_fbc') || (fbclid ? `fb.1.${Date.now()}.${fbclid}` : undefined),
-    fbp: fbp || cookieSafe('_fbp'), referrer: referrer || undefined,
+    fbc: includeMetaIdentifiers ? cookieSafe('_fbc') || (fbclid ? `fb.1.${Date.now()}.${fbclid}` : undefined) : undefined,
+    fbp: includeMetaIdentifiers ? fbp || cookieSafe('_fbp') : undefined, referrer: referrer || undefined,
     landing_page: `${url.pathname}${url.search}`,
   };
 }
@@ -60,12 +65,22 @@ function hasCampaign(touch: Attribution) {
 
 export function getStoreSession(): Session {
   const now = Date.now();
-  const current = safeJson<Session>(sessionStorage.getItem(SESSION_KEY));
-  const captured = attributionFromUrl(new URL(window.location.href), document.referrer);
-  const durableFirst = safeJson<Attribution>(localStorage.getItem(FIRST_TOUCH_KEY));
-  const durableLast = safeJson<Attribution>(localStorage.getItem(LAST_TOUCH_KEY));
-  const firstTouch = durableFirst || captured;
-  if (!durableFirst) localStorage.setItem(FIRST_TOUCH_KEY, JSON.stringify(firstTouch));
+  const metaConsent = getMetaConsent();
+  const storedCurrent = safeJson<Session>(sessionStorage.getItem(SESSION_KEY));
+  const current = storedCurrent && !metaConsent ? {
+    ...storedCurrent,
+    firstTouch: withoutMetaIdentifiers(storedCurrent.firstTouch),
+    lastTouch: withoutMetaIdentifiers(storedCurrent.lastTouch),
+  } : storedCurrent;
+  const captured = attributionFromUrl(new URL(window.location.href), document.referrer, undefined, metaConsent);
+  const storedFirst = safeJson<Attribution>(localStorage.getItem(FIRST_TOUCH_KEY));
+  const storedLast = safeJson<Attribution>(localStorage.getItem(LAST_TOUCH_KEY));
+  const durableFirst = storedFirst && !metaConsent ? withoutMetaIdentifiers(storedFirst) : storedFirst;
+  const durableLast = storedLast && !metaConsent ? withoutMetaIdentifiers(storedLast) : storedLast;
+  const firstTouch = durableFirst
+    ? { ...durableFirst, ...(metaConsent ? { fbc: durableFirst.fbc || captured.fbc, fbp: durableFirst.fbp || captured.fbp } : {}) }
+    : captured;
+  localStorage.setItem(FIRST_TOUCH_KEY, JSON.stringify(firstTouch));
   const active = current && now - current.lastSeenAt <= SESSION_TIMEOUT_MS;
   const campaignTouch = hasCampaign(captured) ? captured : (active ? current.lastTouch : durableLast || captured);
   const lastTouch = { ...campaignTouch, fbc: captured.fbc || campaignTouch.fbc, fbp: captured.fbp || campaignTouch.fbp };
@@ -81,6 +96,9 @@ export function getMetaConsent() { return localStorage.getItem(CONSENT_KEY) === 
 export function hasMetaConsentChoice() { return localStorage.getItem(CONSENT_KEY) !== null; }
 export function setMetaConsent(accepted: boolean) {
   localStorage.setItem(CONSENT_KEY, accepted ? 'accepted' : 'rejected');
+  // A recusa remove identificadores Meta que possam ter sido persistidos em uma
+  // versão anterior. UTMs/fbclid permanecem para o analytics interno first/last touch.
+  getStoreSession();
   window.dispatchEvent(new CustomEvent('viva-leve-meta-consent-changed'));
 }
 

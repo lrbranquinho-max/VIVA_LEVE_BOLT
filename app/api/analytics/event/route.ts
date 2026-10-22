@@ -28,6 +28,12 @@ const schema = z.object({
   pagina: z.string().max(2000).optional(), propriedades: eventProperties.default({}),
 }).strict();
 
+function attributionAllowedForConsent(touch: z.infer<typeof attribution>, metaConsent: boolean): z.infer<typeof attribution> {
+  if (metaConsent) return touch;
+  const { fbc: _fbc, fbp: _fbp, ...safeTouch } = touch;
+  return { ...safeTouch, fbc: undefined, fbp: undefined };
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (Number(request.headers.get('content-length') || 0) > 32_768) return NextResponse.json({ error: 'Evento excede o limite permitido.' }, { status: 413 });
@@ -36,15 +42,19 @@ export async function POST(request: NextRequest) {
     const admin = criarSupabaseAdmin();
     const user = await authenticatedUser(request.headers.get('authorization'));
     const { data: existing } = await admin.from('loja_acessos').select('sessao_id,first_touch').eq('sessao_id', input.sessaoId).maybeSingle();
-    const touch = input.lastTouch;
+    const firstTouch = attributionAllowedForConsent(input.firstTouch, input.metaConsent);
+    const touch = attributionAllowedForConsent(input.lastTouch, input.metaConsent);
+    const existingFirstTouch = existing?.first_touch && Object.keys(existing.first_touch).length
+      ? attributionAllowedForConsent(existing.first_touch as z.infer<typeof attribution>, input.metaConsent)
+      : firstTouch;
     const access = {
       sessao_id: input.sessaoId, user_id: user?.id || null,
       utm_source: touch.utm_source || null, utm_medium: touch.utm_medium || null, utm_campaign: touch.utm_campaign || null,
       utm_content: touch.utm_content || null, utm_term: touch.utm_term || null, fbclid: touch.fbclid || null,
       fbc: touch.fbc || null, fbp: touch.fbp || null, referrer: touch.referrer || null,
-      landing_page: input.firstTouch.landing_page || null, ultima_pagina: input.pagina || null,
-      first_touch: existing?.first_touch && Object.keys(existing.first_touch).length ? existing.first_touch : input.firstTouch,
-      last_touch: input.lastTouch, meta_consent: input.metaConsent, atualizado_em: new Date().toISOString(),
+      landing_page: firstTouch.landing_page || null, ultima_pagina: input.pagina || null,
+      first_touch: existingFirstTouch,
+      last_touch: touch, meta_consent: input.metaConsent, atualizado_em: new Date().toISOString(),
     };
     const { error: accessError } = await admin.from('loja_acessos').upsert(access, { onConflict: 'sessao_id' });
     if (accessError) throw accessError;
