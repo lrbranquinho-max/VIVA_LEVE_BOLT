@@ -31,6 +31,11 @@ jobs:
 
       - name: Build project
         run: npm run build
+        env:
+          # Valores sem acesso real, usados somente para permitir o prerender no CI.
+          # O deploy da Vercel continua usando as variaveis configuradas no projeto.
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-build.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v3

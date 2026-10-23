@@ -1,26 +1,14 @@
 'use client';
 
 import { useEffect } from 'react';
-
-const STORAGE_KEY = 'viva-leve-sessao-loja';
+import { registrarEventoLoja } from '@/lib/storeAnalytics';
 
 export default function LojaAccessTracker() {
   useEffect(() => {
-    try {
-      let sessaoId = sessionStorage.getItem(STORAGE_KEY);
-      if (!sessaoId) {
-        sessaoId = crypto.randomUUID();
-        sessionStorage.setItem(STORAGE_KEY, sessaoId);
-      }
-      void fetch('/api/analytics/loja-acesso', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessaoId }),
-        keepalive: true,
-      });
-    } catch {
-      // Telemetria não deve bloquear a experiência da loja.
-    }
+    void registrarEventoLoja('store_visit', {}, { dedupeKey: 'store-visit' });
+    const consentChanged = () => { void registrarEventoLoja('store_visit', {}, { dedupeKey: 'store-visit-after-consent' }); };
+    window.addEventListener('viva-leve-meta-consent-changed', consentChanged);
+    return () => window.removeEventListener('viva-leve-meta-consent-changed', consentChanged);
   }, []);
 
   return null;

@@ -7,6 +7,7 @@ import AppDownloadPrompt from './AppDownloadPrompt';
 import Logo from './Logo';
 import { supabase } from '../supabase';
 import NotificationCenter from './NotificationCenter';
+import { registrarEventoLoja } from '@/lib/storeAnalytics';
 
 interface CanalLoja {
   nome_rede: string;
@@ -129,6 +130,7 @@ function DesktopMenu({ canais }: { canais: CanalLoja[] }) {
                           : 'bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400'
                       }`}
                       aria-label={canal.nome_rede}
+                      onClick={() => void registrarEventoLoja(canal.nome_rede.toLowerCase().includes('whatsapp') ? 'whatsapp_click' : 'instagram_click', {}, { pagina: pathname || '/' })}
                     >
                       <CanalIcone nome={canal.nome_rede} />
                     </a>

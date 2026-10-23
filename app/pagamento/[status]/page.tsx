@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Logo from '../../../components/Logo';
 import { sincronizarPagamentoMercadoPago } from '../../../lib/mercadoPagoPedidos';
+import PurchaseConfirmationTracker from '../../../components/PurchaseConfirmationTracker';
 
 const STATUS_CONFIG: Record<string, {
   titulo: string;
@@ -48,10 +49,12 @@ export default async function PagamentoStatusPage({
   const status = STATUS_CONFIG[params.status] ?? STATUS_CONFIG.pendente;
   const paymentId = extrairPaymentId(searchParams);
   let avisoSincronizacao: string | null = null;
+  let pedidoConfirmadoId: string | null = null;
 
   if (paymentId) {
     try {
-      await sincronizarPagamentoMercadoPago(String(paymentId));
+      const resultado = await sincronizarPagamentoMercadoPago(String(paymentId));
+      if (resultado && 'pedidoId' in resultado && resultado.statusPagamento === 'approved') pedidoConfirmadoId = String(resultado.pedidoId);
     } catch (error) {
       console.error('Erro ao sincronizar retorno Mercado Pago', error);
       avisoSincronizacao = 'Estamos finalizando a sincronizacao do pagamento. Se o pedido nao atualizar em alguns instantes, toque em Ver meus pedidos para recarregar.';
@@ -60,6 +63,7 @@ export default async function PagamentoStatusPage({
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col bg-gray-50 p-5 font-sans shadow-2xl md:max-w-6xl">
+      <PurchaseConfirmationTracker pedidoId={pedidoConfirmadoId} />
       <header className="rounded-2xl bg-white p-5 shadow-sm">
         <Logo />
       </header>

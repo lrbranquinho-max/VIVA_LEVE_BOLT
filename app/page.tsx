@@ -18,6 +18,7 @@ import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, configurarEntregas
 import { ordenarProdutosLoja, valoresNutricionaisParaExibicao } from '@/lib/storeProducts';
 import LojaAccessTracker from '@/components/LojaAccessTracker';
 import { estoqueDisponivelProduto } from '@/lib/stock';
+import { registrarEventoLoja, registrarPurchaseConfirmado, vincularPedidoAnalytics } from '@/lib/storeAnalytics';
 import DiscountPrice from '@/components/DiscountPrice';
 import { resolveCatalogCouponPreview } from '@/lib/storeDiscounts';
 
@@ -563,6 +564,7 @@ export default function LojaCliente() {
 
     setCarrinho(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
     adicionarToast(`${produto.nome} adicionado!`, 'sucesso');
+    void registrarEventoLoja('add_to_cart', { value: Number(produto.preco), currency: 'BRL', content_ids: [produto.id], content_name: produto.nome, content_type: 'product', quantity: 1, num_items: 1 }, { produtoId: produto.id });
   };
 
   const removerDoCarrinho = (id: number) => {
@@ -792,6 +794,11 @@ export default function LojaCliente() {
       return;
     }
 
+    void registrarEventoLoja('checkout_started', {
+      value: Number(totalPedidoFinal), currency: 'BRL', content_ids: Object.keys(carrinho).map(Number),
+      content_name: Object.keys(carrinho).map(id => produtos.find(item => item.id === Number(id))?.nome || 'Produto'), content_type: 'product', num_items: totalItens,
+    }, { dedupeKey: `checkout-${JSON.stringify(carrinho)}` });
+
     setEnviando(true);
     let pedidoIdCriado: string | number | null = null;
     let creditoReservado = false;
@@ -887,6 +894,7 @@ export default function LojaCliente() {
       if (errPedido) throw new Error(errPedido.message);
       if (!pedidoCriado?.id) throw new Error('O banco não retornou o identificador do pedido.');
       pedidoIdCriado = pedidoCriado.id;
+      await vincularPedidoAnalytics(pedidoCriado.id);
       if (temPlanos) valorTotal = Number(pedidoCriado.valor_total);
       if (temPlanos && valorTotal === 0) {
         setCarrinho({}); setVerCarrinho(false);
@@ -909,6 +917,7 @@ export default function LojaCliente() {
         if (!respostaCredito.ok) throw new Error(credito.error || 'Não foi possível aplicar a chave de crédito.');
 
         if (credito.quitado) {
+          await registrarPurchaseConfirmado(pedidoCriado.id);
           setCarrinho({});
           setVerCarrinho(false);
           setCupomSelecionadoId('');
@@ -966,6 +975,7 @@ export default function LojaCliente() {
       const pagamento = await respostaPagamento.json();
       if (!respostaPagamento.ok) throw new Error(pagamento.error || 'Erro ao iniciar pagamento.');
       pagamentoIniciado = true;
+      void registrarEventoLoja('payment_started', { value: Number(valorTotal), currency: 'BRL', content_ids: listaItens.map(item => item.id), content_name: listaItens.map(item => item.nome), content_type: 'product', num_items: listaItens.reduce((sum, item) => sum + item.quantidade, 0), payment_method: metodoPagamento }, { pedidoId: pedidoCriado.id, dedupeKey: `payment-${pedidoCriado.id}` });
 
       if (metodoPagamento === 'pix') {
         setPixGerado({
@@ -983,6 +993,7 @@ export default function LojaCliente() {
       }
 
       if (metodoPagamento === 'cielo') {
+        await registrarPurchaseConfirmado(pedidoCriado.id);
         setCarrinho({});
         setVerCarrinho(false);
         setCupomSelecionadoId('');
@@ -1621,6 +1632,7 @@ export default function LojaCliente() {
               rel="noreferrer"
               aria-label="WhatsApp Viva Leve"
               title="WhatsApp Viva Leve"
+              onClick={() => void registrarEventoLoja('whatsapp_click')}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-2 ring-white transition active:scale-95"
             >
               <CanalIcone nome={whatsapp.nome_rede} />
@@ -1633,6 +1645,7 @@ export default function LojaCliente() {
               rel="noreferrer"
               aria-label="Instagram Viva Leve"
               title="Instagram Viva Leve"
+              onClick={() => void registrarEventoLoja('instagram_click')}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400 text-white shadow-lg ring-2 ring-white transition active:scale-95"
             >
               <CanalIcone nome={instagram.nome_rede} />

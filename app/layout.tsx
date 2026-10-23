@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import AppShell from '../components/AppShell';
+import MetaConsentBanner from '../components/MetaConsentBanner';
 
 const inter = Inter({ subsets: ['latin'] });
 const iconVersion = '20260715-2';
@@ -62,6 +63,7 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body className={`${inter.className} min-h-screen overflow-hidden bg-[#f1f5f2] text-gray-900`}>
         <AppShell>{children}</AppShell>
+        <MetaConsentBanner />
       </body>
     </html>
   );
