@@ -9,9 +9,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        'viva-verde': '#bfff00', // Verde Lima vibrante (70% da sua marca)
-        'viva-roxo': '#4b0082',  // Roxo escuro para contraste e textos (30%)
-        'viva-fundo': '#f8fafc', // Fundo clarinho e limpo
+        'viva-verde': 'rgb(var(--brand-secondary-rgb) / <alpha-value>)',
+        'viva-roxo': 'rgb(var(--brand-primary-rgb) / <alpha-value>)',
+        'viva-fundo': 'var(--brand-background)',
       },
     },
   },

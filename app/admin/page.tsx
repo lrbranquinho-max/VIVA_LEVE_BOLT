@@ -9,6 +9,8 @@ import { normalizarMeiosPagamento } from '../../lib/paymentConfig';
 import { CONFIG_PLANO_INICIAL, PlanoConfig } from '@/lib/planosMarmitas';
 import { estoqueDisponivelProduto } from '@/lib/stock';
 import { optimizeProductImage, PRODUCT_IMAGE_CACHE_CONTROL_SECONDS } from '@/lib/productImages';
+import { useCompanySettings } from '@/components/CompanySettingsProvider';
+import { enderecoEmpresa, formatarCnpj } from '@/lib/company';
 
 type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
@@ -678,6 +680,7 @@ function ModalProduto({
 }
 
 export default function AdminPage() {
+  const company = useCompanySettings();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [usuarioEmail, setUsuarioEmail] = useState('');
@@ -1608,7 +1611,7 @@ export default function AdminPage() {
 <body>
   <section class="label">
     <header class="header">
-      <div class="brand"><img src="${logoEtiquetaUrl}" alt="Viva Leve" /></div>
+      <div class="brand"><img src="${logoEtiquetaUrl}" alt="${escaparHtml(company.nome_fantasia)}" /></div>
       <img class="qr" src="${qrUrl}" alt="QR Code do produto" />
     </header>
     <div>
@@ -1638,8 +1641,8 @@ export default function AdminPage() {
       <div>Fabricação: ${escaparHtml(fabricacaoBR)}</div>
       <div>Validade: ${escaparHtml(validadeBR)}</div>
       <div class="manufacturer">
-        Razão Social: 62.496.248 LUIZ RICARDO MENDES BRANQUINHO · CNPJ: 62.496.248/0001-42<br />
-        Endereço: RUA 91, QUADRA 51, LOTE 5, LOJA 2 - JARDIM CEU AZUL - VALPARAISO DE GOIAS - GO · WhatsApp: (61) 9129-9996
+        Razão Social: ${escaparHtml(company.razao_social || company.nome_fantasia)}${company.cnpj ? ` · CNPJ: ${escaparHtml(formatarCnpj(company.cnpj))}` : ''}<br />
+        ${enderecoEmpresa(company) ? `Endereço: ${escaparHtml(enderecoEmpresa(company))}` : ''}${company.whatsapp ? ` · WhatsApp: ${escaparHtml(company.whatsapp)}` : ''}
       </div>
     </footer>
   </section>
@@ -1671,7 +1674,7 @@ export default function AdminPage() {
         <main className="mx-auto w-full max-w-screen-2xl p-4 md:p-6">
           <header className="relative mb-5 flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-black uppercase text-viva-roxo">Viva Leve Admin</p>
+              <p className="text-xs font-black uppercase text-viva-roxo">{company.nome_fantasia} Admin</p>
               <h1 className="text-2xl font-black">
                 {aba === 'pedidos' ? 'Gestão de Pedidos' : aba === 'balcao' ? 'Venda Balcão' : aba === 'produtos' ? 'Cardápio e Estoque' : aba === 'creditos' ? 'Gestão de Créditos' : aba === 'treinos' ? 'Exercícios e Treinos' : 'Configurações'}
               </h1>
@@ -1741,6 +1744,9 @@ export default function AdminPage() {
                   </Link>
                   <Link href="/admin/cupons" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Cupons de desconto
+                  </Link>
+                  <Link href="/admin/configuracoes/empresa" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Configurações da empresa
                   </Link>
                   <Link href="/admin/financeiro" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Financeiro

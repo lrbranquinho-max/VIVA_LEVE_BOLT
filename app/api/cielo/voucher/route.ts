@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { meioPagamentoEstaAtivo } from '../../../../lib/paymentConfig';
 import { validarEstoquePedido } from '../../../../lib/orderStock';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -92,6 +93,7 @@ export async function POST(request: NextRequest) {
     if (!token) return respostaJson({ error: 'Sessão inválida. Entre novamente para pagar.' }, 401);
 
     const supabase = criarSupabaseAdmin();
+    const company = await getCompanySettingsServer();
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authData.user) return respostaJson({ error: 'Sessão inválida. Entre novamente para pagar.' }, 401);
 
@@ -149,7 +151,7 @@ export async function POST(request: NextRequest) {
     if (!brand) return respostaJson({ error: 'Não foi possível identificar a bandeira do cartão.' }, 400);
 
     const cart = Array.isArray(pedido.itens) ? pedido.itens.map((item: any) => ({
-      Name: String(item?.nome || 'Produto Viva Leve').slice(0, 255),
+      Name: String(item?.nome || `Produto ${company.nome_fantasia}`).slice(0, 255),
       Quantity: Math.max(1, Number(item?.quantidade || 1)),
       Sku: String(item?.id || '').slice(0, 32),
       UnitPrice: Math.max(1, Math.round(Number(item?.preco || 0) * 100)),
@@ -185,7 +187,7 @@ export async function POST(request: NextRequest) {
         Installments: 1,
         Capture: true,
         Authenticate: true,
-        ReturnUrl: 'https://www.vivalevedf.com.br/pagamento/pendente',
+        ReturnUrl: `${(company.site || 'https://www.vivalevedf.com.br').replace(/\/$/, '')}/pagamento/pendente`,
         ExternalAuthentication: {
           Cavv: auth.Cavv,
           Xid: auth.Xid,
@@ -209,7 +211,7 @@ export async function POST(request: NextRequest) {
     const payload = {
       MerchantOrderId: merchantOrderId,
       Customer: {
-        Name: normalizarTextoCielo(body.payer?.nome || authData.user.user_metadata?.nome || authData.user.user_metadata?.full_name || 'Cliente Viva Leve'),
+        Name: normalizarTextoCielo(body.payer?.nome || authData.user.user_metadata?.nome || authData.user.user_metadata?.full_name || `Cliente ${company.nome_fantasia}`),
         Identity: cpf,
         IdentityType: 'CPF',
         Email: authData.user.email,

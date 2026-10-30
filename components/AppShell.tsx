@@ -5,9 +5,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppDownloadPrompt from './AppDownloadPrompt';
 import Logo from './Logo';
-import { supabase } from '../supabase';
 import NotificationCenter from './NotificationCenter';
 import { registrarEventoLoja } from '@/lib/storeAnalytics';
+import { useCompanySettings } from './CompanySettingsProvider';
+import { whatsappUrl } from '@/lib/company';
 
 interface CanalLoja {
   nome_rede: string;
@@ -47,6 +48,7 @@ function CanalIcone({ nome }: { nome: string }) {
 }
 
 function DesktopMenu({ canais }: { canais: CanalLoja[] }) {
+  const company = useCompanySettings();
   const pathname = usePathname();
   const [aberto, setAberto] = useState(false);
 
@@ -139,7 +141,7 @@ function DesktopMenu({ canais }: { canais: CanalLoja[] }) {
             </div>
 
             <div className="mt-auto rounded-2xl bg-gray-50 p-4 text-xs font-semibold leading-relaxed text-gray-500">
-              Viva Leve DF: cardapio, pedidos e acompanhamento de dieta em um so lugar.
+              {company.nome_fantasia}: {company.descricao_curta_loja || company.descricao_empresa}
             </div>
           </aside>
         </div>
@@ -151,17 +153,11 @@ function DesktopMenu({ canais }: { canais: CanalLoja[] }) {
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isAdmin = pathname?.startsWith('/admin');
-  const [canais, setCanais] = useState<CanalLoja[]>([]);
-
-  useEffect(() => {
-    if (isAdmin) return;
-
-    supabase
-      .from('canais_loja')
-      .select('nome_rede,endereco')
-      .eq('ativo', true)
-      .then(({ data }) => setCanais((data ?? []) as CanalLoja[]));
-  }, [isAdmin]);
+  const company = useCompanySettings();
+  const canais: CanalLoja[] = [
+    company.whatsapp && { nome_rede: 'WhatsApp', endereco: whatsappUrl(company.whatsapp)! },
+    company.instagram_url && { nome_rede: 'Instagram', endereco: company.instagram_url },
+  ].filter(Boolean) as CanalLoja[];
 
   if (isAdmin) {
     return (

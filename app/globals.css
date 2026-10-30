@@ -3,6 +3,16 @@
 @tailwind utilities;
 
 :root {
+  --brand-primary: #4b0082;
+  --brand-primary-rgb: 75 0 130;
+  --brand-secondary: #bfff00;
+  --brand-secondary-rgb: 191 255 0;
+  --brand-accent: #bfff00;
+  --brand-accent-rgb: 191 255 0;
+  --brand-background: #f1f5f2;
+  --brand-text: #111827;
+  --brand-button: #bfff00;
+  --brand-button-text: #4b0082;
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 214, 219, 220;
   --background-end-rgb: 255, 255, 255;
@@ -18,7 +28,7 @@
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: #f1f5f2;
+  background: var(--brand-background);
 }
 
 @media (min-width: 768px) {

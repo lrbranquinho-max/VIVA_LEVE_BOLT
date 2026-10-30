@@ -1,16 +1,18 @@
 import { NextRequest } from 'next/server';
 import MercadoPagoConfig,{Preference} from 'mercadopago';
 import { premiumFailure, PremiumError, premiumResponse, premiumUser } from '@/lib/premium/server';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
 
 export const runtime='nodejs';
-function publicUrl(){
-  const raw=process.env.MERCADOPAGO_SITE_URL||process.env.NEXT_PUBLIC_SITE_URL||'https://www.vivalevedf.com.br';
+function publicUrl(site?:string|null){
+  const raw=process.env.MERCADOPAGO_SITE_URL||process.env.NEXT_PUBLIC_SITE_URL||site||'https://www.vivalevedf.com.br';
   const url=new URL(raw); if(url.protocol!=='https:'||['localhost','127.0.0.1'].includes(url.hostname)) return 'https://www.vivalevedf.com.br';
   return url.toString().replace(/\/$/,'');
 }
 export async function POST(request:NextRequest){
   try{
     const {supabase,user}=await premiumUser(request);
+    const company=await getCompanySettingsServer();
     const accessToken=process.env.MERCADOPAGO_ACCESS_TOKEN;
     if(!accessToken||accessToken.includes('seu_access')) throw new PremiumError('Pagamento indisponível. Contate o administrador.',503);
     const raw=await request.text(); if(raw.length>2000) throw new PremiumError('Solicitação inválida.',413);
@@ -34,10 +36,10 @@ export async function POST(request:NextRequest){
       if(inserted.error) throw inserted.error; checkout=inserted.data;
     } else if(checkout.plan_id!==plan.id||checkout.amount_cents!==plan.price_cents) throw new PremiumError('Identificador já utilizado em outra compra.',409);
     if(checkout.gateway_preference_id) return premiumResponse({checkoutId:checkout.id,preferenceId:checkout.gateway_preference_id});
-    const base=publicUrl(); const preference=new Preference(new MercadoPagoConfig({accessToken}));
+    const base=publicUrl(company.site); const preference=new Preference(new MercadoPagoConfig({accessToken}));
     const response=await preference.create({body:{external_reference:`premium:${checkout.id}`,
       notification_url:`${base}/api/mercadopago/webhook`,auto_return:'all',back_urls:{success:`${base}/meu-plano?pagamento=sucesso`,pending:`${base}/meu-plano?pagamento=pendente`,failure:`${base}/meu-plano?pagamento=falha`},
-      payer:{email:user.email},items:[{id:plan.code,title:plan.name,description:`Acesso Viva Leve por ${plan.duration_days} dias`,quantity:1,currency_id:'BRL',unit_price:plan.price_cents/100,category_id:'services'}],metadata:{premium_checkout_id:checkout.id},statement_descriptor:'VIVA LEVE'}});
+      payer:{email:user.email},items:[{id:plan.code,title:plan.name,description:`Acesso ${company.nome_fantasia} por ${plan.duration_days} dias`,quantity:1,currency_id:'BRL',unit_price:plan.price_cents/100,category_id:'services'}],metadata:{premium_checkout_id:checkout.id},statement_descriptor:company.nome_fantasia.normalize('NFD').replace(/[^A-Za-z0-9 ]/g,'').toUpperCase().slice(0,22)}});
     if(!response.id) throw new PremiumError('O provedor não criou a cobrança.',502);
     const updated=await supabase.from('premium_checkouts').update({gateway_preference_id:String(response.id),status:'PENDING',updated_at:new Date().toISOString()}).eq('id',checkout.id);
     if(updated.error) throw updated.error;

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/supabase';
+import AdminBrandLabel from '@/components/AdminBrandLabel';
 
 interface Periodos { total: number; ultimos7Dias: number; ultimas24Horas: number }
 interface DashboardDados {
@@ -122,7 +123,7 @@ export default function DashboardAdminPage() {
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 md:px-6">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-viva-roxo">Viva Leve Admin</p>
+            <AdminBrandLabel className="text-xs font-black uppercase tracking-[0.2em] text-viva-roxo" />
             <h1 className="mt-1 text-2xl font-black text-gray-950">Dashboard operacional</h1>
             <p className="mt-1 text-sm text-gray-500">Indicadores ao vivo do Supabase oficial.</p>
           </div>

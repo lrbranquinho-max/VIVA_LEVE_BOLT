@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
     if (!bearer) return resposta({ error: 'Sessão inválida.' }, 401);
 
     const supabase = criarSupabaseAdmin();
+    const company = await getCompanySettingsServer();
     const { data, error } = await supabase.auth.getUser(bearer);
     if (error || !data.user) return resposta({ error: 'Sessão inválida.' }, 401);
 
@@ -24,7 +26,7 @@ export async function POST(request: NextRequest) {
     const clientId = producao ? process.env.CIELO_3DS_CLIENT_ID?.trim() : SANDBOX_CLIENT_ID;
     const clientSecret = producao ? process.env.CIELO_3DS_CLIENT_SECRET?.trim() : SANDBOX_CLIENT_SECRET;
     const establishmentCode = process.env.CIELO_ESTABLISHMENT_CODE?.trim();
-    const merchantName = process.env.CIELO_MERCHANT_NAME?.trim() || 'VIVA LEVE';
+    const merchantName = process.env.CIELO_MERCHANT_NAME?.trim() || company.nome_fantasia;
     const mcc = process.env.CIELO_MCC?.trim();
 
     if (!clientId || !clientSecret || !establishmentCode || !mcc) {

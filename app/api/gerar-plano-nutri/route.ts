@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
 import { createClient } from '@supabase/supabase-js';
 import { premiumAccessDecision } from '@/lib/premium/access';
 import { NutritionAiBridgeError, normalizeNutritionFallbackReason, requestNutritionAi } from '@/lib/nutritionAi';
@@ -129,7 +130,7 @@ const COMPLEMENTOS_NUTRI: ComplementoNutri[] = [
     foco: 'kcal',
   },
   {
-    nome: 'Sobremesa fit Viva Leve ou fruta planejada',
+    nome: 'Sobremesa fit ou fruta planejada',
     refeicoes: ['Almoco', 'Jantar'],
     kcal: 220,
     proteinas: 8,
@@ -644,7 +645,7 @@ function gerarFallback(metaKcal: number, objetivo: string, produtos: any[], rece
             nome_refeicao: nome as any,
             titulo_resumo: `${item.nome} (${item.porcao_g}g)`,
             descricao_completa: `${item.nome} (${item.porcao_g}g) - ${item.descricao ?? ''}`.trim(),
-            modo_preparo: item.descricao || 'Produto Viva Leve pronto para consumo conforme orientacao da embalagem.',
+            modo_preparo: item.descricao || 'Produto da loja pronto para consumo conforme orientação da embalagem.',
             kcal_total: item.kcal_por_porcao,
             carb_total: item.carb_por_porcao,
             prot_total: item.prot_por_porcao,
@@ -707,8 +708,8 @@ async function salvarPlanoGerado(supabase: any, requisicao: any, plano: any) {
   if (updateError) throw updateError;
 }
 
-function montarSystemPrompt() {
-  return `Voce e um Nutricionista Especialista da Viva Leve. Atue com rigor clinico, matematico e anti-alucinacao.
+function montarSystemPrompt(nomeEmpresa: string) {
+  return `Voce e um Nutricionista Especialista de ${nomeEmpresa}. Atue com rigor clinico, matematico e anti-alucinacao.
 
 REGRAS ESTRITAS:
 1. Retorne apenas o objeto validado pelo schema. Nao use markdown.
@@ -761,6 +762,7 @@ async function registrarFallbackInterno(supabase: any, requisicaoId: string, rea
 
 export async function POST(request: NextRequest) {
   try {
+    const company = await getCompanySettingsServer();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const authorization = request.headers.get('authorization');
@@ -854,7 +856,7 @@ export async function POST(request: NextRequest) {
         metas_macros_diarias: metas,
       },
       refeicoes_selecionadas: refeicoes,
-      produtos_ativos_viva_leve: (produtos ?? [])
+      produtos_ativos_loja: (produtos ?? [])
         .filter(produto => refeicoes.some(refeicao => produtoPermitidoNaRefeicao(produto, refeicao)))
         .map(itemProdutoParaContexto),
       receitas_externas: (receitas ?? [])
@@ -873,7 +875,7 @@ export async function POST(request: NextRequest) {
       const aiResult = await requestNutritionAi({
         authorization,
         requisicaoId,
-        system: montarSystemPrompt(),
+        system: montarSystemPrompt(company.nome_fantasia),
         prompt,
         imageUrl: requisicao.receita_url,
       });

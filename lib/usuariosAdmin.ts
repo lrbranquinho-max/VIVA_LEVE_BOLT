@@ -42,12 +42,14 @@ export function perfisAtivos(roles: Array<{ role: string; ativo: boolean }>): Pe
   return especiais.length ? especiais : ['student'];
 }
 
-export function urlConviteUsuario(site?: string): string {
+export function urlConviteUsuario(site?: string, siteEmpresa?: string | null): string {
   const padrao = 'https://vivalevedf.com.br';
   try {
-    const url = new URL(site || padrao);
-    if (url.protocol !== 'https:' || url.username || url.password || !['vivalevedf.com.br', 'www.vivalevedf.com.br'].includes(url.hostname)) {
-      return `${padrao}/login?definir_senha=1`;
+    const confiavel = new URL(siteEmpresa || padrao);
+    const url = new URL(site || confiavel.origin);
+    const hosts = new Set([confiavel.hostname, `www.${confiavel.hostname.replace(/^www\./, '')}`]);
+    if (url.protocol !== 'https:' || url.username || url.password || !hosts.has(url.hostname)) {
+      return `${confiavel.origin}/login?definir_senha=1`;
     }
     return `${url.origin}/login?definir_senha=1`;
   } catch {

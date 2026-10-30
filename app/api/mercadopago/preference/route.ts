@@ -4,6 +4,7 @@ import MercadoPagoConfig, { Preference } from 'mercadopago';
 import { meioPagamentoEstaAtivo } from '../../../../lib/paymentConfig';
 import { validarEstoquePedido } from '../../../../lib/orderStock';
 import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
 
 interface ItemCheckout {
   id: number;
@@ -42,11 +43,12 @@ function urlPublicaHttpsValida(url?: string) {
   }
 }
 
-function resolverSiteUrlPublica() {
+function resolverSiteUrlPublica(siteEmpresa?: string | null) {
   const candidatos = [
     process.env.MERCADOPAGO_SITE_URL,
     process.env.NEXT_PUBLIC_SITE_URL,
     process.env.NEXT_PUBLIC_APP_URL,
+    siteEmpresa || '',
     process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
     URL_PUBLICA_PADRAO,
   ];
@@ -78,7 +80,7 @@ function telefoneMercadoPago(telefone?: string) {
   };
 }
 
-function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
+function montarItensMercadoPago(itens: ItemCheckout[], pedido: any, nomeEmpresa: string) {
   const subtotalItens = itens.reduce((total, item) => {
     const subtotal = Number(item.subtotal ?? Number(item.preco || 0) * Number(item.quantidade || 0));
     return total + subtotal;
@@ -90,7 +92,7 @@ function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
   if (Number(pedido.credito_valor_aplicado || 0) > 0) {
     return [{
       id: String(pedido.id),
-      title: `Saldo do pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
+      title: `Saldo do pedido ${nomeEmpresa} #${String(pedido.id).slice(0, 8).toUpperCase()}`,
       description: itens.map(item => `${item.quantidade}x ${item.nome}`).join(', ').slice(0, 250),
       quantity: 1,
       currency_id: 'BRL',
@@ -102,7 +104,7 @@ function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
   if (subtotalItens <= 0 || totalPedido <= 0) {
     return [{
       id: String(pedido.id),
-      title: `Pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
+      title: `Pedido ${nomeEmpresa} #${String(pedido.id).slice(0, 8).toUpperCase()}`,
       description: itens.map(item => `${item.quantidade}x ${item.nome}`).join(', ').slice(0, 250),
       quantity: 1,
       currency_id: 'BRL',
@@ -123,7 +125,7 @@ function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
     return {
       id: `produto_${item.id}`,
       title: `${item.quantidade}x ${item.nome}`.slice(0, 120),
-      description: String(item.descricao || item.nome || 'Produto Viva Leve').slice(0, 250),
+      description: String(item.descricao || item.nome || `Produto ${nomeEmpresa}`).slice(0, 250),
       picture_url: item.imagem_url || undefined,
       quantity: 1,
       currency_id: 'BRL',
@@ -135,8 +137,8 @@ function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
   if (valorFrete > 0) {
     itensPreferencia.push({
       id: `frete_${pedido.id}`,
-      title: 'Taxa de entrega Viva Leve',
-      description: String(pedido.endereco_entrega || 'Entrega Viva Leve').slice(0, 250),
+      title: `Taxa de entrega ${nomeEmpresa}`,
+      description: String(pedido.endereco_entrega || `Entrega ${nomeEmpresa}`).slice(0, 250),
       picture_url: undefined,
       quantity: 1,
       currency_id: 'BRL',
@@ -148,13 +150,13 @@ function montarItensMercadoPago(itens: ItemCheckout[], pedido: any) {
   return itensPreferencia;
 }
 
-function additionalInfoPedido(itens: ItemCheckout[], pedido: any, payer: any) {
+function additionalInfoPedido(itens: ItemCheckout[], pedido: any, payer: any, nomeEmpresa: string) {
   const resumoItens = itens
     .map(item => `${item.quantidade}x ${item.nome} (${Number(item.preco || 0).toFixed(2)})`)
     .join('; ');
 
   return [
-    `Pedido Viva Leve #${pedido.id}`,
+    `Pedido ${nomeEmpresa} #${pedido.id}`,
     `Itens: ${resumoItens}`,
     `Subtotal: ${Number(pedido.subtotal_produtos || 0).toFixed(2)}`,
     `Desconto: ${Number(pedido.desconto_valor || 0).toFixed(2)}`,
@@ -180,7 +182,8 @@ function enderecoMercadoPago(endereco?: string) {
 export async function POST(request: NextRequest) {
   try {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    const siteUrl = resolverSiteUrlPublica();
+    const company = await getCompanySettingsServer();
+    const siteUrl = resolverSiteUrlPublica(company.site);
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const authorization = request.headers.get('authorization');
@@ -242,7 +245,7 @@ export async function POST(request: NextRequest) {
     const cpfPagador = somenteDigitos(payer?.cpf);
     const telefonePagador = telefoneMercadoPago(payer?.telefone);
     const enderecoPagador = enderecoMercadoPago(payer?.endereco || pedido.endereco_entrega);
-    const itensPreferencia = montarItensMercadoPago(pedido.itens, pedido);
+    const itensPreferencia = montarItensMercadoPago(pedido.itens, pedido, company.nome_fantasia);
     const inicioVigencia = new Date();
     const fimVigencia = new Date(inicioVigencia.getTime() + 3 * 24 * 60 * 60 * 1000);
 
@@ -254,7 +257,7 @@ export async function POST(request: NextRequest) {
       notification_url: `${baseUrl}/api/mercadopago/webhook`,
       auto_return: 'all',
       back_urls: backUrls,
-      additional_info: additionalInfoPedido(pedido.itens, pedido, payer),
+      additional_info: additionalInfoPedido(pedido.itens, pedido, payer, company.nome_fantasia),
       payer: {
         name: nomePagador.name,
         surname: nomePagador.surname,
@@ -279,7 +282,7 @@ export async function POST(request: NextRequest) {
         free_shipping: Number(pedido.valor_frete || 0) === 0,
         receiver_address: enderecoPagador,
       } : undefined,
-      statement_descriptor: 'VIVA LEVE',
+      statement_descriptor: company.nome_fantasia.normalize('NFD').replace(/[^A-Za-z0-9 ]/g, '').toUpperCase().slice(0, 22),
       metadata: {
         pedido_id: pedidoId,
         cliente_regiao: payer?.regiao,

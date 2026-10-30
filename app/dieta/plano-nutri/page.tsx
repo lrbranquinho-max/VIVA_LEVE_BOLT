@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../../../supabase';
 import Logo from '../../../components/Logo';
 import BottomNav from '../../../components/BottomNav';
+import { useCompanySettings } from '@/components/CompanySettingsProvider';
 
 interface PlanoGerado {
   id: string;
@@ -139,6 +140,7 @@ function pontuarAlternativa(base: RefeicaoPlano, item: RefeicaoPlano) {
 }
 
 export default function PlanoNutriPage() {
+  const company = useCompanySettings();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [clienteId, setClienteId] = useState('');
@@ -348,7 +350,7 @@ export default function PlanoNutriPage() {
     });
 
     if (Object.keys(itens).length === 0) {
-      setToast('Este plano nao possui itens Viva Leve vinculados.');
+      setToast(`Este plano não possui itens de ${company.nome_fantasia} vinculados.`);
       return;
     }
 
@@ -401,7 +403,7 @@ export default function PlanoNutriPage() {
               <h2 className="mt-1 text-xl font-black text-gray-900">{plano.objetivo_estabelecido}</h2>
               <p className="mt-1 text-sm font-bold text-viva-roxo">{Number(plano.kcal_diaria_meta).toLocaleString('pt-BR')} kcal/dia</p>
               <button onClick={enviarParaCarrinho} className="mt-4 w-full rounded-xl bg-viva-verde py-3 text-sm font-black text-viva-roxo shadow-sm">
-                Enviar itens da Viva Leve para o Carrinho
+                Enviar itens de {company.nome_fantasia} para o Carrinho
               </button>
             </section>
 
@@ -421,7 +423,7 @@ export default function PlanoNutriPage() {
                           <p className="mt-2 text-xs font-bold text-gray-500">
                             Kcal: {Math.round(item.kcal)} | Prot: {item.proteinas}g | Carb: {item.carboidratos}g | Gord: {item.gorduras}g
                           </p>
-                          {item.produto_id && <p className="mt-1 text-[11px] font-black text-green-600">Item Viva Leve #{item.produto_id}</p>}
+                          {item.produto_id && <p className="mt-1 text-[11px] font-black text-green-600">Item {company.nome_fantasia} #{item.produto_id}</p>}
                         </button>
                       ))}
                       <div className="rounded-xl border border-viva-verde/40 bg-viva-verde/10 p-4 text-xs font-bold leading-relaxed text-gray-700">

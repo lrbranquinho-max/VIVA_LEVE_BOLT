@@ -3,16 +3,18 @@ import MercadoPagoConfig, { Payment } from 'mercadopago';
 import { criarSupabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { meioPagamentoEstaAtivo } from '../../../../lib/paymentConfig';
 import { validarEstoquePedido } from '../../../../lib/orderStock';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
 
 export const runtime = 'nodejs';
 
 const URL_PUBLICA_PADRAO = 'https://www.vivalevedf.com.br';
 
-function siteUrlPublica() {
+function siteUrlPublica(siteEmpresa?: string | null) {
   const candidatos = [
     process.env.MERCADOPAGO_SITE_URL,
     process.env.NEXT_PUBLIC_SITE_URL,
     process.env.NEXT_PUBLIC_APP_URL,
+    siteEmpresa || '',
     process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '',
     URL_PUBLICA_PADRAO,
   ];
@@ -38,6 +40,7 @@ function siteUrlPublica() {
 export async function POST(request: NextRequest) {
   try {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    const company = await getCompanySettingsServer();
     const authorization = request.headers.get('authorization');
 
     if (!accessToken || accessToken.includes('seu_access_token')) {
@@ -87,9 +90,9 @@ export async function POST(request: NextRequest) {
     const resposta: any = await payment.create({
       body: {
         transaction_amount: Number(pedido.valor_total),
-        description: `Pedido Viva Leve #${String(pedido.id).slice(0, 8).toUpperCase()}`,
+        description: `Pedido ${company.nome_fantasia} #${String(pedido.id).slice(0, 8).toUpperCase()}`,
         payment_method_id: 'pix',
-        notification_url: `${siteUrlPublica()}/api/mercadopago/webhook`,
+        notification_url: `${siteUrlPublica(company.site)}/api/mercadopago/webhook`,
         external_reference: String(pedido.id),
         payer: {
           email: payer.email,

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/supabase';
+import AdminBrandLabel from '@/components/AdminBrandLabel';
 import { PremiumPlan, PremiumResource, resourceNames } from '@/lib/premium/domain';
 
 type AuditRow = { id: string; action: string; entity: string; created_at: string; origin: string };
@@ -70,7 +71,7 @@ export default function PremiumAdminPage() {
   return <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900">
     <div className="mx-auto max-w-6xl space-y-6">
       <Link href="/admin" className="font-bold text-viva-roxo">← Voltar ao Admin</Link>
-      <header><p className="text-sm font-bold uppercase tracking-widest text-viva-roxo">Viva Leve</p>
+      <header><AdminBrandLabel className="text-sm font-bold uppercase tracking-widest text-viva-roxo" />
         <h1 className="text-3xl font-black">Planos & Benefícios</h1>
         <p className="mt-2 text-slate-600">Planos digitais de Dieta e Treino. Independentes dos kits de marmitas.</p></header>
       {error && <div role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}

@@ -1,6 +1,14 @@
+'use client';
+
+import { useCompanySettings } from './CompanySettingsProvider';
+
 export default function Logo() {
+  const company = useCompanySettings();
+  if (company.logo_url) return <img src={company.logo_url} alt={`Logo ${company.nome_fantasia}`} className="h-auto w-full object-contain" />;
+  const [firstName, ...remainingName] = company.nome_fantasia.toUpperCase().split(/\s+/);
+  const secondName = remainingName.join(' ');
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 130" className="w-full h-auto">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 130" className="w-full h-auto" role="img" aria-label={company.nome_fantasia}>
       <defs>
         <linearGradient id="roxoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#7C3AED" />
@@ -18,10 +26,9 @@ export default function Logo() {
         <path d="M70,10 L70,80 L110,80" fill="none" stroke="url(#verdeGradient)" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M110,80 C125,80 130,65 120,55 C110,45 95,50 95,65" fill="url(#verdeGradient)" opacity="0.9" />
       </g>
-      <text x="170" y="75" fontFamily="system-ui, -apple-system, sans-serif" fontSize="46" fontWeight="900" fill="#4C1D95" letterSpacing="-1">VIVA</text>
-      <text x="285" y="75" fontFamily="system-ui, -apple-system, sans-serif" fontSize="46" fontWeight="900" fill="#10B981" letterSpacing="-1">LEVE</text>
-
-      <text x="172" y="102" fontFamily="system-ui, -apple-system, sans-serif" fontSize="13" fontWeight="700" fill="#64748B" letterSpacing="3.5">SAÚDE E PRATICIDADE</text>
+      <text x="170" y="75" fontFamily="system-ui, -apple-system, sans-serif" fontSize="46" fontWeight="900" fill="#4C1D95" letterSpacing="-1">{firstName}</text>
+      {secondName && <text x="285" y="75" fontFamily="system-ui, -apple-system, sans-serif" fontSize="46" fontWeight="900" fill="#10B981" letterSpacing="-1">{secondName}</text>}
+      <text x="172" y="102" fontFamily="system-ui, -apple-system, sans-serif" fontSize="13" fontWeight="700" fill="#64748B" letterSpacing="3.5">{(company.slogan || '').toUpperCase()}</text>
     </svg>
   );
 }

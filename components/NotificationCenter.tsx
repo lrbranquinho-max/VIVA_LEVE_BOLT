@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/supabase';
+import { useCompanySettings } from './CompanySettingsProvider';
 
 interface Notificacao {
   id: string;
@@ -20,6 +21,7 @@ function chaveAplicacao(valor: string) {
 }
 
 export default function NotificationCenter() {
+  const company = useCompanySettings();
   const [userId, setUserId] = useState('');
   const [aberto, setAberto] = useState(false);
   const [itens, setItens] = useState<Notificacao[]>([]);
@@ -67,7 +69,7 @@ export default function NotificationCenter() {
       if (solicitarPermissao) throw new Error('Permissão de notificações não concedida. Ative-a nas configurações do aplicativo.');
       return false;
     }
-    await PushNotifications.createChannel({ id: 'viva_leve_avisos', name: 'Avisos Viva Leve', description: 'Novidades, lembretes e avisos da Viva Leve', importance: 4, visibility: 1, vibration: true });
+    await PushNotifications.createChannel({ id: 'viva_leve_avisos', name: `Avisos ${company.nome_fantasia}`, description: `Novidades, lembretes e avisos de ${company.nome_fantasia}`, importance: 4, visibility: 1, vibration: true });
     let sucesso: Awaited<ReturnType<typeof PushNotifications.addListener>> | undefined;
     let falha: Awaited<ReturnType<typeof PushNotifications.addListener>> | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -136,7 +138,7 @@ export default function NotificationCenter() {
   return <div className="fixed right-4 top-20 z-[70]">
     <button type="button" aria-label={`Notificações${naoLidas ? `, ${naoLidas} não lidas` : ''}`} onClick={() => setAberto(valor => !valor)} className="relative flex h-11 w-11 items-center justify-center rounded-full border border-purple-200 bg-white text-xl shadow-lg">🔔{naoLidas > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[10px] font-black text-white">{naoLidas}</span>}</button>
     {aberto && <section className="absolute right-0 top-13 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border bg-white shadow-2xl">
-      <header className="flex items-center justify-between border-b p-4"><div><h2 className="font-black">Notificações</h2><p className="text-xs text-gray-500">Avisos da Viva Leve</p></div><button type="button" onClick={() => setAberto(false)} className="h-9 w-9 rounded-full bg-gray-100">×</button></header>
+      <header className="flex items-center justify-between border-b p-4"><div><h2 className="font-black">Notificações</h2><p className="text-xs text-gray-500">Avisos de {company.nome_fantasia}</p></div><button type="button" onClick={() => setAberto(false)} className="h-9 w-9 rounded-full bg-gray-100">×</button></header>
       <div className="border-b bg-purple-50 p-3"><button type="button" disabled={busy || pushAtivo} onClick={ativarPush} className="w-full rounded-lg bg-viva-roxo px-3 py-2 text-xs font-black text-white disabled:opacity-60">{pushAtivo ? `Notificações ativadas ${pushNativo ? 'no aplicativo' : 'neste dispositivo'}` : busy ? 'Ativando...' : `Ativar notificações ${pushNativo ? 'no aplicativo' : 'neste dispositivo'}`}</button>{mensagem && <p role="status" className="mt-2 text-xs text-gray-700">{mensagem}</p>}</div>
       <div className="max-h-[55vh] overflow-y-auto">{itens.map(item => <article key={item.id} className={`border-b ${item.lida_em ? 'bg-white' : 'bg-emerald-50'}`}><button type="button" onClick={() => { if (item.url) window.location.href = item.url; }} className="w-full p-4 text-left"><div className="flex items-start justify-between gap-2"><h3 className="text-sm font-black">{item.titulo}</h3>{!item.lida_em && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-600"/>}</div><p className="mt-1 text-sm text-gray-700">{item.mensagem}</p><time className="mt-2 block text-[10px] text-gray-400">{new Date(item.criada_em).toLocaleString('pt-BR')}</time></button></article>)}{!itens.length && <p className="p-6 text-center text-sm text-gray-400">Nenhuma notificação recebida.</p>}</div>
       {naoLidas > 0 && <footer className="p-3"><button type="button" onClick={marcarComoLidas} className="w-full rounded-lg border px-3 py-2 text-xs font-black text-viva-roxo">Marcar todas como lidas</button></footer>}

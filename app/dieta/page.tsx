@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '../../components/Logo';
 import BottomNav from '../../components/BottomNav';
+import { useCompanySettings } from '@/components/CompanySettingsProvider';
 
 type ToastTipo = 'sucesso' | 'erro' | 'info';
 type FonteAlimento = 'produto' | 'taco';
@@ -239,6 +240,7 @@ function parseQrPayload(texto: string): { id: number; gramas?: number } | null {
 }
 
 export default function Dieta() {
+  const company = useCompanySettings();
   const router = useRouter();
   const buscaRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1358,7 +1360,7 @@ export default function Dieta() {
                             <p className="text-xs text-gray-500 mt-0.5">{Math.round(item.kcal100g)} kcal/100g · P {arredondar(item.proteinas100g)}g · C {arredondar(item.carboidratos100g)}g</p>
                           </div>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${item.fonte === 'produto' ? 'bg-viva-verde text-viva-roxo' : 'bg-blue-100 text-blue-700'}`}>
-                            {item.fonte === 'produto' ? 'Viva Leve' : 'TACO'}
+                            {item.fonte === 'produto' ? company.nome_fantasia : 'TACO'}
                           </span>
                         </div>
                       </button>
@@ -1408,7 +1410,7 @@ export default function Dieta() {
               <button onClick={() => setScannerAberto(false)} className="text-gray-400 text-lg font-bold">×</button>
             </div>
             <div id="qr-reader" className="overflow-hidden rounded-xl border border-gray-200" />
-            <p className="text-xs text-gray-500 text-center">Aponte a câmera para o QR da marmita Viva Leve.</p>
+            <p className="text-xs text-gray-500 text-center">Aponte a câmera para o QR da marmita {company.nome_fantasia}.</p>
           </div>
         </div>
       )}

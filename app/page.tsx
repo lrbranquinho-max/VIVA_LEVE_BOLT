@@ -21,6 +21,8 @@ import { estoqueDisponivelProduto } from '@/lib/stock';
 import { registrarEventoLoja, registrarPurchaseConfirmado, vincularPedidoAnalytics } from '@/lib/storeAnalytics';
 import DiscountPrice from '@/components/DiscountPrice';
 import { resolveCatalogCouponPreview } from '@/lib/storeDiscounts';
+import { useCompanySettings } from '@/components/CompanySettingsProvider';
+import { whatsappUrl as buildWhatsappUrl } from '@/lib/company';
 
 declare global {
   interface Window {
@@ -164,8 +166,12 @@ function CanalIcone({ nome }: { nome: string }) {
 
 export default function LojaCliente() {
   const router = useRouter();
+  const company = useCompanySettings();
   const [produtos, setProdutos] = useState<Produto[]>([]);
-  const [canais, setCanais] = useState<CanalLoja[]>([]);
+  const canais = useMemo<CanalLoja[]>(() => [
+    company.whatsapp && { nome_rede: 'WhatsApp', endereco: buildWhatsappUrl(company.whatsapp)! },
+    company.instagram_url && { nome_rede: 'Instagram', endereco: company.instagram_url },
+  ].filter(Boolean) as CanalLoja[], [company.instagram_url, company.whatsapp]);
   const [cupons, setCupons] = useState<CupomDesconto[]>([]);
   const [cupomSelecionadoId, setCupomSelecionadoId] = useState('');
   const [chaveCredito, setChaveCredito] = useState('');
@@ -317,17 +323,12 @@ export default function LojaCliente() {
       setErroCarga(null);
 
       try {
-        const [produtosRes, canaisRes, configRes, regioesRes] = await Promise.all([
+        const [produtosRes, configRes, regioesRes] = await Promise.all([
           supabase
             .from('produtos')
             .select('id,nome,descricao,preco,categoria,estoque,estoque_reservado,estoque_disponivel,kcal,proteinas,carboidratos,gorduras,porcao_g,imagem_url,imagem_thumbnail_url,imagem_detalhe_url,ativo,tipo_produto,disponivel_kit,plano_config')
             .eq('ativo', true)
             .order('categoria', { ascending: true }),
-          supabase
-            .from('canais_loja')
-            .select('nome_rede,endereco')
-            .eq('ativo', true)
-            .order('nome_rede', { ascending: true }),
           supabase
             .from('app_config')
             .select('valor')
@@ -343,7 +344,6 @@ export default function LojaCliente() {
 
         if (produtosRes.error) throw new Error(produtosRes.error.message);
         setProdutos(ordenarProdutosLoja((produtosRes.data ?? []) as Produto[]));
-        if (!canaisRes.error) setCanais((canaisRes.data ?? []) as CanalLoja[]);
         if (!configRes.error && configRes.data?.valor) setLojaConfig(normalizarLojaConfig(configRes.data.valor));
         if (!regioesRes.error) setRegioesAtendimento((regioesRes.data ?? []) as RegiaoAtendimento[]);
       } catch (err: any) {
@@ -1370,7 +1370,7 @@ export default function LojaCliente() {
                   </div>
                   <p className="rounded-xl bg-blue-50 p-3 text-xs font-semibold text-blue-800">As alterações feitas aqui também serão salvas no seu cadastro.</p>
 
-                  {temPlanos && <p className="border-l-4 border-viva-verde bg-green-50 p-3 text-sm">As entregas do plano serão realizadas nas datas escolhidas. A Viva Leve enviará a janela de horário após a compra.</p>}
+                  {temPlanos && <p className="border-l-4 border-viva-verde bg-green-50 p-3 text-sm">As entregas do plano serão realizadas nas datas escolhidas. {company.nome_fantasia} enviará a janela de horário após a compra.</p>}
                   {totalAposCredito > 0 && (voucherElegivel || lojaConfig.meios_pagamento.pix || (lojaConfig.meios_pagamento.cielo && cieloDisponivel) || lojaConfig.meios_pagamento.mercado_pago) && <div>
                     <label className="mb-2 block text-xs font-bold text-gray-600">Meio de pagamento</label>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -1555,7 +1555,7 @@ export default function LojaCliente() {
                           <input readOnly className="bpmpi_paymentmethod" value="debit" />
                           <input readOnly className="bpmpi_cardexpirationmonth" value={somenteDigitos(validadeVoucher).slice(0, 2)} />
                           <input readOnly className="bpmpi_cardexpirationyear" value={somenteDigitos(validadeVoucher).slice(2, 6)} />
-                          <input readOnly className="bpmpi_merchant_url" value="https://www.vivalevedf.com.br" />
+                          <input readOnly className="bpmpi_merchant_url" value={company.site || ''} />
                           <input readOnly className="bpmpi_billto_contactname" value={nomePagador || nome} />
                           <input readOnly className="bpmpi_billto_email" value="" />
                         </div>
@@ -1630,8 +1630,8 @@ export default function LojaCliente() {
               href={whatsapp.endereco}
               target="_blank"
               rel="noreferrer"
-              aria-label="WhatsApp Viva Leve"
-              title="WhatsApp Viva Leve"
+              aria-label={`WhatsApp ${company.nome_fantasia}`}
+              title={`WhatsApp ${company.nome_fantasia}`}
               onClick={() => void registrarEventoLoja('whatsapp_click')}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg ring-2 ring-white transition active:scale-95"
             >
@@ -1643,8 +1643,8 @@ export default function LojaCliente() {
               href={instagram.endereco}
               target="_blank"
               rel="noreferrer"
-              aria-label="Instagram Viva Leve"
-              title="Instagram Viva Leve"
+              aria-label={`Instagram ${company.nome_fantasia}`}
+              title={`Instagram ${company.nome_fantasia}`}
               onClick={() => void registrarEventoLoja('instagram_click')}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-viva-roxo to-orange-400 text-white shadow-lg ring-2 ring-white transition active:scale-95"
             >

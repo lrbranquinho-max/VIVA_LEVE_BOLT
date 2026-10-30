@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../supabase';
 import Logo from '../../components/Logo';
+import { useCompanySettings } from '@/components/CompanySettingsProvider';
 
 type AccessMode = 'client' | 'admin' | 'trainer' | 'delivery';
 
 const CUPOM_BOAS_VINDAS_PADRAO = 30;
-const SITE_PUBLICO_PADRAO = 'https://vivalevedf.com.br';
 
 function percentualBoasVindas(valor: unknown) {
   const bruto = (valor && typeof valor === 'object' ? valor : {}) as Record<string, unknown>;
@@ -16,8 +16,8 @@ function percentualBoasVindas(valor: unknown) {
   return Math.min(100, Math.max(0, Number.isFinite(percentual) ? percentual : CUPOM_BOAS_VINDAS_PADRAO));
 }
 
-function urlBasePublica() {
-  if (typeof window === 'undefined') return SITE_PUBLICO_PADRAO;
+function urlBasePublica(siteFallback: string) {
+  if (typeof window === 'undefined') return siteFallback;
 
   const origemAtual = window.location.origin;
   const origemEnv = process.env.NEXT_PUBLIC_SITE_URL;
@@ -25,7 +25,7 @@ function urlBasePublica() {
 
   if (emLocalhost) return origemAtual;
   if (origemEnv && !origemEnv.includes('localhost') && !origemEnv.includes('127.0.0.1')) return origemEnv.replace(/\/$/, '');
-  return SITE_PUBLICO_PADRAO;
+  return siteFallback;
 }
 
 function destinoInternoSeguro(valor: string | null) {
@@ -51,6 +51,7 @@ function EyeIcon({ hidden }: { hidden: boolean }) {
 }
 
 export default function LoginCliente() {
+  const company = useCompanySettings();
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [confirmarSenha, setConfirmarSenha] = useState('');
@@ -149,7 +150,7 @@ export default function LoginCliente() {
     setMensagem(null);
 
     try {
-      const destino = `${urlBasePublica()}/login`;
+      const destino = `${urlBasePublica(company.site || window.location.origin)}/login`;
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: destino,
       });

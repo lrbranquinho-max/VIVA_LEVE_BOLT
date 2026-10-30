@@ -4,7 +4,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 const META_EVENT: Record<string, string> = { store_visit: 'PageView', product_view: 'ViewContent', add_to_cart: 'AddToCart', checkout_started: 'InitiateCheckout', purchase: 'Purchase' };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SITE_URL = 'https://www.vivalevedf.com.br';
+const FALLBACK_SITE_URL = 'https://www.vivalevedf.com.br';
 
 function normalize(value: string, phone = false) {
   const result = value.trim().toLowerCase();
@@ -18,11 +18,11 @@ async function sha256(value?: string | null, phone = false) {
   return Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function sourceUrl(page?: string | null, landingPage?: string | null) {
+function sourceUrl(page?: string | null, landingPage?: string | null, siteUrl = FALLBACK_SITE_URL) {
   const value = page || landingPage;
   if (!value) return undefined;
   if (/^https:\/\//i.test(value)) return value;
-  return `${SITE_URL}${value.startsWith('/') ? value : `/${value}`}`;
+  return `${siteUrl.replace(/\/$/, '')}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
 function customData(properties: Record<string, unknown> | null | undefined) {
@@ -39,6 +39,8 @@ Deno.serve(async request => {
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase não configurado.' }, 500);
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: activeCompany } = await admin.from('empresas').select('site').eq('principal', true).eq('ativo', true).maybeSingle();
+  const siteUrl = activeCompany?.site || FALLBACK_SITE_URL;
   const bearer = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
   const { data: secrets } = await admin.rpc('get_push_secrets');
   const cronSecret = secrets?.[0]?.cron_secret;
@@ -85,7 +87,7 @@ Deno.serve(async request => {
     Object.keys(userData).forEach(key => userData[key] === undefined && delete userData[key]);
     const payload: Record<string, unknown> = { data: [{
       event_name: META_EVENT[event.event_name], event_time: Math.floor(new Date(event.ocorrido_em).getTime() / 1000), event_id: event.event_id,
-      action_source: 'website', event_source_url: sourceUrl(event.pagina, access?.landing_page),
+      action_source: 'website', event_source_url: sourceUrl(event.pagina, access?.landing_page, siteUrl),
       user_data: userData, custom_data: customData(event.propriedades),
     }] };
     if (testCode) payload.test_event_code = testCode;

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
 import { CupomAdmin, SituacaoCupom, situacaoCupom, usuarioEhEquipe } from '@/lib/cuponsAdmin';
 import { PerfilUsuario, UsuarioAdmin } from '@/lib/usuariosAdmin';
+import AdminBrandLabel from '@/components/AdminBrandLabel';
 
 const PERFIS: Record<PerfilUsuario, string> = { student: 'Cliente', admin: 'Admin', trainer: 'Treinador', delivery: 'Entregador' };
 const hojeBrasilia = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -105,7 +106,7 @@ export default function AdminCuponsPage() {
   return <main className="min-h-screen bg-gray-100 p-4 text-gray-900 md:p-7">
     {mensagem && <div role="status" className="fixed left-1/2 top-4 z-[100] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-lg bg-emerald-700 p-3 text-center text-sm font-bold text-white shadow-xl">{mensagem}</div>}
     <div className="mx-auto max-w-7xl">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b-4 border-viva-verde bg-white p-5"><div><p className="text-xs font-black uppercase text-viva-roxo">Viva Leve Admin</p><h1 className="mt-1 text-2xl font-black">Cupons de desconto</h1><p className="text-sm text-gray-500">Criação por cliente e visão completa do histórico.</p></div><Link href="/admin" className="flex h-11 items-center rounded-lg border bg-white px-4 text-sm font-black text-viva-roxo">Voltar ao Admin</Link></header>
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b-4 border-viva-verde bg-white p-5"><div><AdminBrandLabel /><h1 className="mt-1 text-2xl font-black">Cupons de desconto</h1><p className="text-sm text-gray-500">Criação por cliente e visão completa do histórico.</p></div><Link href="/admin" className="flex h-11 items-center rounded-lg border bg-white px-4 text-sm font-black text-viva-roxo">Voltar ao Admin</Link></header>
       {erro && <div role="alert" className="mt-4 border-l-4 border-red-500 bg-red-50 p-4 text-sm font-bold text-red-700">{erro}</div>}
 
       <section className="mt-5 grid gap-4 lg:grid-cols-[minmax(300px,420px)_1fr]">

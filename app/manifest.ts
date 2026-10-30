@@ -1,16 +1,18 @@
 import type { MetadataRoute } from 'next';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
 
 const iconVersion = '20260715-2';
 
-export default function manifest(): MetadataRoute.Manifest {
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const company = await getCompanySettingsServer();
   return {
-    name: 'Viva Leve',
-    short_name: 'Viva Leve',
-    description: 'Comida saudavel e rastreamento de dieta.',
+    name: company.nome_fantasia,
+    short_name: company.nome_fantasia,
+    description: company.seo_descricao || company.descricao_curta_loja || company.descricao_empresa || '',
     start_url: '/',
     display: 'standalone',
-    background_color: '#FFFFFF',
-    theme_color: '#6B21A8',
+    background_color: company.cor_fundo || '#FFFFFF',
+    theme_color: company.cor_primaria || '#6B21A8',
     icons: [
       {
         src: `/icon-192x192.png?v=${iconVersion}`,

@@ -3,8 +3,10 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { registrarEventoLoja } from '@/lib/storeAnalytics';
+import { useCompanySettings } from './CompanySettingsProvider';
+import { whatsappUrl as buildWhatsappUrl } from '@/lib/company';
 
-const MENSAGEM_WHATSAPP = 'Olá! Vi no aplicativo da Viva Leve a proposta do plano mensal de marmitas e tenho interesse em conhecer mais sobre o pagamento com Cartão Alimentação.';
+const mensagemWhatsApp = (companyName: string) => `Olá! Vi no aplicativo da ${companyName} a proposta do plano mensal de marmitas e tenho interesse em conhecer mais sobre o pagamento com Cartão Alimentação.`;
 
 interface Slide {
   eyebrow: string;
@@ -16,20 +18,21 @@ interface Slide {
   className: string;
 }
 
-function criarLinkWhatsApp(endereco?: string) {
-  const fallback = 'https://wa.me/556191299996';
-  const base = endereco?.trim() || fallback;
+function criarLinkWhatsApp(endereco: string, companyName: string) {
+  const base = endereco.trim();
 
   try {
     const url = new URL(base);
-    url.searchParams.set('text', MENSAGEM_WHATSAPP);
+    url.searchParams.set('text', mensagemWhatsApp(companyName));
     return url.toString();
   } catch {
-    return `${fallback}?text=${encodeURIComponent(MENSAGEM_WHATSAPP)}`;
+    return `${base}?text=${encodeURIComponent(mensagemWhatsApp(companyName))}`;
   }
 }
 
 export default function StorePromotionalCarousel({ whatsappUrl }: { whatsappUrl?: string }) {
+  const company = useCompanySettings();
+  const contactUrl = whatsappUrl || buildWhatsappUrl(company.whatsapp) || '#';
   const trilhoRef = useRef<HTMLDivElement>(null);
   const [slideAtivo, setSlideAtivo] = useState(0);
   const [pausado, setPausado] = useState(false);
@@ -55,8 +58,8 @@ export default function StorePromotionalCarousel({ whatsappUrl }: { whatsappUrl?
       eyebrow: 'PLANO MENSAL',
       title: 'Marmitas com Cartão Alimentação',
       description: 'Conheça as opções para vale alimentação ou refeição.',
-      action: 'Falar com a Viva Leve',
-      href: criarLinkWhatsApp(whatsappUrl),
+      action: `Falar com ${company.nome_fantasia}`,
+      href: criarLinkWhatsApp(contactUrl, company.nome_fantasia),
       external: true,
       className: 'bg-gray-900 text-white',
     },
@@ -85,7 +88,7 @@ export default function StorePromotionalCarousel({ whatsappUrl }: { whatsappUrl?
 
   return (
     <section
-      aria-label="Destaques Viva Leve"
+      aria-label={`Destaques ${company.nome_fantasia}`}
       aria-roledescription="carrossel"
       className="overflow-hidden rounded-2xl bg-white shadow-sm"
       onMouseEnter={() => setPausado(true)}

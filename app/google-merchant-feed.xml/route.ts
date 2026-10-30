@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
+import { getCompanySettingsServer } from '@/lib/companySettingsServer';
+import type { CompanySettings } from '@/lib/company';
 
 export const revalidate = 3600;
-
-const SITE_URL = 'https://www.vivalevedf.com.br';
 
 interface ProdutoMerchant {
   id: number;
@@ -34,16 +34,16 @@ function precoBRL(valor: number | string | null | undefined) {
   return `${(Number.isFinite(numero) ? numero : 0).toFixed(2)} BRL`;
 }
 
-function urlAbsoluta(caminho: string) {
+function urlAbsoluta(caminho: string, siteUrl: string) {
   if (/^https?:\/\//i.test(caminho)) return caminho;
-  return `${SITE_URL}${caminho.startsWith('/') ? caminho : `/${caminho}`}`;
+  return `${siteUrl}${caminho.startsWith('/') ? caminho : `/${caminho}`}`;
 }
 
-function itemXml(produto: ProdutoMerchant) {
-  const titulo = textoProduto(produto.nome, `Produto Viva Leve ${produto.id}`);
+function itemXml(produto: ProdutoMerchant, company: CompanySettings, siteUrl: string) {
+  const titulo = textoProduto(produto.nome, `Produto ${company.nome_fantasia} ${produto.id}`);
   const descricao = textoProduto(produto.descricao, titulo);
-  const link = `${SITE_URL}/produto/${produto.id}`;
-  const imagem = produto.imagem_url ? urlAbsoluta(produto.imagem_url) : `${SITE_URL}/icon-512x512.png`;
+  const link = `${siteUrl}/produto/${produto.id}`;
+  const imagem = produto.imagem_url ? urlAbsoluta(produto.imagem_url, siteUrl) : (company.logo_url || `${siteUrl}/icon-512x512.png`);
   const disponibilidade = Number(produto.estoque_disponivel ?? produto.estoque ?? 0) > 0 ? 'in_stock' : 'out_of_stock';
 
   return `
@@ -56,13 +56,15 @@ function itemXml(produto: ProdutoMerchant) {
       <g:availability>${disponibilidade}</g:availability>
       <g:price>${escapeXml(precoBRL(produto.preco))}</g:price>
       <g:condition>new</g:condition>
-      <g:brand>Viva Leve</g:brand>
+      <g:brand>${escapeXml(company.nome_fantasia)}</g:brand>
       <g:product_type>${escapeXml(textoProduto(produto.categoria, 'Comida saudavel'))}</g:product_type>
       <g:identifier_exists>no</g:identifier_exists>
     </item>`;
 }
 
 export async function GET() {
+  const company = await getCompanySettingsServer();
+  const siteUrl = (company.site || 'https://www.vivalevedf.com.br').replace(/\/$/, '');
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -87,13 +89,13 @@ export async function GET() {
     return new Response(`Erro ao gerar feed: ${error.message}`, { status: 500 });
   }
 
-  const itens = ((data ?? []) as ProdutoMerchant[]).map(itemXml).join('');
+  const itens = ((data ?? []) as ProdutoMerchant[]).map(item => itemXml(item, company, siteUrl)).join('');
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss xmlns:g="http://base.google.com/ns/1.0" version="2.0">
   <channel>
-    <title>Viva Leve DF</title>
-    <link>${SITE_URL}</link>
-    <description>Produtos ativos da loja Viva Leve DF</description>
+    <title>${escapeXml(company.nome_fantasia)}</title>
+    <link>${escapeXml(siteUrl)}</link>
+    <description>Produtos ativos da loja ${escapeXml(company.nome_fantasia)}</description>
     ${itens}
   </channel>
 </rss>`;

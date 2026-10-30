@@ -113,7 +113,10 @@ async function salvarUsuario(request: NextRequest, edicao: boolean) {
       const resultado = senha
         ? await supabase.auth.admin.createUser({ email, password: senha, email_confirm: true, user_metadata: { nome, telefone } })
         : await supabase.auth.admin.inviteUserByEmail(email, {
-          data: { nome, telefone }, redirectTo: urlConviteUsuario(process.env.NEXT_PUBLIC_SITE_URL),
+          data: { nome, telefone }, redirectTo: urlConviteUsuario(process.env.NEXT_PUBLIC_SITE_URL, await (async () => {
+            try { return (await import('@/lib/companySettingsServer')).getCompanySettingsServer().then(company => company.site); }
+            catch { return null; }
+          })()),
         });
       if (resultado.error) throw resultado.error;
       if (!resultado.data.user) throw new ErroUsuario('O Supabase não retornou o usuário criado.', 502);

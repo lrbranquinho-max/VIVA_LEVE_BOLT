@@ -7,8 +7,10 @@ import { supabase } from '@/supabase';
 import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, datasPlano, diaSemana, distribuirSelecaoParcialComEstoque, lerKitsCarrinho, moedaPlano, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { normalizarMeiosPagamento } from '@/lib/paymentConfig';
 import { registrarEventoLoja } from '@/lib/storeAnalytics';
+import { useCompanySettings } from './CompanySettingsProvider';
 
 export default function PlanoKitSelector({ produto, liberado }: { produto: ProdutoPlano; liberado: boolean }) {
+  const company = useCompanySettings();
   const router = useRouter();
   const [sabores, setSabores] = useState<ProdutoPlano[]>([]);
   const [config, setConfig] = useState<PlanosConfig | null>(null);
@@ -78,7 +80,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
   return <section className="space-y-5 text-gray-900">
     <div className="border-l-4 border-viva-verde bg-purple-50 p-4">
       <h2 className="font-black text-viva-roxo">{c.intervalo_dias === 7 ? 'Entregas semanais' : `Entregas a cada ${c.intervalo_dias} dias`}</h2>
-      <p className="mt-2 text-sm leading-relaxed">Seu plano será entregue em etapas para facilitar sua rotina e economizar espaço no freezer. Escolha o dia; a Viva Leve enviará posteriormente a programação do horário.</p>
+      <p className="mt-2 text-sm leading-relaxed">Seu plano será entregue em etapas para facilitar sua rotina e economizar espaço no freezer. Escolha o dia; {company.nome_fantasia} enviará posteriormente a programação do horário.</p>
       <p className="mt-3 font-bold">{c.total_marmitas} marmitas · escolha receber em {opcoesEntregas.join(', ')} {opcoesEntregas.length > 1 ? 'etapas' : 'etapa'}</p>
       <p className="mt-2 text-xs">{meios.join(' · ')}{c.permite_voucher && config && Object.values(config.bandeiras).some(Boolean) ? ' · Cartão Alimentação na primeira entrega' : ''}</p>
     </div>

@@ -121,6 +121,7 @@ Deno.serve(async request => {
   if (!supabaseUrl || !serviceKey) return json({ error: 'Função não configurada.' }, 500);
 
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: activeCompany } = await admin.from('empresas').select('email').eq('principal', true).eq('ativo', true).maybeSingle();
   let { data: secrets, error: secretsError } = await admin.rpc('get_push_secrets');
   if (secretsError) return json({ error: 'Não foi possível carregar a configuração Push.' }, 500);
 
@@ -141,7 +142,7 @@ Deno.serve(async request => {
   if (request.method === 'GET') return json({ publicKey: config?.vapid_public, nativePushConfigured: Boolean(firebaseServiceAccount && firebaseProjectId) });
   if (!config?.cron_secret || request.headers.get('x-cron-secret') !== config.cron_secret) return json({ error: 'Não autorizado.' }, 401);
 
-  webpush.setVapidDetails('mailto:contato@vivalevedf.com.br', config.vapid_public!, config.vapid_private!);
+  webpush.setVapidDetails(`mailto:${activeCompany?.email || 'postmaster@example.invalid'}`, config.vapid_public!, config.vapid_private!);
   const body = await request.json().catch(() => ({})) as { tipo?: string; pedido_id?: number };
   if (body.tipo === 'novo_pedido') {
     const pedidoId = Number(body.pedido_id);

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
+import { useCompanySettings } from '@/components/CompanySettingsProvider';
+import AdminBrandLabel from '@/components/AdminBrandLabel';
 
 type Tipo = 'semanal' | 'unica';
 interface Agendamento {
@@ -29,7 +31,7 @@ interface EntregaLog {
 }
 
 const DIAS = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-const INICIAL = { titulo: 'Viva Leve', mensagem: '', tipo: 'semanal' as Tipo, dia_semana: 1, hora: '10:00', agendada_para: '', ativa: true };
+const criarInicial = (titulo: string) => ({ titulo, mensagem: '', tipo: 'semanal' as Tipo, dia_semana: 1, hora: '10:00', agendada_para: '', ativa: true });
 
 function dataLocalInput(iso: string | null) {
   if (!iso) return '';
@@ -40,6 +42,7 @@ function dataLocalInput(iso: string | null) {
 }
 
 export default function AdminNotificacoesPage() {
+  const company = useCompanySettings();
   const router = useRouter();
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
@@ -48,7 +51,7 @@ export default function AdminNotificacoesPage() {
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [logs, setLogs] = useState<EntregaLog[]>([]);
   const [editando, setEditando] = useState<string | null>(null);
-  const [form, setForm] = useState(INICIAL);
+  const [form, setForm] = useState(() => criarInicial(company.nome_fantasia));
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('');
@@ -67,7 +70,7 @@ export default function AdminNotificacoesPage() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  function limpar() { setEditando(null); setForm(INICIAL); setErro(''); setSucesso(''); }
+  function limpar() { setEditando(null); setForm(criarInicial(company.nome_fantasia)); setErro(''); setSucesso(''); }
   function editar(item: Agendamento) {
     setEditando(item.id);
     setForm({ titulo: item.titulo, mensagem: item.mensagem, tipo: item.tipo, dia_semana: item.dia_semana ?? 1, hora: (item.hora || '10:00').slice(0, 5), agendada_para: dataLocalInput(item.agendada_para), ativa: item.ativa });
@@ -89,7 +92,7 @@ export default function AdminNotificacoesPage() {
       const { error } = await consulta;
       if (error) throw error;
       setSucesso(editando ? 'Notificação atualizada.' : 'Notificação programada.');
-      setEditando(null); setForm(INICIAL); await carregar();
+      setEditando(null); setForm(criarInicial(company.nome_fantasia)); await carregar();
     } catch (error: any) { setErro(error.message || 'Não foi possível salvar.'); }
     finally { setSalvando(false); }
   }
@@ -101,7 +104,7 @@ export default function AdminNotificacoesPage() {
 
   return <main className="min-h-screen bg-gray-100 px-4 py-7">
     <div className="mx-auto max-w-6xl">
-      <header className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase text-viva-roxo">Viva Leve Admin</p><h1 className="text-3xl font-black">Notificações</h1><p className="text-sm text-gray-500">Programe um aviso único ou semanal no horário de Brasília.</p></div><Link href="/admin" className="rounded-lg border bg-white px-4 py-3 text-sm font-black text-viva-roxo">Voltar ao Admin</Link></header>
+      <header className="flex flex-wrap items-center justify-between gap-3"><div><AdminBrandLabel /><h1 className="text-3xl font-black">Notificações</h1><p className="text-sm text-gray-500">Programe um aviso único ou semanal no horário de Brasília.</p></div><Link href="/admin" className="rounded-lg border bg-white px-4 py-3 text-sm font-black text-viva-roxo">Voltar ao Admin</Link></header>
       {erro && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-800">{erro}</p>}
       {sucesso && <p role="status" className="mt-4 rounded-xl bg-green-50 p-4 text-sm font-bold text-green-800">{sucesso}</p>}
 

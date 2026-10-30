@@ -24,6 +24,7 @@ import {
   TIPOS_FINANCEIROS,
 } from '@/lib/financeiro';
 import { supabase } from '@/supabase';
+import AdminBrandLabel from '@/components/AdminBrandLabel';
 
 type Aba = 'dashboard' | 'lancamentos' | 'contas' | 'categorias';
 type Periodo = 'hoje' | '7dias' | 'mes' | 'mes_anterior' | 'personalizado';
@@ -298,7 +299,7 @@ export default function FinanceiroAdminPage() {
       <main className="mx-auto w-full max-w-screen-2xl p-4 md:p-6">
         <header className="relative mb-5 flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-black uppercase text-viva-roxo">Viva Leve Admin</p>
+            <AdminBrandLabel />
             <h1 className="text-2xl font-black">Financeiro</h1>
             <p className="text-sm text-gray-500">Fluxo realizado e compromissos futuros.</p>
           </div>

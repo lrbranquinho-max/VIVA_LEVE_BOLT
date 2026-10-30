@@ -1,8 +1,12 @@
+'use client';
+
 import Link from 'next/link';
 import Logo from './Logo';
+import { useCompanySettings } from './CompanySettingsProvider';
+import { enderecoEmpresa, formatarCnpj, whatsappUrl } from '@/lib/company';
 
 const links = [
-  ['Sobre o Viva Leve', '/sobre'],
+  ['Sobre a empresa', '/sobre'],
   ['Perguntas Frequentes (FAQ)', '/faq'],
   ['Termos de Uso', '/termos-de-uso'],
   ['Política de Privacidade', '/politica-de-privacidade'],
@@ -10,6 +14,9 @@ const links = [
 ] as const;
 
 export default function StoreFooter() {
+  const company = useCompanySettings();
+  const whats = whatsappUrl(company.whatsapp);
+  const address = enderecoEmpresa(company);
   return (
     <footer className="border-t border-gray-200 bg-gray-950 px-5 pb-32 pt-8 text-gray-200 md:px-8 md:pb-10">
       <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
@@ -18,7 +25,7 @@ export default function StoreFooter() {
             <Logo />
           </div>
           <p className="mt-3 max-w-xs text-sm leading-relaxed text-gray-300">
-            Transformando sua rotina com alimentação saudável e prática.
+            {company.mensagem_rodape || company.descricao_empresa}
           </p>
         </section>
 
@@ -34,8 +41,8 @@ export default function StoreFooter() {
         <section>
           <h2 className="text-sm font-black text-viva-verde">Atendimento</h2>
           <div className="mt-3 space-y-2 text-sm leading-relaxed">
-            <p><strong className="text-white">WhatsApp:</strong> <a href="https://wa.me/556191299996" target="_blank" rel="noreferrer" className="hover:text-viva-verde">(61) 9129-9996</a></p>
-            <p><strong className="text-white">E-mail:</strong> <a href="mailto:vivaleve.df@gmail.com" className="break-all hover:text-viva-verde">vivaleve.df@gmail.com</a></p>
+            {whats && <p><strong className="text-white">WhatsApp:</strong> <a href={whats} target="_blank" rel="noreferrer" className="hover:text-viva-verde">{company.whatsapp}</a></p>}
+            {company.email && <p><strong className="text-white">E-mail:</strong> <a href={`mailto:${company.email}`} className="break-all hover:text-viva-verde">{company.email}</a></p>}
             <p><strong className="text-white">Horário:</strong> Segunda a Sexta, das 08h às 18h</p>
           </div>
 
@@ -52,15 +59,15 @@ export default function StoreFooter() {
         <section>
           <h2 className="text-sm font-black text-viva-verde">Informações Legais</h2>
           <div className="mt-3 space-y-2 text-xs leading-relaxed text-gray-300">
-            <p><strong className="text-white">CNPJ:</strong> 62.496.248/0001-42</p>
-            <p><strong className="text-white">Razão Social:</strong> 62.496.248 LUIZ RICARDO MENDES BRANQUINHO</p>
-            <p><strong className="text-white">Endereço:</strong> Rua 91, Quadra 51, Lote 5, Loja 2 - CEP 72871-091 - Valparaíso de Goiás/GO</p>
+            {company.cnpj && <p><strong className="text-white">CNPJ:</strong> {formatarCnpj(company.cnpj)}</p>}
+            {company.razao_social && <p><strong className="text-white">Razão Social:</strong> {company.razao_social}</p>}
+            {address && <p><strong className="text-white">Endereço:</strong> {address}</p>}
           </div>
         </section>
       </div>
 
       <div className="mt-8 border-t border-gray-800 pt-4 text-center text-xs text-gray-400">
-        © 2026 Viva Leve. Todos os direitos reservados.
+        © {new Date().getFullYear()} {company.nome_fantasia}. Todos os direitos reservados.
       </div>
     </footer>
   );

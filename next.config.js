@@ -24,6 +24,8 @@ const withPWA = require('@ducanh2912/next-pwa').default({
 });
 
 const nextConfig = {
+  // Permite validar builds em diretório isolado sem apagar um cache em uso.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   images: {
     remotePatterns: [
       {

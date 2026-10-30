@@ -452,7 +452,7 @@ export function generateTrainingPlan(profile: TrainingProfileInput, catalog: Exe
       : splitDays(pool, level, profile);
   const draft: TrainingPlanDraft = {
     level,
-    name: `Plano ${LEVEL_LABEL[level]} Viva Leve`,
+    name: `Plano ${LEVEL_LABEL[level]}`,
     durationWeeks: durationWeeks(level),
     weeklyFrequency: weeklyFrequency(level, profile.age),
     nextLevel: NEXT_LEVEL[level],
