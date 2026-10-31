@@ -30,6 +30,11 @@ export default function Perfil() {
   const [bairro, setBairro] = useState('');
   const [regiaoDf, setRegiaoDf] = useState('');
   const [enderecoUf, setEnderecoUf] = useState('');
+  const [fiscalCpfCnpj, setFiscalCpfCnpj] = useState('');
+  const [fiscalIe, setFiscalIe] = useState('');
+  const [fiscalIndicadorIe, setFiscalIndicadorIe] = useState('9');
+  const [fiscalCep, setFiscalCep] = useState('');
+  const [fiscalCodigoIbge, setFiscalCodigoIbge] = useState('');
   const [regioesAtivas, setRegioesAtivas] = useState(REGIOES_ATIVAS_FALLBACK);
   const [email, setEmail] = useState('');
   const [admin, setAdmin] = useState(false);
@@ -51,7 +56,7 @@ export default function Perfil() {
           .maybeSingle(),
         supabase
           .from('perfis_clientes')
-          .select('endereco_rua, endereco_numero, endereco_complemento, bairro, regiao_df, endereco_uf')
+          .select('endereco_rua, endereco_numero, endereco_complemento, bairro, regiao_df, endereco_uf, fiscal_cpf_cnpj, fiscal_inscricao_estadual, fiscal_indicador_ie, fiscal_cep, fiscal_codigo_municipio_ibge')
           .eq('id', user.id)
           .maybeSingle(),
         supabase
@@ -80,6 +85,9 @@ export default function Perfil() {
         const regiaoCadastrada = (regioesResultado.data ?? REGIOES_ATIVAS_FALLBACK).find(item => item.regiao === perfilCliente.regiao_df);
         setRegiaoDf(regiaoCadastrada?.regiao ?? perfilCliente.regiao_df ?? '');
         setEnderecoUf(perfilCliente.endereco_uf ?? regiaoCadastrada?.uf ?? '');
+        setFiscalCpfCnpj(perfilCliente.fiscal_cpf_cnpj ?? ''); setFiscalIe(perfilCliente.fiscal_inscricao_estadual ?? '');
+        setFiscalIndicadorIe(perfilCliente.fiscal_indicador_ie ?? '9'); setFiscalCep(perfilCliente.fiscal_cep ?? '');
+        setFiscalCodigoIbge(perfilCliente.fiscal_codigo_municipio_ibge ?? '');
       }
 
       if (!regioesResultado.error && regioesResultado.data?.length) {
@@ -93,11 +101,15 @@ export default function Perfil() {
 
   const salvarPerfil = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSalvando(true);
     setMensagem(null);
+    const documentoFiscal=fiscalCpfCnpj.replace(/\D/g,''); const cepFiscal=fiscalCep.replace(/\D/g,''); const ibgeFiscal=fiscalCodigoIbge.replace(/\D/g,'');
+    if(documentoFiscal&&!([11,14].includes(documentoFiscal.length))){setMensagem({texto:'CPF/CNPJ fiscal deve ter 11 ou 14 dígitos.',tipo:'erro'});return}
+    if(cepFiscal&&cepFiscal.length!==8){setMensagem({texto:'CEP fiscal deve ter 8 dígitos.',tipo:'erro'});return}
+    if(ibgeFiscal&&ibgeFiscal.length!==7){setMensagem({texto:'Código IBGE deve ter 7 dígitos.',tipo:'erro'});return}
+    setSalvando(true);
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) { setSalvando(false); return; }
 
     const { error: errPerfil } = await supabase
       .from('perfis')
@@ -121,6 +133,11 @@ export default function Perfil() {
         bairro,
         regiao_df: regiaoDf,
         endereco_uf: enderecoUf,
+        fiscal_cpf_cnpj: documentoFiscal || null,
+        fiscal_inscricao_estadual: fiscalIe.replace(/\D/g, '') || null,
+        fiscal_indicador_ie: fiscalIndicadorIe || '9',
+        fiscal_cep: cepFiscal || null,
+        fiscal_codigo_municipio_ibge: ibgeFiscal || null,
       });
 
     if (errCliente) {
@@ -188,6 +205,18 @@ export default function Perfil() {
               />
             </div>
           </div>
+
+          <details className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <summary className="cursor-pointer text-sm font-bold uppercase tracking-wider text-gray-500">Dados fiscais opcionais</summary>
+            <p className="mt-2 text-xs text-gray-500">Preencha apenas se precisar de identificação na nota fiscal. Esses dados não são exigidos para navegar ou comprar.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-bold text-gray-600">CPF/CNPJ<input value={fiscalCpfCnpj} onChange={e=>setFiscalCpfCnpj(e.target.value.replace(/\D/g,''))} maxLength={14} className="mt-1 w-full rounded-xl border bg-gray-50 p-3 text-sm" /></label>
+              <label className="text-xs font-bold text-gray-600">Indicador de IE<select value={fiscalIndicadorIe} onChange={e=>setFiscalIndicadorIe(e.target.value)} className="mt-1 w-full rounded-xl border bg-gray-50 p-3 text-sm"><option value="9">Não contribuinte</option><option value="2">Contribuinte isento</option><option value="1">Contribuinte com IE</option></select></label>
+              <label className="text-xs font-bold text-gray-600">Inscrição estadual<input value={fiscalIe} onChange={e=>setFiscalIe(e.target.value.replace(/\D/g,''))} className="mt-1 w-full rounded-xl border bg-gray-50 p-3 text-sm" /></label>
+              <label className="text-xs font-bold text-gray-600">CEP<input value={fiscalCep} onChange={e=>setFiscalCep(e.target.value.replace(/\D/g,''))} maxLength={8} className="mt-1 w-full rounded-xl border bg-gray-50 p-3 text-sm" /></label>
+              <label className="text-xs font-bold text-gray-600 sm:col-span-2">Código do município IBGE<input value={fiscalCodigoIbge} onChange={e=>setFiscalCodigoIbge(e.target.value.replace(/\D/g,''))} maxLength={7} className="mt-1 w-full rounded-xl border bg-gray-50 p-3 text-sm" /></label>
+            </div>
+          </details>
 
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Endereço de Entrega</h2>

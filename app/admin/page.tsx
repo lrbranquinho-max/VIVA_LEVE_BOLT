@@ -11,6 +11,7 @@ import { estoqueDisponivelProduto } from '@/lib/stock';
 import { optimizeProductImage, PRODUCT_IMAGE_CACHE_CONTROL_SECONDS } from '@/lib/productImages';
 import { useCompanySettings } from '@/components/CompanySettingsProvider';
 import { enderecoEmpresa, formatarCnpj } from '@/lib/company';
+import { FiscalOrderActions } from '@/components/FiscalOrderActions';
 
 type AbaAdmin = 'pedidos' | 'balcao' | 'produtos' | 'creditos' | 'treinos' | 'config';
 type ToastTipo = 'sucesso' | 'erro' | 'info';
@@ -83,6 +84,9 @@ interface Produto {
   gorduras: number;
   ativo: boolean;
   tabela_nutri?: TabelaNutri | null;
+  fiscal_ncm?: string | null; fiscal_cest?: string | null; fiscal_cfop?: string | null;
+  fiscal_cst?: string | null; fiscal_csosn?: string | null; fiscal_origem?: string | null;
+  fiscal_unidade?: string | null; fiscal_gtin?: string | null; fiscal_aliquota_icms?: number | null;
 }
 
 interface CreditoPagamento {
@@ -148,6 +152,8 @@ interface ProdutoForm {
   tabela_sodio_mg: string;
   tabela_ingredientes: string;
   tabela_alergicos: string;
+  fiscal_ncm: string; fiscal_cest: string; fiscal_cfop: string; fiscal_cst: string;
+  fiscal_csosn: string; fiscal_origem: string; fiscal_unidade: string; fiscal_gtin: string; fiscal_aliquota_icms: string;
 }
 
 interface VendaBalcaoForm {
@@ -223,6 +229,8 @@ const FORM_VAZIO: ProdutoForm = {
   tabela_sodio_mg: '',
   tabela_ingredientes: '',
   tabela_alergicos: '',
+  fiscal_ncm: '', fiscal_cest: '', fiscal_cfop: '', fiscal_cst: '', fiscal_csosn: '',
+  fiscal_origem: '0', fiscal_unidade: 'UN', fiscal_gtin: '', fiscal_aliquota_icms: '',
 };
 
 const FORM_BALCAO_VAZIO: VendaBalcaoForm = {
@@ -603,6 +611,14 @@ function ModalProduto({
               )}
             </div>
           </div>
+
+          <fieldset className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <legend className="px-2 text-xs font-black uppercase text-amber-900">Dados fiscais</legend>
+            <p className="mb-3 text-xs text-amber-900">Preenchimento técnico: valide NCM, CFOP, CEST e tributação com a contabilidade antes de emitir.</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {([['fiscal_ncm','NCM (8 dígitos)'],['fiscal_cest','CEST (7 dígitos)'],['fiscal_cfop','CFOP'],['fiscal_cst','CST ICMS'],['fiscal_csosn','CSOSN'],['fiscal_origem','Origem (0–8)'],['fiscal_unidade','Unidade'],['fiscal_gtin','GTIN/EAN'],['fiscal_aliquota_icms','Alíquota ICMS %']] as const).map(([key,label])=><label key={key} className="text-xs font-bold text-amber-950">{label}<input value={form[key]} onChange={e=>onChange({...form,[key]:e.target.value})} inputMode={key==='fiscal_aliquota_icms'?'decimal':'text'} className="mt-1 h-10 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm" /></label>)}
+            </div>
+          </fieldset>
 
           {form.tipo_produto !== 'kit' && <><div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
             <p className="mb-3 text-xs font-bold uppercase text-gray-500">Macros por 100g</p>
@@ -1218,6 +1234,10 @@ export default function AdminPage() {
       tabela_sodio_mg: valorInputBR(tabela?.sodio_mg ?? 0, 0),
       tabela_ingredientes: tabela?.ingredientes ?? '',
       tabela_alergicos: tabela?.alergicos ?? '',
+      fiscal_ncm: produto.fiscal_ncm ?? '', fiscal_cest: produto.fiscal_cest ?? '', fiscal_cfop: produto.fiscal_cfop ?? '',
+      fiscal_cst: produto.fiscal_cst ?? '', fiscal_csosn: produto.fiscal_csosn ?? '', fiscal_origem: produto.fiscal_origem ?? '0',
+      fiscal_unidade: produto.fiscal_unidade ?? 'UN', fiscal_gtin: produto.fiscal_gtin ?? '',
+      fiscal_aliquota_icms: valorInputBR(produto.fiscal_aliquota_icms ?? 0, 2),
     });
     setModalProdutoAberto(true);
   };
@@ -1378,6 +1398,15 @@ export default function AdminPage() {
       carboidratos: parseNumeroBR(formProduto.carboidratos),
       gorduras: parseNumeroBR(formProduto.gorduras),
       tabela_nutri: tabelaNutri,
+      fiscal_ncm: formProduto.fiscal_ncm.replace(/\D/g, '') || null,
+      fiscal_cest: formProduto.fiscal_cest.replace(/\D/g, '') || null,
+      fiscal_cfop: formProduto.fiscal_cfop.replace(/\D/g, '') || null,
+      fiscal_cst: formProduto.fiscal_cst.trim() || null,
+      fiscal_csosn: formProduto.fiscal_csosn.trim() || null,
+      fiscal_origem: formProduto.fiscal_origem.trim() || '0',
+      fiscal_unidade: formProduto.fiscal_unidade.trim().toUpperCase() || 'UN',
+      fiscal_gtin: formProduto.fiscal_gtin.replace(/\D/g, '') || null,
+      fiscal_aliquota_icms: formProduto.fiscal_aliquota_icms.trim() ? parseNumeroBR(formProduto.fiscal_aliquota_icms) : null,
     };
 
     try {
@@ -1748,6 +1777,9 @@ export default function AdminPage() {
                   <Link href="/admin/configuracoes/empresa" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Configurações da empresa
                   </Link>
+                  <Link href="/admin/configuracoes/fiscal" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
+                    Configurações fiscais
+                  </Link>
                   <Link href="/admin/financeiro" onClick={() => setMenuAberto(false)} className="block rounded-lg px-3 py-2.5 text-sm font-black text-viva-roxo transition hover:bg-purple-50">
                     Financeiro
                   </Link>
@@ -1878,6 +1910,7 @@ export default function AdminPage() {
                       </div>
 
                       <div className="flex flex-wrap gap-2 border-t border-gray-100 p-4">
+                        <FiscalOrderActions pedidoId={pedido.id} pagamentoStatus={pedido.pagamento_status} clienteNome={nomeCliente} clienteDocumento={String(perfil?.fiscal_cpf_cnpj||'')||null} valorTotal={totalPedido(pedido)} itens={pedido.itens||[]} />
                         {pedido.checkout_idempotencia && <Link href="/admin/planos" className="rounded-lg bg-viva-roxo px-3 py-2 text-xs font-bold text-white">Gerenciar entregas do plano</Link>}
                         {!pedido.somente_planos && STATUS_FLUXO.map(status => (
                           <button
