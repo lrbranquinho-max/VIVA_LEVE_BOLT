@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/supabase';
-import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, datasPlano, diaSemana, distribuirSelecaoParcialComEstoque, lerKitsCarrinho, moedaPlano, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, KITS_CARRINHO_KEY, PRAZO_MINIMO_ENTREGA_DIAS, PlanosConfig, ProdutoPlano, configurarEntregasPlano, dataBrasilia, dataMinimaEntrega, datasPlano, diaSemana, distribuirSelecaoParcialComEstoque, lerKitsCarrinho, moedaPlano, opcoesEntregasPlano, primeiraEntregaPadrao, somarDias, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { normalizarMeiosPagamento } from '@/lib/paymentConfig';
 import { registrarEventoLoja } from '@/lib/storeAnalytics';
 import { useCompanySettings } from './CompanySettingsProvider';
@@ -38,7 +38,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
         const anterior = lerKitsCarrinho()[produto.id];
         const padrao = primeiraEntregaPadrao();
         setEscolha(anterior
-          ? { ...anterior, entregas: anterior.entregas ?? 1, primeira_data: anterior.primeira_data >= dataBrasilia() ? anterior.primeira_data : padrao }
+          ? { ...anterior, entregas: anterior.entregas ?? 1, primeira_data: anterior.primeira_data >= dataMinimaEntrega() ? anterior.primeira_data : padrao }
           : { sabores: [], primeira_data: padrao, entregas: 1 });
       } catch (error: any) { if (ativo) setErro(error.message); }
       finally { if (ativo) setCarregando(false); }
@@ -50,7 +50,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
   const configEscolhida = configurarEntregasPlano(c, escolha.entregas);
   const opcoesEntregas = opcoesEntregasPlano(c);
   const aviso = validarEscolhaPlano(c, escolha.sabores) || validarEntregasPlano(c, escolha.entregas) || validarEstoqueEscolhaPlano(escolha.sabores, sabores);
-  const dataMinima = somarDias(dataBrasilia(), Math.max(config?.antecedencia_dias || 1, 1));
+  const dataMinima = somarDias(dataBrasilia(), Math.max(config?.antecedencia_dias || 1, PRAZO_MINIMO_ENTREGA_DIAS));
   const dataValida = escolha.primeira_data >= dataMinima && escolha.primeira_data <= somarDias(dataBrasilia(), 180) && (config?.dias || []).includes(diaSemana(escolha.primeira_data)) && diaSemana(escolha.primeira_data) !== 0;
   function selecionar(id: number) {
     setErro('');
@@ -113,6 +113,7 @@ export default function PlanoKitSelector({ produto, liberado }: { produto: Produ
       <label className="block text-sm font-bold">Data da primeira entrega
         <input type="date" min={dataMinima} max={somarDias(dataBrasilia(), 180)} value={escolha.primeira_data} onChange={event => { const novaData = event.target.value; if (novaData && diaSemana(novaData) !== 6) window.alert('Você ganhou frete grátis para entrega no sábado'); setEscolha({ ...escolha, primeira_data: novaData }); }} className="mt-2 h-12 w-full rounded-lg border bg-white px-3" />
       </label>
+      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-relaxed text-amber-900">Prazo temporário: a primeira entrega pode ser agendada a partir de <strong>{dataMinima.split('-').reverse().join('/')}</strong>, respeitando a antecedência mínima de {PRAZO_MINIMO_ENTREGA_DIAS} dias.</p>
       <p className="rounded-lg bg-emerald-50 p-3 text-xs font-bold text-emerald-800">Entregas de kits programadas para sábado têm frete grátis.</p>
       <p className="text-xs text-gray-600">Dias disponíveis: {(config?.dias || []).filter(d => d > 0 && d <= 6).map(d => DIAS_PLANO[d]).join(', ')}.</p>
       {escolha.primeira_data && !dataValida && <p role="alert" className="text-sm text-red-700">Escolha uma data disponível a partir de {dataMinima.split('-').reverse().join('/')}.</p>}

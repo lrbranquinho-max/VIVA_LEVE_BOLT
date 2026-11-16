@@ -17,6 +17,7 @@ export interface ProdutoPlano {
 }
 export interface PlanosConfig { dias: number[]; antecedencia_dias: number; bandeiras: Record<string, boolean> }
 export const DIAS_PLANO = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+export const PRAZO_MINIMO_ENTREGA_DIAS = 3;
 export const CONFIG_PLANO_INICIAL: PlanoConfig = { total_marmitas: 14, entregas: 2, marmitas_por_entrega: 7, intervalo_dias: 7, sabores_min: 3, sabores_max: 5, permite_voucher: true };
 export const KITS_CARRINHO_KEY = 'viva-leve-kits-carrinho';
 export function distribuirSabores(total: number, ids: number[]): SaborPlano[] {
@@ -39,6 +40,9 @@ export function somarDias(data: string, dias: number) {
   const date = new Date(`${data}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() + dias);
   return date.toISOString().slice(0, 10);
+}
+export function dataMinimaEntrega(now = new Date()) {
+  return somarDias(dataBrasilia(now), PRAZO_MINIMO_ENTREGA_DIAS);
 }
 export function opcoesEntregasPlano(config: PlanoConfig) {
   if (config.total_marmitas === 14) return [1, 2];
@@ -103,10 +107,9 @@ export function validarEstoqueEscolhaPlano(sabores: SaborPlano[], produtos: Arra
   return '';
 }
 export function primeiraEntregaPadrao(now = new Date()) {
-  const hoje = dataBrasilia(now);
-  const dia = diaSemana(hoje);
-  const diasAteSabado = dia === 6 ? 7 : (6 - dia + 7) % 7;
-  return somarDias(hoje, diasAteSabado || 7);
+  const minima = dataMinimaEntrega(now);
+  const diasAteSabado = (6 - diaSemana(minima) + 7) % 7;
+  return somarDias(minima, diasAteSabado);
 }
 export function datasPlano(primeira: string, config: PlanoConfig) {
   return Array.from({ length: config.entregas }, (_, index) => somarDias(primeira, config.intervalo_dias * index));

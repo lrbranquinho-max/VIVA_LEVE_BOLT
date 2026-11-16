@@ -14,7 +14,7 @@ import VoucherBrandBadges from '../components/VoucherBrandBadges';
 import { MEIOS_PAGAMENTO_PADRAO, normalizarMeiosPagamento } from '../lib/paymentConfig';
 import { DEFAULT_STORE_LAUNCH_AT } from '../lib/storeLaunch';
 import { useStoreLaunch } from '../hooks/useStoreLaunch';
-import { DIAS_PLANO, EscolhaPlano, PlanoConfig, PlanosConfig, configurarEntregasPlano, diaSemana, lerKitsCarrinho, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
+import { DIAS_PLANO, EscolhaPlano, PRAZO_MINIMO_ENTREGA_DIAS, PlanoConfig, PlanosConfig, configurarEntregasPlano, dataMinimaEntrega, diaSemana, lerKitsCarrinho, validarEscolhaPlano, validarEntregasPlano, validarEstoqueEscolhaPlano } from '@/lib/planosMarmitas';
 import { ordenarProdutosLoja, valoresNutricionaisParaExibicao } from '@/lib/storeProducts';
 import LojaAccessTracker from '@/components/LojaAccessTracker';
 import { estoqueDisponivelProduto } from '@/lib/stock';
@@ -193,6 +193,11 @@ export default function LojaCliente() {
   const [configPlanos, setConfigPlanos] = useState<PlanosConfig | null>(null);
   const [bandeiraPresencial, setBandeiraPresencial] = useState('');
   const tentativaPlano = useRef({ assinatura: '', id: '' });
+  const formularioCheckoutRef = useRef<HTMLFormElement>(null);
+  const prazoEntregaConfirmado = useRef(false);
+  const [avisoPrazoEntregaAberto, setAvisoPrazoEntregaAberto] = useState(false);
+  const dataMinimaPedido = dataMinimaEntrega();
+  const dataMinimaPedidoFormatada = dataMinimaPedido.split('-').reverse().join('/');
   useEffect(() => {
     if (Object.keys(carrinho).length === 0) tentativaPlano.current = { assinatura: '', id: '' };
   }, [carrinho]);
@@ -794,6 +799,12 @@ export default function LojaCliente() {
       return;
     }
 
+    if (!prazoEntregaConfirmado.current) {
+      setAvisoPrazoEntregaAberto(true);
+      return;
+    }
+    prazoEntregaConfirmado.current = false;
+
     void registrarEventoLoja('checkout_started', {
       value: Number(totalPedidoFinal), currency: 'BRL', content_ids: Object.keys(carrinho).map(Number),
       content_name: Object.keys(carrinho).map(id => produtos.find(item => item.id === Number(id))?.nome || 'Produto'), content_type: 'product', num_items: totalItens,
@@ -887,6 +898,7 @@ export default function LojaCliente() {
           valor_total: valorTotal,
           itens: listaItens,
           status: 'Aguardando Pagamento',
+          entrega_prevista: dataMinimaPedido,
         }])
         .select('id')
         .maybeSingle();
@@ -1315,7 +1327,7 @@ export default function LojaCliente() {
                   </div>
                 </div>
 
-                <form noValidate onSubmit={finalizarPedido} className="space-y-4 border-t border-gray-100 pt-2">
+                <form ref={formularioCheckoutRef} noValidate onSubmit={finalizarPedido} className="space-y-4 border-t border-gray-100 pt-2">
                   <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500">Dados para Entrega</h4>
                   <div>
                     <label className="mb-1 block text-xs font-bold text-gray-600">Nome completo *</label>
@@ -1369,6 +1381,11 @@ export default function LojaCliente() {
                     </div>
                   </div>
                   <p className="rounded-xl bg-blue-50 p-3 text-xs font-semibold text-blue-800">As alterações feitas aqui também serão salvas no seu cadastro.</p>
+
+                  <div role="note" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+                    <p className="text-sm font-black">Prazo temporário de entrega</p>
+                    <p className="mt-1 text-xs font-semibold leading-relaxed">No momento, todas as entregas precisam de pelo menos {PRAZO_MINIMO_ENTREGA_DIAS} dias de antecedência. Para pedidos feitos hoje, a primeira data disponível é <strong>{dataMinimaPedidoFormatada}</strong>.</p>
+                  </div>
 
                   {temPlanos && <p className="border-l-4 border-viva-verde bg-green-50 p-3 text-sm">As entregas do plano serão realizadas nas datas escolhidas. {company.nome_fantasia} enviará a janela de horário após a compra.</p>}
                   {totalAposCredito > 0 && (voucherElegivel || lojaConfig.meios_pagamento.pix || (lojaConfig.meios_pagamento.cielo && cieloDisponivel) || lojaConfig.meios_pagamento.mercado_pago) && <div>
@@ -1572,6 +1589,26 @@ export default function LojaCliente() {
                 </form>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {avisoPrazoEntregaAberto && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="titulo-prazo-entrega">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-3xl" aria-hidden="true">🚚</div>
+            <h3 id="titulo-prazo-entrega" className="mt-4 text-xl font-black text-viva-roxo">Prazo temporário de entrega</h3>
+            <p className="mt-3 text-sm font-semibold leading-relaxed text-gray-700">Momentaneamente, todas as entregas são programadas com antecedência mínima de {PRAZO_MINIMO_ENTREGA_DIAS} dias.</p>
+            <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-900">Primeira data disponível: {dataMinimaPedidoFormatada}</p>
+            {temPlanos && <p className="mt-3 text-xs leading-relaxed text-gray-500">Para kits, será mantida a data escolhida caso ela seja posterior a essa data mínima.</p>}
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setAvisoPrazoEntregaAberto(false)} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold text-gray-600">Voltar</button>
+              <button type="button" onClick={() => {
+                prazoEntregaConfirmado.current = true;
+                setAvisoPrazoEntregaAberto(false);
+                window.requestAnimationFrame(() => formularioCheckoutRef.current?.requestSubmit());
+              }} className="rounded-xl bg-viva-roxo px-4 py-3 text-sm font-black text-white">Entendi, continuar</button>
+            </div>
           </div>
         </div>
       )}

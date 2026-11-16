@@ -11,7 +11,7 @@ compiled.paths = Module._nodeModulePaths(path.dirname(file));
 compiled._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText, file);
-const { distribuirSabores, distribuirSaboresComEstoque, distribuirSelecaoParcialComEstoque, validarEscolhaPlano, validarEstoqueEscolhaPlano, datasPlano, dataBrasilia, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL, opcoesEntregasPlano, configurarEntregasPlano, validarEntregasPlano } = compiled.exports;
+const { distribuirSabores, distribuirSaboresComEstoque, distribuirSelecaoParcialComEstoque, validarEscolhaPlano, validarEstoqueEscolhaPlano, datasPlano, dataBrasilia, dataMinimaEntrega, primeiraEntregaPadrao, somarDias, CONFIG_PLANO_INICIAL, opcoesEntregasPlano, configurarEntregasPlano, validarEntregasPlano } = compiled.exports;
 for (const [total, n, esperado] of [[24,3,[8,8,8]],[24,4,[6,6,6,6]],[24,5,[5,5,5,5,4]],[14,3,[5,5,4]],[14,4,[4,4,3,3]],[14,5,[3,3,3,3,2]]]) {
   test('distribuicao ' + total + '/' + n, () => {
     const result = distribuirSabores(total, Array.from({ length:n }, (_,i)=>i+1));
@@ -65,7 +65,12 @@ test('validacao identifica sabor esgotado ou quantidade acima do disponivel', ()
   assert.match(validarEstoqueEscolhaPlano([{ id: 2, quantidade: 3 }], produtos), /insuficiente/);
   assert.equal(validarEstoqueEscolhaPlano([{ id: 2, quantidade: 2 }], produtos), '');
 });
-test('primeira entrega padrao fica no proximo sabado no horario de Brasilia', () => {
+test('data minima fica em D+3 no horario de Brasilia', () => {
+  assert.equal(dataMinimaEntrega(new Date('2026-09-01T02:59:59Z')), '2026-09-03');
+  assert.equal(dataMinimaEntrega(new Date('2026-09-01T03:00:00Z')), '2026-09-04');
+  assert.equal(dataMinimaEntrega(new Date('2026-12-30T15:00:00Z')), '2027-01-02');
+});
+test('primeira entrega padrao fica no primeiro sabado permitido apos D+3', () => {
   assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T02:59:59Z')),'2026-09-05');
   assert.equal(primeiraEntregaPadrao(new Date('2026-09-01T03:00:00Z')),'2026-09-05');
   assert.equal(primeiraEntregaPadrao(new Date('2026-12-30T15:00:00Z')),'2027-01-02');
