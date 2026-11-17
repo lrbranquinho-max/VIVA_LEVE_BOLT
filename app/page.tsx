@@ -195,7 +195,9 @@ export default function LojaCliente() {
   const tentativaPlano = useRef({ assinatura: '', id: '' });
   const formularioCheckoutRef = useRef<HTMLFormElement>(null);
   const prazoEntregaConfirmado = useRef(false);
+  const sacolaAvisada = useRef(false);
   const [avisoPrazoEntregaAberto, setAvisoPrazoEntregaAberto] = useState(false);
+  const [continuarPagamentoAposAviso, setContinuarPagamentoAposAviso] = useState(false);
   const dataMinimaPedido = dataMinimaEntrega();
   const dataMinimaPedidoFormatada = dataMinimaPedido.split('-').reverse().join('/');
   useEffect(() => {
@@ -462,9 +464,24 @@ export default function LojaCliente() {
   const creditoPrevisto = Math.min(Number(creditoValidado?.valorDisponivel || 0), totalPedidoFinal);
   const totalAposCredito = Math.max(totalPedidoFinal - creditoPrevisto, 0);
   const totalItens = Object.values(carrinho).reduce((a, b) => a + b, 0);
+  useEffect(() => {
+    if (!verCarrinho) {
+      sacolaAvisada.current = false;
+      prazoEntregaConfirmado.current = false;
+      setAvisoPrazoEntregaAberto(false);
+      setContinuarPagamentoAposAviso(false);
+      return;
+    }
+    if (totalItens > 0 && !sacolaAvisada.current) {
+      sacolaAvisada.current = true;
+      prazoEntregaConfirmado.current = false;
+      setContinuarPagamentoAposAviso(false);
+      setAvisoPrazoEntregaAberto(true);
+    }
+  }, [verCarrinho, totalItens]);
   const mensagensPromocionais = useMemo(() => {
     const mensagens = [
-      '🚚 Prazo de entrega: 24hs (amanhã).',
+      `🚚 Prazo mínimo temporário: entregas a partir de ${dataMinimaPedidoFormatada}.`,
       '📦 Kits com entrega programada para sábado têm frete grátis.',
       '🛵 Pedidos avulsos têm cobrança de frete em qualquer valor.',
     ];
@@ -478,7 +495,7 @@ export default function LojaCliente() {
     });
 
     return mensagens;
-  }, [cupons, lojaConfig]);
+  }, [cupons, dataMinimaPedidoFormatada, lojaConfig]);
 
   const canalPorNome = (nomeRede: string) => canais.find(canal => canal.nome_rede.toLowerCase() === nomeRede.toLowerCase());
 
@@ -800,10 +817,10 @@ export default function LojaCliente() {
     }
 
     if (!prazoEntregaConfirmado.current) {
+      setContinuarPagamentoAposAviso(true);
       setAvisoPrazoEntregaAberto(true);
       return;
     }
-    prazoEntregaConfirmado.current = false;
 
     void registrarEventoLoja('checkout_started', {
       value: Number(totalPedidoFinal), currency: 'BRL', content_ids: Object.keys(carrinho).map(Number),
@@ -1599,16 +1616,15 @@ export default function LojaCliente() {
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-3xl" aria-hidden="true">🚚</div>
             <h3 id="titulo-prazo-entrega" className="mt-4 text-xl font-black text-viva-roxo">Prazo temporário de entrega</h3>
             <p className="mt-3 text-sm font-semibold leading-relaxed text-gray-700">Momentaneamente, todas as entregas são programadas com antecedência mínima de {PRAZO_MINIMO_ENTREGA_DIAS} dias.</p>
-            <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-900">Primeira data disponível: {dataMinimaPedidoFormatada}</p>
+            <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-black text-amber-900">Previsão mínima de entrega: {dataMinimaPedidoFormatada}</p>
             {temPlanos && <p className="mt-3 text-xs leading-relaxed text-gray-500">Para kits, será mantida a data escolhida caso ela seja posterior a essa data mínima.</p>}
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <button type="button" onClick={() => setAvisoPrazoEntregaAberto(false)} className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold text-gray-600">Voltar</button>
-              <button type="button" onClick={() => {
+            <button type="button" onClick={() => {
+                const deveContinuarPagamento = continuarPagamentoAposAviso;
                 prazoEntregaConfirmado.current = true;
                 setAvisoPrazoEntregaAberto(false);
-                window.requestAnimationFrame(() => formularioCheckoutRef.current?.requestSubmit());
-              }} className="rounded-xl bg-viva-roxo px-4 py-3 text-sm font-black text-white">Entendi, continuar</button>
-            </div>
+                setContinuarPagamentoAposAviso(false);
+                if (deveContinuarPagamento) window.requestAnimationFrame(() => formularioCheckoutRef.current?.requestSubmit());
+              }} className="mt-5 w-full rounded-xl bg-viva-roxo px-4 py-3 text-sm font-black text-white">{continuarPagamentoAposAviso ? 'Entendi, continuar pagamento' : 'Entendi'}</button>
           </div>
         </div>
       )}

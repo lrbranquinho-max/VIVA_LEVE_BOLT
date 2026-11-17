@@ -49,12 +49,14 @@ test('migration preserva pedidos existentes e aplica D+3 somente a novos pedidos
   await db.close();
 });
 
-test('checkout informa a data D+3 antes de prosseguir ao pagamento', () => {
+test('sacola informa a data D+3 ao abrir e confirma antes do pagamento', () => {
   const pagina = fs.readFileSync(path.join(process.cwd(), 'app/page.tsx'), 'utf8');
   const seletor = fs.readFileSync(path.join(process.cwd(), 'components/PlanoKitSelector.tsx'), 'utf8');
 
   assert.match(pagina, /Prazo temporário de entrega/);
-  assert.match(pagina, /Primeira data disponível/);
+  assert.match(pagina, /Previsão mínima de entrega/);
+  assert.match(pagina, /totalItens > 0 && !sacolaAvisada\.current/);
+  assert.match(pagina, /setContinuarPagamentoAposAviso\(true\)/);
   assert.match(pagina, /requestSubmit\(\)/);
   assert.match(pagina, /entrega_prevista: dataMinimaPedido/);
   assert.match(seletor, /Math\.max\(config\?\.antecedencia_dias \|\| 1, PRAZO_MINIMO_ENTREGA_DIAS\)/);
